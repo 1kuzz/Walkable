@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 
 const KM_PER_DEGREE_LATITUDE = 111;
 const DEG_TO_RAD = Math.PI / 180;
+const MAX_SPONSORED_STOPS = 20;
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -27,7 +28,7 @@ export async function GET(req: NextRequest) {
         meal: true,
       },
       orderBy: { stopOrder: "asc" },
-      take: 20,
+      take: MAX_SPONSORED_STOPS,
     });
 
     return NextResponse.json(sponsoredStops.map((stop) => ({

@@ -26,8 +26,11 @@ const HOVER_POINT_SOURCE_ID = "walkable-routes-hover-point";
 const PERSISTENT_POINT_SOURCE_ID = "walkable-routes-selected-point";
 const HOVER_POINT_LAYER_ID = "walkable-routes-hover-point-layer";
 const PERSISTENT_POINT_LAYER_ID = "walkable-routes-selected-point-layer";
-const MARKER_BUTTON_CLASS = "flex h-11 w-11 items-center justify-center rounded-full border-2 border-white bg-emerald-600 text-sm font-semibold text-white shadow-lg";
-const MARKER_IMAGE_CLASS = "h-10 w-10 rounded-full object-cover";
+const MARKER_BUTTON_CLASS = [
+  "flex h-11 w-11 items-center justify-center rounded-full",
+  "border-2 border-white bg-emerald-600 text-sm font-semibold text-white shadow-lg",
+].join(" ");
+const MARKER_IMAGE_CLASS = ["h-10 w-10 rounded-full", "object-cover"].join(" ");
 
 export default function MapContainer({
   lat = 55.7558,

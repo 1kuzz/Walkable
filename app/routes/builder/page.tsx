@@ -37,6 +37,8 @@ interface DraftRouteState {
   durationMin: number;
 }
 
+const DEFAULT_DRAFT_ROUTE_NAME = "Draft route";
+
 const emptyDraftRouteState: DraftRouteState = {
   feature: null,
   distanceKm: 0,
@@ -81,7 +83,7 @@ export default function RouteBuilderPage() {
     }
 
     let cancelled = false;
-    getRoute(points, routeName || "Draft route")
+    getRoute(points, routeName || DEFAULT_DRAFT_ROUTE_NAME)
       .then((result) => {
         if (!cancelled) {
           setDraftRouteState(

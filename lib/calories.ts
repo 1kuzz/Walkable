@@ -1,6 +1,7 @@
 const DEFAULT_WEIGHT_KG = 70;
 const STEEP_INCLINE_PER_KM = 40;
 const HIGH_ELEVATION_GAIN = 250;
+const DEFAULT_WALKING_SPEED_KMH = 4.8;
 
 interface EstimateCaloriesOptions {
   estimatedMin?: number;
@@ -11,7 +12,7 @@ interface EstimateCaloriesOptions {
 
 export function estimateCalories({ estimatedMin, lengthKm = 0, elevationGain = 0, weightKg }: EstimateCaloriesOptions) {
   const safeWeightKg = weightKg && weightKg > 0 ? weightKg : DEFAULT_WEIGHT_KG;
-  const minutes = estimatedMin && estimatedMin > 0 ? estimatedMin : Math.max((lengthKm / 4.8) * 60, 15);
+  const minutes = estimatedMin && estimatedMin > 0 ? estimatedMin : Math.max((lengthKm / DEFAULT_WALKING_SPEED_KMH) * 60, 15);
   const hours = minutes / 60;
   const inclinePerKm = lengthKm > 0 ? elevationGain / lengthKm : 0;
   const met = inclinePerKm >= STEEP_INCLINE_PER_KM || elevationGain >= HIGH_ELEVATION_GAIN ? 5 : 3.5;
