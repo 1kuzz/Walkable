@@ -114,7 +114,7 @@ npx prisma generate
 npm run build
 ```
 
-> `npm run build` does **not** run `prisma generate` automatically in this project, so keep `npx prisma generate` as a separate explicit step.
+> `npm run build` in this project runs only `next build` (it does not run `prisma generate`), so keep `npx prisma generate` as a separate explicit step locally and in CI.
 >
 > `npm run start` is a separate production-runtime smoke check step (run manually before release, not on every local pre-push cycle).
 
