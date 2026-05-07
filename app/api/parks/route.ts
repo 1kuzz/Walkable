@@ -24,7 +24,9 @@ export async function GET(req: NextRequest) {
       include: { _count: { select: { routes: true } } },
       take: 50,
     });
-    return NextResponse.json(parks);
+    return NextResponse.json(parks, {
+      headers: { "Cache-Control": "public, s-maxage=120, stale-while-revalidate=600" },
+    });
   } catch {
     return NextResponse.json({ error: "Failed to fetch parks" }, { status: 500 });
   }

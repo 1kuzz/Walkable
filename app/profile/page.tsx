@@ -7,6 +7,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import RouteCard from "@/components/routes/RouteCard";
 import ProfileWeightForm from "@/components/routes/ProfileWeightForm";
+import MyRoutesTab from "@/components/routes/MyRoutesTab";
 import { formatCalories } from "@/lib/calories";
 
 const completionDateFormatter = new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" });
@@ -84,24 +85,18 @@ export default async function ProfilePage() {
           <TabsTrigger value="walks">Completed Walks ({user.completions.length})</TabsTrigger>
         </TabsList>
         <TabsContent value="my-routes">
-          <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-4 mt-4">
-            {user.routes.map((route) => (
-              <RouteCard
-                key={route.id}
-                id={route.id}
-                name={route.name}
-                parkName={route.park.name}
-                difficulty={route.difficulty}
-                lengthKm={route.lengthKm}
-                elevationGain={route.elevationGain}
-                estimatedMin={route.estimatedMin}
-                reviewCount={route._count.reviews}
-              />
-            ))}
-            {user.routes.length === 0 && (
-              <p className="text-muted-foreground col-span-3">You haven&apos;t created any routes yet.</p>
-            )}
-          </div>
+          <MyRoutesTab
+            routes={user.routes.map((route) => ({
+              id: route.id,
+              name: route.name,
+              parkName: route.park.name,
+              difficulty: route.difficulty,
+              lengthKm: route.lengthKm,
+              elevationGain: route.elevationGain,
+              estimatedMin: route.estimatedMin,
+              reviewCount: route._count.reviews,
+            }))}
+          />
         </TabsContent>
         <TabsContent value="saved">
           <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-4 mt-4">

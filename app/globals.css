@@ -74,6 +74,16 @@
 body {
   background-color: hsl(var(--background));
   color: hsl(var(--foreground));
+  -webkit-tap-highlight-color: transparent;
+}
+
+button,
+a,
+[role="button"],
+label[for],
+input[type="checkbox"],
+input[type="radio"] {
+  touch-action: manipulation;
 }
 
 .glass {
