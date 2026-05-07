@@ -46,19 +46,19 @@ export default function MapPage() {
 
       <div className="flex-1 relative">
         <MapContainer
-          className="w-full h-full"
+          className="h-full w-full"
           routes={routeFeatures}
           onRoutePointSelect={({ routeName, coordinates }) => setNextDestination({ routeName, coordinates: [coordinates[0], coordinates[1]] })}
         />
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="absolute top-4 left-4 z-10 bg-background border rounded-lg p-2 shadow-md hover:bg-muted transition-colors"
+          className="absolute top-4 left-4 z-20 bg-background border rounded-lg p-2 shadow-md hover:bg-muted transition-colors"
           aria-label="Toggle sidebar"
         >
           {sidebarOpen ? "◀" : "▶"}
         </button>
         {nextDestination && (
-          <div className="absolute bottom-4 left-1/2 z-10 w-full max-w-sm -translate-x-1/2 rounded-xl border bg-background/95 p-4 shadow-lg backdrop-blur">
+          <div className="absolute bottom-4 left-1/2 z-20 w-full max-w-sm -translate-x-1/2 rounded-xl border bg-background/95 p-4 shadow-lg backdrop-blur">
             <p className="text-sm font-medium">Next destination selected</p>
             <p className="text-sm text-muted-foreground">{nextDestination.routeName}</p>
             <p className="mt-1 text-xs text-muted-foreground">
