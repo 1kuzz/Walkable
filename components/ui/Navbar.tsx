@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useSession, signIn, signOut } from "next-auth/react";
+import { useSession, signOut } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { MoonIcon, SunIcon, MapIcon } from "lucide-react";
@@ -12,7 +12,7 @@ export default function Navbar() {
   const { theme, setTheme } = useTheme();
 
   return (
-    <nav className="sticky top-0 z-50 border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+    <nav className="sticky top-0 z-[100] border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2 font-bold text-lg">
           <span className="text-2xl">🌿</span>
@@ -48,7 +48,9 @@ export default function Navbar() {
               <Button variant="ghost" size="sm" onClick={() => signOut()}>Sign Out</Button>
             </div>
           ) : (
-            <Button size="sm" onClick={() => signIn()}>Sign In</Button>
+            <Button size="sm" asChild>
+              <Link href="/login">Sign In</Link>
+            </Button>
           )}
         </div>
       </div>

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Position } from "geojson";
 import { nearestPointOnRoute, type RouteFeature, type SponsoredStopMapItem } from "@/lib/geo";
+import { cn } from "@/lib/utils";
 import { getYandexMapType, loadYandexMapsApi, toGeoJsonCoordinates, toYandexCoordinates, type YandexGeoObject, type YandexMap } from "@/lib/yandex-maps";
 
 interface MapContainerProps {
@@ -201,7 +202,11 @@ export default function MapContainer({
     };
   }, [sponsoredStops, onSponsoredStopSelect, mapReady]);
 
-  return <div ref={containerRef} className={className} />;
+  return (
+    <div className={cn(className, "relative isolate")}>
+      <div ref={containerRef} className="absolute inset-0" />
+    </div>
+  );
 }
 
 function createRouteLine(

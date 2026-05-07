@@ -280,6 +280,20 @@ Ensure `DATABASE_URL` is set and the database is reachable. Run `npx prisma gene
 
 The callback URL registered with the provider must exactly match `NEXTAUTH_URL + /api/auth/callback/<provider>`. Update both the provider console and `NEXTAUTH_URL`.
 
+### Google OAuth `redirect_uri` mismatch
+
+For Google sign-in, add the exact callback URL to the OAuth client in Google Cloud Console:
+
+- `https://<your-domain>/api/auth/callback/google`
+
+Also ensure `NEXTAUTH_URL` exactly matches the deployed app origin:
+
+- use the correct protocol (`https://`)
+- use the production hostname
+- do not include a trailing slash
+
+After changing either the Google OAuth settings or the `NEXTAUTH_URL` Vercel secret, redeploy the app so the runtime uses the updated callback origin.
+
 ### Map not loading
 
 Confirm `NEXT_PUBLIC_YANDEX_MAPS_API_KEY` is set and enabled for the Yandex Maps JS API.
