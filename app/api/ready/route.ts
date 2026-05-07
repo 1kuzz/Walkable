@@ -24,9 +24,13 @@ export async function GET(req: NextRequest) {
   }
 
   if (checkExternal) {
-    checks.externalConfig = {
-      ok: Boolean(process.env.YANDEX_WEATHER_API_KEY && process.env.NEXT_PUBLIC_YANDEX_MAPS_API_KEY),
-      details: "Checks API key presence for weather/maps",
+    checks.weatherApiConfig = {
+      ok: Boolean(process.env.YANDEX_WEATHER_API_KEY),
+      details: "Checks API key presence for weather",
+    };
+    checks.mapsApiConfig = {
+      ok: Boolean(process.env.NEXT_PUBLIC_YANDEX_MAPS_API_KEY),
+      details: "Checks API key presence for maps",
     };
   }
 

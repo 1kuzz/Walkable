@@ -104,7 +104,7 @@ npm run dev
 | `npm run build` | Next.js production build |
 | `npm run start` | Start built app in production mode |
 
-**Recommended order before pushing:** lint → typecheck → test → prisma-generate → build → start.
+**Recommended order before pushing:** lint → typecheck → test → prisma-generate → build.
 
 ```bash
 npm run lint
@@ -112,10 +112,11 @@ npx tsc --noEmit
 npm test
 npx prisma generate
 npm run build
-npm run start
 ```
 
 > `npm run build` does **not** run `prisma generate` automatically in this project, so keep `npx prisma generate` as a separate explicit step.
+>
+> `npm run start` is a separate production-runtime smoke check step (run manually before release, not on every local pre-push cycle).
 
 ---
 
