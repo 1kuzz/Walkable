@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { getTrailStatus } from "@/lib/weather/open-meteo";
-import type { WeatherForecast } from "@/lib/weather/open-meteo";
+import { getTrailStatus, normalizeYandexWeatherResponse } from "@/lib/weather/yandex";
+import type { WeatherForecast } from "@/lib/weather/yandex";
 
 function makeForecast(current: WeatherForecast["current"]): WeatherForecast {
   return {
@@ -80,5 +80,47 @@ describe("getTrailStatus", () => {
       makeForecast({ temperature_2m: 10, precipitation: 0, wind_speed_10m: 10, weather_code: 0, visibility: 500 })
     );
     expect(result.status).toBe("open");
+  });
+});
+
+describe("normalizeYandexWeatherResponse", () => {
+  it("normalizes current and daily Yandex weather fields", () => {
+    const result = normalizeYandexWeatherResponse({
+      fact: {
+        condition: "light-rain",
+        precipitation: 1.5,
+        temp: 7,
+        visibility: 0.4,
+        wind_speed: 5,
+      },
+      forecasts: [
+        {
+          date: "2026-05-07",
+          parts: {
+            day: { temp_max: 9, temp_min: 4, prec_mm: 1.2, condition: "light-rain" },
+            night: { temp_min: 2, prec_mm: 0.3, condition: "cloudy" },
+          },
+        },
+        {
+          date: "2026-05-08",
+          parts: {
+            day_short: { temp: 3, temp_min: -1, prec_mm: 2, condition: "snow" },
+            night_short: { temp: -2, prec_mm: 0.5, condition: "snow" },
+          },
+        },
+      ],
+    });
+
+    expect(result.current.temperature_2m).toBe(7);
+    expect(result.current.precipitation).toBe(1.5);
+    expect(result.current.wind_speed_10m).toBe(18);
+    expect(result.current.weather_code).toBe(61);
+    expect(result.current.visibility).toBe(400);
+
+    expect(result.daily.time).toEqual(["2026-05-07", "2026-05-08"]);
+    expect(result.daily.temperature_2m_max).toEqual([9, 3]);
+    expect(result.daily.temperature_2m_min).toEqual([2, -2]);
+    expect(result.daily.precipitation_sum).toEqual([1.5, 2.5]);
+    expect(result.daily.weather_code).toEqual([61, 73]);
   });
 });

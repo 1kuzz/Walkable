@@ -1,15 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
-import type { UploadApiErrorResponse, UploadApiResponse } from "cloudinary";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { v2 as cloudinary } from "cloudinary";
-
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-});
+import { saveUploadedPhoto } from "@/lib/server/photo-storage";
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -20,26 +13,12 @@ export async function POST(req: NextRequest) {
     const file = formData.get("file") as File;
     const routeId = formData.get("routeId") as string | null;
     const waypointId = formData.get("waypointId") as string | null;
-
-    const bytes = await file.arrayBuffer();
-    const buffer = Buffer.from(bytes);
-
-    const result = await new Promise<UploadApiResponse>((resolve, reject: (reason: UploadApiErrorResponse) => void) => {
-      cloudinary.uploader.upload_stream({ folder: "walkable" }, (err, res) => {
-        if (err) {
-          reject(err);
-          return;
-        }
-        if (res) {
-          resolve(res);
-        }
-      }).end(buffer);
-    });
+    const result = await saveUploadedPhoto(file);
 
     const photo = await db.photo.create({
       data: {
-        url: result.secure_url,
-        publicId: result.public_id,
+        url: result.url,
+        publicId: result.publicId,
         userId: session.user.id,
         routeId: routeId || undefined,
         waypointId: waypointId || undefined,
@@ -51,4 +30,3 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Failed to upload photo" }, { status: 500 });
   }
 }
-
