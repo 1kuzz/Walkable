@@ -160,7 +160,7 @@ export default function RouteBuilderPage() {
 
     return visibleDraftRoute ? [...existingRoutes, visibleDraftRoute] : existingRoutes;
   }, [baseRoutes, visibleDraftRoute]);
-  const canPublish = waypoints.length >= 2 && Boolean(visibleDraftRoute) && !publishing;
+  const canPublishRoute = waypoints.length >= 2 && Boolean(visibleDraftRoute) && !publishing;
 
   const publishedRouteUrl = useMemo(() => {
     if (!publishedRouteId || typeof window === "undefined") {
@@ -203,7 +203,7 @@ export default function RouteBuilderPage() {
           name: routeName.trim() || DEFAULT_DRAFT_ROUTE_NAME,
           description: "Community trail created in Walkable route builder.",
           difficulty: "easy",
-          lengthKm: Number(visibleDistanceKm.toFixed(2)),
+          lengthKm: Math.round(visibleDistanceKm * 100) / 100,
           elevationGain: 0,
           surfaceType: "mixed",
           estimatedMin: visibleDurationMin,
@@ -302,7 +302,7 @@ export default function RouteBuilderPage() {
           </div>
         )}
 
-        <Button className="w-full" disabled={!canPublish} onClick={handlePublishRoute}>
+        <Button className="w-full" disabled={!canPublishRoute} onClick={handlePublishRoute}>
           {publishing ? "Publishing..." : "Publish Route"}
         </Button>
         {publishError && <p className="text-sm text-destructive">{publishError}</p>}
