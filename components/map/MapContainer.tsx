@@ -203,7 +203,7 @@ export default function MapContainer({
   }, [sponsoredStops, onSponsoredStopSelect, mapReady]);
 
   return (
-    <div className={cn("relative isolate", className)}>
+    <div className={cn(className, "relative isolate")}>
       <div ref={containerRef} className="h-full w-full" />
     </div>
   );
