@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { saveUploadedPhoto } from "@/lib/server/photo-storage";
+import { logServerEvent, toErrorMessage } from "@/lib/server/logger";
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -26,7 +27,11 @@ export async function POST(req: NextRequest) {
     });
 
     return NextResponse.json(photo, { status: 201 });
-  } catch {
+  } catch (error) {
+    logServerEvent("error", "photos.upload_failed", {
+      userId: session.user.id,
+      error: toErrorMessage(error),
+    });
     return NextResponse.json({ error: "Failed to upload photo" }, { status: 500 });
   }
 }

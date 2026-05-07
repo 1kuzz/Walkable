@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { logServerEvent, toErrorMessage } from "@/lib/server/logger";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -24,7 +25,12 @@ export async function GET(req: NextRequest) {
       take: 50,
     });
     return NextResponse.json(routes);
-  } catch {
+  } catch (error) {
+    logServerEvent("error", "routes.list_failed", {
+      parkId,
+      sort,
+      error: toErrorMessage(error),
+    });
     return NextResponse.json({ error: "Failed to fetch routes" }, { status: 500 });
   }
 }
@@ -42,7 +48,11 @@ export async function POST(req: NextRequest) {
       },
     });
     return NextResponse.json(route, { status: 201 });
-  } catch {
+  } catch (error) {
+    logServerEvent("error", "routes.create_failed", {
+      userId: session.user.id,
+      error: toErrorMessage(error),
+    });
     return NextResponse.json({ error: "Failed to create route" }, { status: 500 });
   }
 }
