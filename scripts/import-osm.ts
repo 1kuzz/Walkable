@@ -1,20 +1,16 @@
-import { PrismaClient, ParkType } from "@prisma/client";
+import { ParkType, PrismaClient } from "@prisma/client";
 
 const db = new PrismaClient();
 
 const BBOX = { south: 55.57, west: 37.37, north: 55.92, east: 37.85 };
 
 interface OverpassElement {
-  type: string;
   id: number;
+  type: string;
   lat?: number;
   lon?: number;
   center?: { lat: number; lon: number };
-  tags?: {
-    name?: string;
-    boundary?: string;
-    description?: string;
-  };
+  tags?: Record<string, string>;
 }
 
 interface OverpassResponse {
