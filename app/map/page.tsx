@@ -9,6 +9,7 @@ import { parseRouteGeometry, type RouteFeature } from "@/lib/geo";
 const MapContainer = dynamic(() => import("@/components/map/MapContainer"), { ssr: false, loading: () => <Skeleton className="w-full h-full" /> });
 
 const defaultFilters: FilterState = { parkTypes: [], difficulties: [], maxLength: 20, sort: "popular" };
+const MD_BREAKPOINT = "(min-width: 768px)";
 
 interface ApiRoute {
   id: string;
@@ -17,12 +18,14 @@ interface ApiRoute {
   geometryGeoJson?: string | null;
 }
 
+function isDesktop() {
+  return typeof window !== "undefined" && window.matchMedia(MD_BREAKPOINT).matches;
+}
+
 export default function MapPage() {
   const [filters, setFilters] = useState<FilterState>(defaultFilters);
-  const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return window.matchMedia("(min-width: 768px)").matches;
-  });
+  // Lazy initializer avoids setState-in-effect lint and handles SSR (returns false when window is undefined).
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => isDesktop());
   const [routes, setRoutes] = useState<ApiRoute[]>([]);
   const [nextDestination, setNextDestination] = useState<{ routeName: string; coordinates: [number, number] } | null>(null);
 
@@ -54,9 +57,7 @@ export default function MapPage() {
         <div className="p-4">
           <FilterSidebar filters={filters} onChange={(f) => {
             setFilters(f);
-            if (typeof window !== "undefined" && !window.matchMedia("(min-width: 768px)").matches) {
-              setSidebarOpen(false);
-            }
+            if (!isDesktop()) setSidebarOpen(false);
           }} />
         </div>
       </div>
