@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getWeatherForecast, getTrailStatus } from "@/lib/weather/open-meteo";
 
 interface WeatherPayload {
   current?: {
@@ -10,8 +11,8 @@ interface WeatherPayload {
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
-  const lat = searchParams.get("lat") ?? "55.7558";
-  const lng = searchParams.get("lng") ?? "37.6173";
+  const lat = parseFloat(searchParams.get("lat") ?? "55.7558");
+  const lng = parseFloat(searchParams.get("lng") ?? "37.6173");
 
   try {
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lng}&current=temperature_2m,precipitation,wind_speed_10m,visibility,weather_code&daily=temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code&timezone=auto&forecast_days=4`;
