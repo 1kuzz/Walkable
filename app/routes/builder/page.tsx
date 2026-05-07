@@ -3,6 +3,7 @@
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useState } from "react";
 import type { Position } from "geojson";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,6 +28,7 @@ interface BuilderWaypoint {
 
 interface ApiRoute {
   id: string;
+  parkId: string;
   name: string;
   geometryGeoJson?: string | null;
 }
@@ -54,6 +56,10 @@ export default function RouteBuilderPage() {
   const [loadingStops, setLoadingStops] = useState(false);
   const [sponsoredStops, setSponsoredStops] = useState<SponsoredStopMapItem[]>([]);
   const [selectedSponsoredStopId, setSelectedSponsoredStopId] = useState<string | null>(null);
+  const [publishing, setPublishing] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
+  const [publishedRouteId, setPublishedRouteId] = useState<string | null>(null);
+  const [copiedShareLink, setCopiedShareLink] = useState(false);
 
   useEffect(() => {
     fetch("/api/routes?sort=popular")
@@ -154,6 +160,85 @@ export default function RouteBuilderPage() {
     return visibleDraftRoute ? [...existingRoutes, visibleDraftRoute] : existingRoutes;
   }, [baseRoutes, visibleDraftRoute]);
 
+  const publishedRouteUrl = useMemo(() => {
+    if (!publishedRouteId || typeof window === "undefined") {
+      return "";
+    }
+
+    return `${window.location.origin}/routes/${publishedRouteId}`;
+  }, [publishedRouteId]);
+
+  const handlePublishRoute = async () => {
+    setPublishError(null);
+    setCopiedShareLink(false);
+
+    if (!visibleDraftRoute || waypointPositions.length < 2) {
+      setPublishError("Add at least two points before publishing.");
+      return;
+    }
+
+    const selectedParks = Array.from(
+      new Set(
+        waypoints
+          .map((waypoint) => baseRoutes.find((route) => route.id === waypoint.routeId)?.parkId)
+          .filter((parkId): parkId is string => Boolean(parkId)),
+      ),
+    );
+
+    if (selectedParks.length !== 1) {
+      setPublishError("Select points from routes in the same park before publishing.");
+      return;
+    }
+
+    setPublishing(true);
+    try {
+      const response = await fetch("/api/routes", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          parkId: selectedParks[0],
+          name: routeName.trim() || DEFAULT_DRAFT_ROUTE_NAME,
+          description: "Community trail created in Walkable route builder.",
+          difficulty: "easy",
+          lengthKm: Number(visibleDistanceKm.toFixed(2)),
+          elevationGain: 0,
+          surfaceType: "mixed",
+          estimatedMin: visibleDurationMin,
+          geometryGeoJson: JSON.stringify(visibleDraftRoute.geometry),
+          waypoints: {
+            create: waypoints.map((waypoint, index) => ({
+              lat: waypoint.lat,
+              lng: waypoint.lng,
+              name: waypoint.name || `Point ${index + 1}`,
+            })),
+          },
+        }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(typeof payload.error === "string" ? payload.error : "Failed to publish route");
+      }
+
+      const route = await response.json() as { id: string };
+      setPublishedRouteId(route.id);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to publish route";
+      setPublishError(message);
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  const handleCopyShareLink = async () => {
+    if (!publishedRouteUrl || !navigator.clipboard) {
+      return;
+    }
+
+    await navigator.clipboard.writeText(publishedRouteUrl);
+    setCopiedShareLink(true);
+  };
+
   return (
     <div className="flex h-[calc(100vh-64px)] overflow-hidden">
       <div className="w-80 shrink-0 overflow-y-auto border-r bg-background p-4 space-y-4">
@@ -208,9 +293,28 @@ export default function RouteBuilderPage() {
           </div>
         )}
 
-        <Button className="w-full" disabled={!routeName || waypoints.length < 2 || !visibleDraftRoute}>
-          Publish Route
+        <Button className="w-full" disabled={waypoints.length < 2 || !visibleDraftRoute || publishing} onClick={handlePublishRoute}>
+          {publishing ? "Publishing..." : "Publish Route"}
         </Button>
+        {publishError && <p className="text-sm text-destructive">{publishError}</p>}
+        {publishedRouteId && (
+          <Card>
+            <CardHeader className="py-2">
+              <CardTitle className="text-sm">Trail published 🎉</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm">
+              <p>Your trail is now public and can be shared with everyone.</p>
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" asChild>
+                  <Link href={`/routes/${publishedRouteId}`}>Open trail</Link>
+                </Button>
+                <Button size="sm" variant="outline" onClick={handleCopyShareLink}>
+                  {copiedShareLink ? "Link copied" : "Copy share link"}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       <div className="flex-1 relative">
