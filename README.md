@@ -115,6 +115,8 @@ npm run build
 npm run start
 ```
 
+> `npm run build` does **not** run `prisma generate` automatically in this project, so keep `npx prisma generate` as a separate explicit step.
+
 ---
 
 ## CI pipeline
