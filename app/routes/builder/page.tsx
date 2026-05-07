@@ -40,6 +40,9 @@ interface DraftRouteState {
 }
 
 const DEFAULT_DRAFT_ROUTE_NAME = "Draft route";
+const DEFAULT_PUBLISHED_DIFFICULTY = "easy";
+const DEFAULT_PUBLISHED_SURFACE_TYPE = "mixed";
+const DEFAULT_PUBLISHED_ELEVATION_GAIN = 0;
 
 const emptyDraftRouteState: DraftRouteState = {
   feature: null,
@@ -195,17 +198,18 @@ export default function RouteBuilderPage() {
 
     setPublishing(true);
     try {
+      const normalizedRouteName = routeName.trim() || DEFAULT_DRAFT_ROUTE_NAME;
       const response = await fetch("/api/routes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           parkId: selectedParks[0],
-          name: routeName.trim() || DEFAULT_DRAFT_ROUTE_NAME,
-          description: "Community trail created in Walkable route builder.",
-          difficulty: "easy",
+          name: normalizedRouteName,
+          description: `${normalizedRouteName} — community trail created in Walkable route builder.`,
+          difficulty: DEFAULT_PUBLISHED_DIFFICULTY,
           lengthKm: Math.round(visibleDistanceKm * 100) / 100,
-          elevationGain: 0,
-          surfaceType: "mixed",
+          elevationGain: DEFAULT_PUBLISHED_ELEVATION_GAIN,
+          surfaceType: DEFAULT_PUBLISHED_SURFACE_TYPE,
           estimatedMin: visibleDurationMin,
           geometryGeoJson: JSON.stringify(visibleDraftRoute.geometry),
           waypoints: {
@@ -223,8 +227,11 @@ export default function RouteBuilderPage() {
         throw new Error(typeof payload.error === "string" ? payload.error : "Failed to publish route");
       }
 
-      const route = await response.json() as { id: string };
-      setPublishedRouteId(route.id);
+      const payload = await response.json();
+      if (!payload || typeof payload !== "object" || typeof (payload as { id?: unknown }).id !== "string") {
+        throw new Error("Published route response was invalid");
+      }
+      setPublishedRouteId((payload as { id: string }).id);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to publish route";
       setPublishError(message);
