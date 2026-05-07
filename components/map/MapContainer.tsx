@@ -204,7 +204,7 @@ export default function MapContainer({
 
   return (
     <div className={cn(className, "relative isolate")}>
-      <div ref={containerRef} className="h-full w-full" />
+      <div ref={containerRef} className="absolute inset-0" />
     </div>
   );
 }
