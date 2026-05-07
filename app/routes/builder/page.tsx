@@ -60,6 +60,7 @@ export default function RouteBuilderPage() {
   const [publishError, setPublishError] = useState<string | null>(null);
   const [publishedRouteId, setPublishedRouteId] = useState<string | null>(null);
   const [copiedShareLink, setCopiedShareLink] = useState(false);
+  const [shareError, setShareError] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/routes?sort=popular")
@@ -159,6 +160,7 @@ export default function RouteBuilderPage() {
 
     return visibleDraftRoute ? [...existingRoutes, visibleDraftRoute] : existingRoutes;
   }, [baseRoutes, visibleDraftRoute]);
+  const canPublish = waypoints.length >= 2 && Boolean(visibleDraftRoute) && !publishing;
 
   const publishedRouteUrl = useMemo(() => {
     if (!publishedRouteId || typeof window === "undefined") {
@@ -170,9 +172,10 @@ export default function RouteBuilderPage() {
 
   const handlePublishRoute = async () => {
     setPublishError(null);
+    setShareError(null);
     setCopiedShareLink(false);
 
-    if (!visibleDraftRoute || waypointPositions.length < 2) {
+    if (!visibleDraftRoute || waypoints.length < 2) {
       setPublishError("Add at least two points before publishing.");
       return;
     }
@@ -231,12 +234,18 @@ export default function RouteBuilderPage() {
   };
 
   const handleCopyShareLink = async () => {
+    setShareError(null);
     if (!publishedRouteUrl || !navigator.clipboard) {
+      setShareError("Copy link is not available in this browser.");
       return;
     }
 
-    await navigator.clipboard.writeText(publishedRouteUrl);
-    setCopiedShareLink(true);
+    try {
+      await navigator.clipboard.writeText(publishedRouteUrl);
+      setCopiedShareLink(true);
+    } catch {
+      setShareError("Could not copy the link. Please copy it manually.");
+    }
   };
 
   return (
@@ -293,7 +302,7 @@ export default function RouteBuilderPage() {
           </div>
         )}
 
-        <Button className="w-full" disabled={waypoints.length < 2 || !visibleDraftRoute || publishing} onClick={handlePublishRoute}>
+        <Button className="w-full" disabled={!canPublish} onClick={handlePublishRoute}>
           {publishing ? "Publishing..." : "Publish Route"}
         </Button>
         {publishError && <p className="text-sm text-destructive">{publishError}</p>}
@@ -315,6 +324,7 @@ export default function RouteBuilderPage() {
             </CardContent>
           </Card>
         )}
+        {shareError && <p className="text-sm text-destructive">{shareError}</p>}
       </div>
 
       <div className="flex-1 relative">
