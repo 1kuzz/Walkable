@@ -50,7 +50,7 @@ async function importParks() {
     if (!lat || !lng) continue;
 
     const osmId = `${element.type}/${element.id}`;
-    const parkType: ParkType = element.tags?.boundary === "national_park" ? ParkType.national : ParkType.urban;
+    const parkType: ParkType = element.tags?.boundary === "national_park" ? "national" : "urban";
 
     await db.park.upsert({
       where: { osmId },
