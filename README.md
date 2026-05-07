@@ -2,6 +2,19 @@
 
 Discover, build, and share walking routes in parks. Check weather and trail conditions, browse community photos, and track your walking history.
 
+## Runtime target and release acceptance
+
+- **Primary deployment target:** Vercel (configured by `vercel.json`)
+- **Secondary/self-host target:** any Node.js server with persistent PostgreSQL and writable/persistent photo storage
+
+A release is considered **ready** when all of these are true:
+
+1. `npm run build` succeeds and app boots with `npm run start`
+2. CI is green (`lint-and-typecheck` → `test` → `build`)
+3. Smoke tests pass (auth, protected routes, route APIs, weather API, photo upload/fetch)
+4. Production migrations are applied (`prisma migrate deploy`)
+5. Runtime health/readiness checks pass (`/api/health`, `/api/ready`)
+
 ## Tech stack
 
 | Layer | Technology |
@@ -23,6 +36,7 @@ Discover, build, and share walking routes in parks. Check weather and trail cond
 
 - Node.js ≥ 20
 - PostgreSQL 14+ (local install or Docker)
+- Minimum recommended machine: 2 CPU cores, 4 GB RAM
 
 ### 2. Clone and install
 
@@ -49,6 +63,15 @@ The only externally required services for basic local work are:
 | Yandex Weather API key | Weather widgets |
 
 Photo uploads are stored by the app on the server filesystem under `storage/photos`.
+
+### Environment matrix
+
+| Environment | Purpose | Minimum requirements |
+|---|---|---|
+| Local | Development | PostgreSQL + `.env.local` |
+| CI | Quality gate for PRs/branches | Placeholder env vars + build/start smoke checks |
+| Staging | Pre-production validation | Production-like secrets, domain, DB, and storage |
+| Production | Live traffic | Managed Postgres, HTTPS, OAuth callbacks, persistent storage |
 
 ### 4. Initialise the database
 
@@ -79,8 +102,18 @@ npm run dev
 | `npm run test:watch` | Tests in watch mode |
 | `npm run test:coverage` | Tests + coverage report |
 | `npm run build` | Next.js production build |
+| `npm run start` | Start built app in production mode |
 
-**Recommended order before pushing:** lint → typecheck → test → build.
+**Recommended order before pushing:** lint → typecheck → test → prisma-generate → build → start.
+
+```bash
+npm run lint
+npx tsc --noEmit
+npm test
+npx prisma generate
+npm run build
+npm run start
+```
 
 ---
 
@@ -94,7 +127,7 @@ lint-and-typecheck → test → build
 
 - **lint-and-typecheck** – ESLint + `tsc --noEmit`
 - **test** – all Vitest unit tests
-- **build** – `prisma generate` + `next build` with placeholder env vars
+- **build** – `prisma generate` + `next build` + production boot smoke checks (`/api/health`, `/api/ready`)
 
 ---
 
@@ -123,6 +156,18 @@ The repo is configured for zero-config Vercel deployments via `vercel.json`.
    - Google: `https://<domain>/api/auth/callback/google`
    - GitHub: `https://<domain>/api/auth/callback/github`
 
+### Deployment checklist
+
+- [ ] Branch merged only after CI is green
+- [ ] Production secrets set in Vercel (all keys from `vercel.json`)
+- [ ] OAuth callback URLs updated for production domain
+- [ ] Production database reachable
+- [ ] Photo storage strategy verified:
+  - Vercel/self-host with ephemeral disk: use persistent volume or external object storage
+  - Self-host with persistent disk: ensure `storage/photos` is writable and backed up
+- [ ] `prisma migrate deploy` completed successfully
+- [ ] Post-deploy smoke checks completed
+
 ### Database migrations in production
 
 Run migrations against the production database **before** deploying:
@@ -132,6 +177,56 @@ DATABASE_URL=<prod-url> npx prisma migrate deploy
 ```
 
 This is safe to run repeatedly — Prisma only applies unapplied migrations.
+
+### Rollback / restore guidance
+
+- **Application rollback:** redeploy previous known-good release.
+- **Database rollback:** restore from backup/snapshot, or apply a corrective forward migration.
+- Do not roll back schema manually without a tested restore plan.
+
+---
+
+## Health checks and observability
+
+- `/api/health` — process-level liveness check
+- `/api/ready` — readiness check
+  - `?checkDb=1` enables database connectivity check
+  - `?checkExternal=1` validates weather/maps API key presence
+
+The server emits structured JSON logs for key failures:
+
+- auth configuration warnings
+- weather fetch failures
+- photo upload failures
+- route API DB failures
+
+Minimum recommended alerts:
+
+1. App startup failures / crash loops
+2. Sustained 5xx error rate
+3. DB readiness failures (`/api/ready?checkDb=1`)
+
+---
+
+## Staging and production verification
+
+### Staging pre-release smoke tests
+
+1. Sign in/out with OAuth
+2. Access protected routes (`/profile`, `/routes/builder`)
+3. Read route list/details
+4. Call weather endpoint
+5. Upload and fetch photo
+6. Create route
+7. Verify `/api/ready?checkDb=1&checkExternal=1`
+
+### Production rollout runbook
+
+1. Run `DATABASE_URL=<prod-url> npx prisma migrate deploy`
+2. Deploy application
+3. Run full smoke test pack
+4. Monitor logs/alerts during observation window
+5. If required, roll back app release and execute DB restore policy
 
 ---
 
@@ -152,7 +247,7 @@ app/
   routes/builder/          – route builder (protected)
   profile/                 – user profile (protected)
 components/
-  map/                     – MapContainer (Mapbox)
+  map/                     – MapContainer (Yandex Maps)
   routes/                  – RouteCard, FilterSidebar, …
   weather/                 – WeatherWidget
   ui/                      – shared shadcn components
