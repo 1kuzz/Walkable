@@ -1,0 +1,48 @@
+import { NextRequest, NextResponse } from "next/server";
+import { db } from "@/lib/db";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+
+export async function GET(req: NextRequest) {
+  const { searchParams } = new URL(req.url);
+  const parkId = searchParams.get("parkId");
+  const sort = searchParams.get("sort") ?? "popular";
+
+  const orderBy =
+    sort === "new" ? { createdAt: "desc" as const } :
+    sort === "short" ? { lengthKm: "asc" as const } :
+    { viewCount: "desc" as const };
+
+  try {
+    const routes = await db.route.findMany({
+      where: parkId ? { parkId } : {},
+      orderBy,
+      include: {
+        park: { select: { name: true } },
+        _count: { select: { reviews: true } },
+      },
+      take: 50,
+    });
+    return NextResponse.json(routes);
+  } catch {
+    return NextResponse.json({ error: "Failed to fetch routes" }, { status: 500 });
+  }
+}
+
+export async function POST(req: NextRequest) {
+  const session = await getServerSession(authOptions);
+  if (!session?.user?.id) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+  try {
+    const body = await req.json();
+    const route = await db.route.create({
+      data: {
+        ...body,
+        createdById: session.user.id,
+      },
+    });
+    return NextResponse.json(route, { status: 201 });
+  } catch {
+    return NextResponse.json({ error: "Failed to create route" }, { status: 500 });
+  }
+}
