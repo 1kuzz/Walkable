@@ -43,6 +43,7 @@ const DEFAULT_DRAFT_ROUTE_NAME = "Draft route";
 const DEFAULT_PUBLISHED_DIFFICULTY = "easy";
 const DEFAULT_PUBLISHED_SURFACE_TYPE = "mixed";
 const DEFAULT_PUBLISHED_ELEVATION_GAIN = 0;
+const DEFAULT_PUBLISHED_DESCRIPTION_SUFFIX = "community trail created in Walkable route builder.";
 
 const emptyDraftRouteState: DraftRouteState = {
   feature: null,
@@ -205,7 +206,7 @@ export default function RouteBuilderPage() {
         body: JSON.stringify({
           parkId: selectedParks[0],
           name: normalizedRouteName,
-          description: `${normalizedRouteName} — community trail created in Walkable route builder.`,
+          description: `${normalizedRouteName} — ${DEFAULT_PUBLISHED_DESCRIPTION_SUFFIX}`,
           difficulty: DEFAULT_PUBLISHED_DIFFICULTY,
           lengthKm: Math.round(visibleDistanceKm * 100) / 100,
           elevationGain: DEFAULT_PUBLISHED_ELEVATION_GAIN,
@@ -242,8 +243,12 @@ export default function RouteBuilderPage() {
 
   const handleCopyShareLink = async () => {
     setShareError(null);
-    if (!publishedRouteUrl || !navigator.clipboard) {
-      setShareError("Copy link is not available in this browser.");
+    if (!publishedRouteUrl) {
+      setShareError("Share link is not available yet.");
+      return;
+    }
+    if (!navigator.clipboard) {
+      setShareError("Clipboard access is not available in this browser.");
       return;
     }
 
@@ -309,7 +314,12 @@ export default function RouteBuilderPage() {
           </div>
         )}
 
-        <Button className="w-full" disabled={!canPublishRoute} onClick={handlePublishRoute}>
+        <Button
+          className="w-full"
+          disabled={!canPublishRoute}
+          title={!canPublishRoute ? "Add at least two points to publish this trail." : undefined}
+          onClick={handlePublishRoute}
+        >
           {publishing ? "Publishing..." : "Publish Route"}
         </Button>
         {publishError && <p className="text-sm text-destructive">{publishError}</p>}
@@ -328,6 +338,7 @@ export default function RouteBuilderPage() {
                   {copiedShareLink ? "Link copied" : "Copy share link"}
                 </Button>
               </div>
+              <p className="sr-only" aria-live="polite">{copiedShareLink ? "Share link copied to clipboard." : ""}</p>
             </CardContent>
           </Card>
         )}
