@@ -59,7 +59,7 @@ export default function MyRoutesTab({ routes }: { routes: Route[] }) {
           <Button
             variant="destructive"
             size="icon"
-            className="absolute top-2 right-2 h-8 w-8 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 sm:opacity-0 transition-opacity"
+            className="absolute top-2 right-2 h-8 w-8 opacity-100 sm:opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity"
             disabled={deletingId === route.id}
             onClick={() => handleDelete(route.id)}
             aria-label={`Delete route ${route.name}`}

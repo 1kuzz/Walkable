@@ -26,8 +26,6 @@ export default function MapPage() {
   const [routes, setRoutes] = useState<ApiRoute[]>([]);
   const [nextDestination, setNextDestination] = useState<{ routeName: string; coordinates: [number, number] } | null>(null);
 
-  // Open sidebar by default on larger screens
-
   useEffect(() => {
     fetch(`/api/routes?sort=${filters.sort}`)
       .then(async (response) => response.json())
@@ -54,7 +52,12 @@ export default function MapPage() {
 
       <div className={`${sidebarOpen ? "translate-x-0" : "-translate-x-full"} md:translate-x-0 ${sidebarOpen ? "md:w-80" : "md:w-0"} absolute md:relative z-20 h-full w-80 shrink-0 overflow-y-auto border-r bg-background transition-transform md:transition-all duration-300`}>
         <div className="p-4">
-          <FilterSidebar filters={filters} onChange={(f) => { setFilters(f); setSidebarOpen(false); }} />
+          <FilterSidebar filters={filters} onChange={(f) => {
+            setFilters(f);
+            if (typeof window !== "undefined" && !window.matchMedia("(min-width: 768px)").matches) {
+              setSidebarOpen(false);
+            }
+          }} />
         </div>
       </div>
 
