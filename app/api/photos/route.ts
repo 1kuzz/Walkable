@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
+import type { UploadApiErrorResponse, UploadApiResponse } from "cloudinary";
 import { authOptions } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { v2 as cloudinary } from "cloudinary";
@@ -23,9 +24,15 @@ export async function POST(req: NextRequest) {
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
-    const result = await new Promise<any>((resolve, reject) => {
+    const result = await new Promise<UploadApiResponse>((resolve, reject: (reason: UploadApiErrorResponse) => void) => {
       cloudinary.uploader.upload_stream({ folder: "walkable" }, (err, res) => {
-        if (err) reject(err); else resolve(res);
+        if (err) {
+          reject(err);
+          return;
+        }
+        if (res) {
+          resolve(res);
+        }
       }).end(buffer);
     });
 
@@ -33,7 +40,7 @@ export async function POST(req: NextRequest) {
       data: {
         url: result.secure_url,
         publicId: result.public_id,
-        userId: session.user!.id!,
+        userId: session.user.id,
         routeId: routeId || undefined,
         waypointId: waypointId || undefined,
       },

@@ -8,23 +8,25 @@ datasource db {
 }
 
 model User {
-  id            String       @id @default(cuid())
+  id            String            @id @default(cuid())
   name          String?
-  email         String?      @unique
+  email         String?           @unique
   emailVerified DateTime?
   image         String?
-  totalKm       Float        @default(0)
-  routesCount   Int          @default(0)
-  photosCount   Int          @default(0)
+  weightKg      Float             @default(70)
+  totalKm       Float             @default(0)
+  routesCount   Int               @default(0)
+  photosCount   Int               @default(0)
   accounts      Account[]
   sessions      Session[]
-  routes        Route[]      @relation("CreatedRoutes")
+  routes        Route[]           @relation("CreatedRoutes")
   reviews       Review[]
   photos        Photo[]
   savedRoutes   SavedRoute[]
   achievements  Achievement[]
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  completions   RouteCompletion[]
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
 }
 
 model Account {
@@ -69,18 +71,18 @@ enum ParkType {
 }
 
 model Park {
-  id          String   @id @default(cuid())
-  osmId       String?  @unique
-  name        String
-  description String?
-  coverPhoto  String?
-  type        ParkType @default(urban)
-  lat         Float
-  lng         Float
-  geometryGeoJson String? @db.Text
-  routes      Route[]
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id              String   @id @default(cuid())
+  osmId           String?  @unique
+  name            String
+  description     String?
+  coverPhoto      String?
+  type            ParkType @default(urban)
+  lat             Float
+  lng             Float
+  geometryGeoJson String?  @db.Text
+  routes          Route[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }
 
 enum Difficulty {
@@ -97,26 +99,28 @@ enum SurfaceType {
 }
 
 model Route {
-  id             String      @id @default(cuid())
-  parkId         String
-  name           String
-  description    String?
-  difficulty     Difficulty  @default(easy)
-  lengthKm       Float       @default(0)
-  elevationGain  Float       @default(0)
-  surfaceType    SurfaceType @default(mixed)
-  estimatedMin   Int         @default(0)
-  geometryGeoJson String?    @db.Text
-  createdById    String
-  viewCount      Int         @default(0)
-  park           Park        @relation(fields: [parkId], references: [id])
-  createdBy      User        @relation("CreatedRoutes", fields: [createdById], references: [id])
-  waypoints      Waypoint[]
-  reviews        Review[]
-  photos         Photo[]
-  savedBy        SavedRoute[]
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
+  id              String            @id @default(cuid())
+  parkId          String
+  name            String
+  description     String?
+  difficulty      Difficulty        @default(easy)
+  lengthKm        Float             @default(0)
+  elevationGain   Float             @default(0)
+  surfaceType     SurfaceType       @default(mixed)
+  estimatedMin    Int               @default(0)
+  geometryGeoJson String?           @db.Text
+  createdById     String
+  viewCount       Int               @default(0)
+  park            Park              @relation(fields: [parkId], references: [id])
+  createdBy       User              @relation("CreatedRoutes", fields: [createdById], references: [id])
+  waypoints       Waypoint[]
+  reviews         Review[]
+  photos          Photo[]
+  savedBy         SavedRoute[]
+  sponsoredStops  SponsoredStop[]
+  completions     RouteCompletion[]
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
 }
 
 enum WaypointType {
@@ -171,19 +175,58 @@ model Review {
 model SavedRoute {
   userId    String
   routeId   String
-  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  route     Route  @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  route     Route    @relation(fields: [routeId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
 
   @@id([userId, routeId])
 }
 
 model Achievement {
-  id          String   @id @default(cuid())
-  userId      String
-  type        String
-  unlockedAt  DateTime @default(now())
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id         String   @id @default(cuid())
+  userId     String
+  type       String
+  unlockedAt DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, type])
+}
+
+model SponsoredMeal {
+  id             String          @id @default(cuid())
+  name           String
+  description    String?
+  lat            Float
+  lng            Float
+  logoUrl        String?
+  partnerUrl     String?
+  isActive       Boolean         @default(true)
+  sponsoredStops SponsoredStop[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+}
+
+model SponsoredStop {
+  id         String        @id @default(cuid())
+  routeId    String
+  mealId     String
+  stopOrder  Int           @default(0)
+  route      Route         @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  meal       SponsoredMeal @relation(fields: [mealId], references: [id], onDelete: Cascade)
+  createdAt  DateTime      @default(now())
+
+  @@unique([routeId, mealId])
+}
+
+model RouteCompletion {
+  id             String   @id @default(cuid())
+  userId         String
+  routeId        String
+  durationMin    Int
+  caloriesBurned Float
+  completedAt    DateTime @default(now())
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  route          Route    @relation(fields: [routeId], references: [id], onDelete: Cascade)
+
+  @@index([userId, completedAt])
 }
