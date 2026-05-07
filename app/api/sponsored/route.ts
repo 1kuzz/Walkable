@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 
 const KM_PER_DEGREE_LATITUDE = 111;
+const DEG_TO_RAD = Math.PI / 180;
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -11,7 +12,7 @@ export async function GET(req: NextRequest) {
   const routeId = searchParams.get("routeId") ?? undefined;
 
   try {
-    const longitudeRadius = radius / (KM_PER_DEGREE_LATITUDE * Math.cos(lat * Math.PI / 180));
+    const longitudeRadius = radius / (KM_PER_DEGREE_LATITUDE * Math.cos(lat * DEG_TO_RAD));
 
     const sponsoredStops = await db.sponsoredStop.findMany({
       where: {

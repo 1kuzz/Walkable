@@ -45,7 +45,7 @@ export default function CompletionCard({
     return "Nice work. You got out there and made the route yours.";
   }, [distanceKm]);
 
-  const shareUrl = typeof window !== "undefined" ? `${window.location.origin}${sharePath}` : sharePath;
+  const shareUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? ""}${sharePath}`;
   const shareText = `I just walked ${distanceKm.toFixed(1)} km and burned about ${formatCalories(caloriesBurned)} on the ${routeName} 🔥 ${shareUrl}`;
 
   if (!open) {
