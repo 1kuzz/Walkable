@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-const STORAGE_ROOT = path.join(process.cwd(), "storage", "photos");
+export const PHOTO_STORAGE_ROOT = path.join(process.cwd(), "storage", "photos");
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024;
 const MIME_BY_EXTENSION: Record<string, string> = {
   ".avif": "image/avif",
@@ -28,9 +28,9 @@ export async function saveUploadedPhoto(file: File): Promise<{ publicId: string;
 
   const extension = resolveExtension(file);
   const fileName = `${randomUUID()}${extension}`;
-  const filePath = path.join(STORAGE_ROOT, fileName);
+  const filePath = path.join(PHOTO_STORAGE_ROOT, fileName);
 
-  await mkdir(STORAGE_ROOT, { recursive: true });
+  await mkdir(PHOTO_STORAGE_ROOT, { recursive: true });
   await writeFile(filePath, Buffer.from(await file.arrayBuffer()));
 
   return {
@@ -49,13 +49,18 @@ export async function readStoredPhoto(slug: string[]): Promise<{ body: Buffer; c
     return null;
   }
 
-  const filePath = path.resolve(STORAGE_ROOT, fileName);
-  const storageRoot = path.resolve(STORAGE_ROOT);
-  if (!filePath.startsWith(`${storageRoot}${path.sep}`) && filePath !== path.join(storageRoot, fileName)) {
+  const storageRoot = path.resolve(PHOTO_STORAGE_ROOT);
+  const filePath = path.resolve(storageRoot, fileName);
+  if (filePath !== path.join(storageRoot, fileName)) {
     return null;
   }
 
   try {
+    const stats = await lstat(filePath);
+    if (stats.isSymbolicLink()) {
+      return null;
+    }
+
     const body = await readFile(filePath);
     return {
       body,

@@ -40,6 +40,7 @@ export interface YandexMultiRoute {
   model: {
     events: {
       add(name: string, handler: () => void): void;
+      remove(name: string, handler: () => void): void;
     };
   };
   getActiveRoute(): {

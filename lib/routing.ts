@@ -29,8 +29,21 @@ export async function getRoute(waypoints: Position[], name = "Updated route"): P
         routingMode: "pedestrian",
       },
     });
+    let settled = false;
 
-    multiRoute.model.events.add("requestsuccess", () => {
+    const cleanup = () => {
+      multiRoute.model.events.remove("requestsuccess", handleSuccess);
+      multiRoute.model.events.remove("requestfail", handleFailure);
+    };
+
+    const handleSuccess = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+
+      cleanup();
+
       const activeRoute = multiRoute.getActiveRoute();
       if (!activeRoute) {
         resolve({ coordinates: [], distanceMeters: 0, durationSeconds: 0 });
@@ -46,11 +59,20 @@ export async function getRoute(waypoints: Position[], name = "Updated route"): P
       const durationSeconds = readMetricValue(activeRoute.properties.get("duration"));
 
       resolve({ coordinates, distanceMeters, durationSeconds });
-    });
+    };
 
-    multiRoute.model.events.add("requestfail", () => {
+    const handleFailure = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+
+      cleanup();
       reject(new Error("Failed to fetch directions"));
-    });
+    };
+
+    multiRoute.model.events.add("requestsuccess", handleSuccess);
+    multiRoute.model.events.add("requestfail", handleFailure);
   });
 
   if (route.coordinates.length === 0) {
