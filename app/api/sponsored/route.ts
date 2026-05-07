@@ -11,13 +11,15 @@ export async function GET(req: NextRequest) {
   const routeId = searchParams.get("routeId") ?? undefined;
 
   try {
+    const longitudeRadius = radius / (KM_PER_DEGREE_LATITUDE * Math.cos(lat * Math.PI / 180));
+
     const sponsoredStops = await db.sponsoredStop.findMany({
       where: {
         ...(routeId ? { routeId } : {}),
         meal: {
           isActive: true,
           lat: { gte: lat - radius / KM_PER_DEGREE_LATITUDE, lte: lat + radius / KM_PER_DEGREE_LATITUDE },
-          lng: { gte: lng - radius / (KM_PER_DEGREE_LATITUDE * Math.cos(lat * Math.PI / 180)), lte: lng + radius / (KM_PER_DEGREE_LATITUDE * Math.cos(lat * Math.PI / 180)) },
+          lng: { gte: lng - longitudeRadius, lte: lng + longitudeRadius },
         },
       },
       include: {

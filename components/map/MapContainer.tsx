@@ -236,7 +236,7 @@ export default function MapContainer({
     }
 
     markersRef.current.forEach((marker) => marker.remove());
-    markersRef.current = sponsoredStops.map((stop) => {
+    const markers = sponsoredStops.map((stop) => {
       const markerElement = document.createElement("button");
       markerElement.type = "button";
       markerElement.className = MARKER_BUTTON_CLASS;
@@ -271,9 +271,13 @@ export default function MapContainer({
       return new mapboxgl.Marker(markerElement).setLngLat([stop.lng, stop.lat]).setPopup(popup).addTo(map);
     });
 
+    markersRef.current = markers;
+
     return () => {
-      markersRef.current.forEach((marker) => marker.remove());
-      markersRef.current = [];
+      markers.forEach((marker) => marker.remove());
+      if (markersRef.current === markers) {
+        markersRef.current = [];
+      }
     };
   }, [sponsoredStops, onSponsoredStopSelect]);
 

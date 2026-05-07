@@ -37,6 +37,7 @@ export default function CompletionCard({
   onClose,
 }: CompletionCardProps) {
   const [copied, setCopied] = useState(false);
+  const [copyError, setCopyError] = useState<string | null>(null);
 
   const message = useMemo(() => {
     if (distanceKm >= 10) return "You absolutely crushed that route. Legendary energy.";
@@ -97,14 +98,20 @@ export default function CompletionCard({
             <Button
               variant="secondary"
               onClick={async () => {
-                await navigator.clipboard.writeText(shareText);
-                setCopied(true);
-                window.setTimeout(() => setCopied(false), 2000);
+                try {
+                  await navigator.clipboard.writeText(shareText);
+                  setCopyError(null);
+                  setCopied(true);
+                  window.setTimeout(() => setCopied(false), 2000);
+                } catch {
+                  setCopyError("Copy failed. Please use the share buttons instead.");
+                }
               }}
             >
               {copied ? "Copied" : "Copy link"}
             </Button>
           </div>
+          {copyError && <p className="text-sm text-destructive">{copyError}</p>}
 
           <div className="flex justify-end">
             <Button variant="ghost" onClick={onClose}>Close</Button>

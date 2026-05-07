@@ -18,6 +18,7 @@ const MapContainer = dynamic(() => import("@/components/map/MapContainer"), {
 });
 
 interface BuilderWaypoint {
+  id: string;
   lat: number;
   lng: number;
   name: string;
@@ -196,7 +197,7 @@ export default function RouteBuilderPage() {
             <h3 className="text-sm font-medium mb-2">Waypoints</h3>
             <div className="space-y-1">
               {waypoints.map((wp, i) => (
-                <div key={`${wp.lat}-${wp.lng}-${i}`} className="flex items-center justify-between text-xs p-2 rounded border">
+                <div key={wp.id} className="flex items-center justify-between text-xs p-2 rounded border">
                   <span>{wp.name || `Point ${i + 1}`}</span>
                   <button onClick={() => setWaypoints((current) => current.filter((_, index) => index !== i))} className="text-destructive hover:underline" aria-label="Remove waypoint">×</button>
                 </div>
@@ -220,6 +221,7 @@ export default function RouteBuilderPage() {
             setWaypoints((current) => ([
               ...current,
               {
+                id: crypto.randomUUID(),
                 lat: coordinates[1],
                 lng: coordinates[0],
                 name: `${selectedRouteName} · Point ${current.length + 1}`,
