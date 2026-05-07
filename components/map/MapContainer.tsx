@@ -92,7 +92,7 @@ export default function MapContainer({
 
     const findRouteFeature = (featureId?: string) => currentRoutesRef.current.find((route) => route.properties.id === featureId);
 
-    const handleRouteHover = (event: mapboxgl.MapMouseEvent & mapboxgl.EventData) => {
+    const handleRouteHover = (event: mapboxgl.MapLayerMouseEvent) => {
       const feature = event.features?.[0];
       const routeId = typeof feature?.properties?.id === "string" ? feature.properties.id : undefined;
       const route = findRouteFeature(routeId);
@@ -115,7 +115,7 @@ export default function MapContainer({
       updateActiveRoute(selectedRouteIdRef.current);
     };
 
-    const handleRouteClick = (event: mapboxgl.MapMouseEvent & mapboxgl.EventData) => {
+    const handleRouteClick = (event: mapboxgl.MapLayerMouseEvent) => {
       const feature = event.features?.[0];
       const routeId = typeof feature?.properties?.id === "string" ? feature.properties.id : undefined;
       const route = findRouteFeature(routeId);

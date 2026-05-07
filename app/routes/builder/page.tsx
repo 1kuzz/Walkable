@@ -30,13 +30,23 @@ interface ApiRoute {
   geometryGeoJson?: string | null;
 }
 
+interface DraftRouteState {
+  feature: RouteFeature | null;
+  distanceKm: number;
+  durationMin: number;
+}
+
+const emptyDraftRouteState: DraftRouteState = {
+  feature: null,
+  distanceKm: 0,
+  durationMin: 0,
+};
+
 export default function RouteBuilderPage() {
   const [routeName, setRouteName] = useState("");
   const [baseRoutes, setBaseRoutes] = useState<ApiRoute[]>([]);
   const [waypoints, setWaypoints] = useState<BuilderWaypoint[]>([]);
-  const [draftRoute, setDraftRoute] = useState<RouteFeature | null>(null);
-  const [draftDistanceKm, setDraftDistanceKm] = useState(0);
-  const [draftDurationMin, setDraftDurationMin] = useState(0);
+  const [draftRouteState, setDraftRouteState] = useState<DraftRouteState>(emptyDraftRouteState);
   const [includeFoodStops, setIncludeFoodStops] = useState(false);
   const [loadingStops, setLoadingStops] = useState(false);
   const [sponsoredStops, setSponsoredStops] = useState<SponsoredStopMapItem[]>([]);
@@ -49,27 +59,21 @@ export default function RouteBuilderPage() {
       .catch(() => setBaseRoutes([]));
   }, []);
 
-  const routeFeatures = useMemo<RouteFeature[]>(() => {
-    const existingRoutes = baseRoutes
-      .map((route) => parseRouteGeometry(route.geometryGeoJson, { id: route.id, name: route.name, color: "#60a5fa" }))
-      .filter((feature): feature is RouteFeature => Boolean(feature));
-
-    return draftRoute ? [...existingRoutes, draftRoute] : existingRoutes;
-  }, [baseRoutes, draftRoute]);
-
   const waypointPositions = useMemo<Position[]>(() => waypoints.map((waypoint) => [waypoint.lng, waypoint.lat]), [waypoints]);
+  const effectiveSponsoredStops = includeFoodStops ? sponsoredStops : [];
+  const effectiveSelectedSponsoredStopId = includeFoodStops ? selectedSponsoredStopId : null;
+  const visibleDraftRoute = waypointPositions.length >= 2 ? draftRouteState.feature : null;
+  const visibleDistanceKm = waypointPositions.length >= 2 ? draftRouteState.distanceKm : 0;
+  const visibleDurationMin = waypointPositions.length >= 2 ? draftRouteState.durationMin : 0;
 
   useEffect(() => {
     if (waypointPositions.length < 2) {
-      setDraftRoute(null);
-      setDraftDistanceKm(0);
-      setDraftDurationMin(0);
       return;
     }
 
     const points = [...waypointPositions];
-    if (includeFoodStops && selectedSponsoredStopId) {
-      const stop = sponsoredStops.find((item) => item.id === selectedSponsoredStopId);
+    if (effectiveSelectedSponsoredStopId) {
+      const stop = sponsoredStops.find((item) => item.id === effectiveSelectedSponsoredStopId);
       if (stop) {
         points.splice(1, 0, [stop.lng, stop.lat]);
       }
@@ -79,46 +83,43 @@ export default function RouteBuilderPage() {
     getRoute(points, routeName || "Draft route")
       .then((result) => {
         if (!cancelled) {
-          setDraftRoute(
+          setDraftRouteState(
             result
               ? {
-                  ...result.feature,
-                  properties: {
-                    ...result.feature.properties,
-                    id: "draft-route",
-                    color: "#f97316",
-                    source: "draft",
+                  feature: {
+                    ...result.feature,
+                    properties: {
+                      ...result.feature.properties,
+                      id: "draft-route",
+                      color: "#f97316",
+                      source: "draft",
+                    },
                   },
+                  distanceKm: result.distanceKm,
+                  durationMin: result.durationMin,
                 }
-              : null,
+              : emptyDraftRouteState,
           );
-          setDraftDistanceKm(result?.distanceKm ?? 0);
-          setDraftDurationMin(result?.durationMin ?? 0);
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setDraftRoute(null);
-          setDraftDistanceKm(0);
-          setDraftDurationMin(0);
+          setDraftRouteState(emptyDraftRouteState);
         }
       });
 
     return () => {
       cancelled = true;
     };
-  }, [includeFoodStops, routeName, selectedSponsoredStopId, sponsoredStops, waypointPositions]);
+  }, [effectiveSelectedSponsoredStopId, routeName, sponsoredStops, waypointPositions]);
 
   useEffect(() => {
     if (!includeFoodStops) {
-      setSponsoredStops([]);
-      setSelectedSponsoredStopId(null);
       return;
     }
 
     const center = waypoints.at(-1) ?? { lat: 55.7558, lng: 37.6173 };
     let cancelled = false;
-    setLoadingStops(true);
     fetch(`/api/sponsored?lat=${center.lat}&lng=${center.lng}&radius=3`)
       .then(async (response) => response.json())
       .then((payload) => {
@@ -142,6 +143,14 @@ export default function RouteBuilderPage() {
     };
   }, [includeFoodStops, waypoints]);
 
+  const routeFeatures = useMemo<RouteFeature[]>(() => {
+    const existingRoutes = baseRoutes
+      .map((route) => parseRouteGeometry(route.geometryGeoJson, { id: route.id, name: route.name, color: "#60a5fa" }))
+      .filter((feature): feature is RouteFeature => Boolean(feature));
+
+    return visibleDraftRoute ? [...existingRoutes, visibleDraftRoute] : existingRoutes;
+  }, [baseRoutes, visibleDraftRoute]);
+
   return (
     <div className="flex h-[calc(100vh-64px)] overflow-hidden">
       <div className="w-80 shrink-0 overflow-y-auto border-r bg-background p-4 space-y-4">
@@ -161,18 +170,24 @@ export default function RouteBuilderPage() {
           </CardHeader>
           <CardContent className="text-sm space-y-1">
             <p>📍 Waypoints: {waypoints.length}</p>
-            <p>📏 Distance: {draftDistanceKm > 0 ? `${draftDistanceKm.toFixed(1)} km` : "calculating…"}</p>
-            <p>⏱️ Time: {draftDurationMin > 0 ? `${draftDurationMin} min` : "—"}</p>
-            <p>🔥 Calories: {draftDurationMin > 0 ? `${estimateCalories({ estimatedMin: draftDurationMin, lengthKm: draftDistanceKm })} kcal` : "—"}</p>
+            <p>📏 Distance: {visibleDistanceKm > 0 ? `${visibleDistanceKm.toFixed(1)} km` : "calculating…"}</p>
+            <p>⏱️ Time: {visibleDurationMin > 0 ? `${visibleDurationMin} min` : "—"}</p>
+            <p>🔥 Calories: {visibleDurationMin > 0 ? `${estimateCalories({ estimatedMin: visibleDurationMin, lengthKm: visibleDistanceKm })} kcal` : "—"}</p>
           </CardContent>
         </Card>
 
         <RouteOptions
           includeFoodStops={includeFoodStops}
           loading={loadingStops}
-          sponsoredStops={sponsoredStops}
-          selectedSponsoredStopId={selectedSponsoredStopId}
-          onIncludeFoodStopsChange={setIncludeFoodStops}
+          sponsoredStops={effectiveSponsoredStops}
+          selectedSponsoredStopId={effectiveSelectedSponsoredStopId}
+          onIncludeFoodStopsChange={(enabled) => {
+            setIncludeFoodStops(enabled);
+            setLoadingStops(enabled);
+            if (!enabled) {
+              setSelectedSponsoredStopId(null);
+            }
+          }}
           onSponsoredStopSelect={(stop) => setSelectedSponsoredStopId(stop.id)}
         />
 
@@ -190,7 +205,7 @@ export default function RouteBuilderPage() {
           </div>
         )}
 
-        <Button className="w-full" disabled={!routeName || waypoints.length < 2 || !draftRoute}>
+        <Button className="w-full" disabled={!routeName || waypoints.length < 2 || !visibleDraftRoute}>
           Publish Route
         </Button>
       </div>
@@ -199,7 +214,7 @@ export default function RouteBuilderPage() {
         <MapContainer
           className="w-full h-full"
           routes={routeFeatures}
-          sponsoredStops={includeFoodStops ? sponsoredStops : []}
+          sponsoredStops={effectiveSponsoredStops}
           onSponsoredStopSelect={(stop) => setSelectedSponsoredStopId(stop.id)}
           onRoutePointSelect={({ routeId, routeName: selectedRouteName, coordinates }) => {
             setWaypoints((current) => ([

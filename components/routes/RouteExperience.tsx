@@ -47,24 +47,16 @@ export default function RouteExperience({
   const [loadingStops, setLoadingStops] = useState(false);
   const [sponsoredStops, setSponsoredStops] = useState<SponsoredStopMapItem[]>([]);
   const [selectedSponsoredStopId, setSelectedSponsoredStopId] = useState<string | null>(null);
-  const [displayRoute, setDisplayRoute] = useState<RouteFeature | null>(routeFeature);
+  const [reroutedFeature, setReroutedFeature] = useState<RouteFeature | null>(null);
   const [completionState, setCompletionState] = useState<CompletionResponse | null>(null);
   const [submittingCompletion, setSubmittingCompletion] = useState(false);
 
   useEffect(() => {
-    setDisplayRoute(routeFeature);
-  }, [routeFeature]);
-
-  useEffect(() => {
     if (!includeFoodStops) {
-      setSponsoredStops([]);
-      setSelectedSponsoredStopId(null);
-      setDisplayRoute(routeFeature);
       return;
     }
 
     let cancelled = false;
-    setLoadingStops(true);
     fetch(`/api/sponsored?lat=${parkLat}&lng=${parkLng}&radius=3&routeId=${routeId}`)
       .then(async (response) => {
         const payload = await response.json();
@@ -86,7 +78,7 @@ export default function RouteExperience({
     return () => {
       cancelled = true;
     };
-  }, [includeFoodStops, parkLat, parkLng, routeFeature, routeId]);
+  }, [includeFoodStops, parkLat, parkLng, routeId]);
 
   const routeWaypoints = useMemo<Position[]>(() => {
     if (routeFeature) {
@@ -94,6 +86,10 @@ export default function RouteExperience({
     }
     return [];
   }, [routeFeature]);
+
+  const displayRoute = includeFoodStops ? reroutedFeature ?? routeFeature : routeFeature;
+  const visibleSponsoredStops = includeFoodStops ? sponsoredStops : [];
+  const visibleSelectedSponsoredStopId = includeFoodStops ? selectedSponsoredStopId : null;
 
   const handleSponsoredStopSelect = async (stop: SponsoredStopMapItem) => {
     setSelectedSponsoredStopId(stop.id);
@@ -103,9 +99,9 @@ export default function RouteExperience({
 
     try {
       const rerouted = await getRoute([routeWaypoints[0], [stop.lng, stop.lat], routeWaypoints[1]], `${routeName} via ${stop.name}`);
-      setDisplayRoute(rerouted?.feature ?? routeFeature);
+      setReroutedFeature(rerouted?.feature ?? null);
     } catch {
-      setDisplayRoute(routeFeature);
+      setReroutedFeature(null);
     }
   };
 
@@ -122,7 +118,7 @@ export default function RouteExperience({
               lng={parkLng}
               zoom={13}
               routes={displayRoute ? [displayRoute] : []}
-              sponsoredStops={sponsoredStops}
+              sponsoredStops={visibleSponsoredStops}
               onSponsoredStopSelect={handleSponsoredStopSelect}
             />
           </div>
@@ -139,9 +135,16 @@ export default function RouteExperience({
       <RouteOptions
         includeFoodStops={includeFoodStops}
         loading={loadingStops}
-        sponsoredStops={sponsoredStops}
-        selectedSponsoredStopId={selectedSponsoredStopId}
-        onIncludeFoodStopsChange={setIncludeFoodStops}
+        sponsoredStops={visibleSponsoredStops}
+        selectedSponsoredStopId={visibleSelectedSponsoredStopId}
+        onIncludeFoodStopsChange={(enabled) => {
+          setIncludeFoodStops(enabled);
+          setLoadingStops(enabled);
+          if (!enabled) {
+            setSelectedSponsoredStopId(null);
+            setReroutedFeature(null);
+          }
+        }}
         onSponsoredStopSelect={handleSponsoredStopSelect}
       />
 

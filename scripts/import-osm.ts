@@ -1,16 +1,29 @@
-import { PrismaClient } from "@prisma/client";
+import { ParkType, PrismaClient } from "@prisma/client";
 
 const db = new PrismaClient();
 
 const BBOX = { south: 55.57, west: 37.37, north: 55.92, east: 37.85 };
 
-async function queryOverpass(query: string): Promise<any> {
+interface OverpassElement {
+  id: number;
+  type: string;
+  lat?: number;
+  lon?: number;
+  center?: { lat: number; lon: number };
+  tags?: Record<string, string>;
+}
+
+interface OverpassResponse {
+  elements?: OverpassElement[];
+}
+
+async function queryOverpass(query: string): Promise<OverpassResponse> {
   const res = await fetch("https://overpass-api.de/api/interpreter", {
     method: "POST",
     body: `data=${encodeURIComponent(query)}`,
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
   });
-  return res.json();
+  return res.json() as Promise<OverpassResponse>;
 }
 
 async function importParks() {
@@ -37,7 +50,7 @@ async function importParks() {
     if (!lat || !lng) continue;
 
     const osmId = `${element.type}/${element.id}`;
-    const parkType = element.tags?.boundary === "national_park" ? "national" : "urban";
+    const parkType: ParkType = element.tags?.boundary === "national_park" ? "national" : "urban";
 
     await db.park.upsert({
       where: { osmId },
@@ -46,7 +59,7 @@ async function importParks() {
         name,
         lat,
         lng,
-        type: parkType as any,
+        type: parkType,
         description: element.tags?.description ?? null,
       },
       update: { name, lat, lng },
