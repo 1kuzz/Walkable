@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { ParkType } from "@prisma/client";
 import { db } from "@/lib/db";
 
 export async function GET(req: NextRequest) {
@@ -11,7 +12,7 @@ export async function GET(req: NextRequest) {
   try {
     const parks = await db.park.findMany({
       where: {
-        ...(type ? { type: type as any } : {}),
+        ...(type ? { type: type as ParkType } : {}),
         lat: { gte: lat - radius / 111, lte: lat + radius / 111 },
         lng: { gte: lng - radius / (111 * Math.cos(lat * Math.PI / 180)), lte: lng + radius / (111 * Math.cos(lat * Math.PI / 180)) },
       },
