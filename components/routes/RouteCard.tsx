@@ -4,7 +4,8 @@ import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { BookmarkIcon, StarIcon } from "lucide-react";
+import { BookmarkIcon, FlameIcon, StarIcon } from "lucide-react";
+import { estimateCalories } from "@/lib/calories";
 
 interface RouteCardProps {
   id: string;
@@ -29,6 +30,7 @@ const difficultyConfig = {
 
 export default function RouteCard({ id, name, parkName, difficulty, lengthKm, elevationGain, estimatedMin, rating, reviewCount, coverPhoto, saved, onSave }: RouteCardProps) {
   const diff = difficultyConfig[difficulty];
+  const calories = estimateCalories({ estimatedMin, lengthKm, elevationGain });
 
   return (
     <Card className="overflow-hidden hover:shadow-md transition-shadow group">
@@ -40,8 +42,11 @@ export default function RouteCard({ id, name, parkName, difficulty, lengthKm, el
           ) : (
             <div className="absolute inset-0 flex items-center justify-center text-white/50 text-4xl">🌿</div>
           )}
-          <div className="absolute top-2 left-2">
+          <div className="absolute top-2 left-2 flex gap-2">
             <Badge className={diff.className}>{diff.label}</Badge>
+            <Badge variant="secondary" className="gap-1 bg-white/90 text-slate-700">
+              <FlameIcon className="h-3 w-3" /> {calories}
+            </Badge>
           </div>
         </div>
       </Link>
