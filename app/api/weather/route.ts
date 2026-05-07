@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getTrailStatus, getWeatherForecast } from "@/lib/weather/yandex";
+import { logServerEvent, toErrorMessage } from "@/lib/server/logger";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -9,7 +10,12 @@ export async function GET(req: NextRequest) {
   try {
     const forecast = await getWeatherForecast(Number.isFinite(lat) ? lat : 55.7558, Number.isFinite(lng) ? lng : 37.6173);
     return NextResponse.json({ ...forecast, trailStatus: getTrailStatus(forecast) });
-  } catch {
+  } catch (error) {
+    logServerEvent("error", "weather.fetch_failed", {
+      lat,
+      lng,
+      error: toErrorMessage(error),
+    });
     return NextResponse.json({ error: "Failed to fetch weather" }, { status: 500 });
   }
 }

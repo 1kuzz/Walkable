@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { logServerEvent, toErrorMessage } from "@/lib/server/logger";
 
 export async function GET(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -17,7 +18,11 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
     });
     if (!route) return NextResponse.json({ error: "Not found" }, { status: 404 });
     return NextResponse.json(route);
-  } catch {
+  } catch (error) {
+    logServerEvent("error", "routes.get_failed", {
+      routeId: id,
+      error: toErrorMessage(error),
+    });
     return NextResponse.json({ error: "Failed to fetch route" }, { status: 500 });
   }
 }
