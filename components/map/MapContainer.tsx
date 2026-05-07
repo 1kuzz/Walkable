@@ -26,6 +26,8 @@ const HOVER_POINT_SOURCE_ID = "walkable-routes-hover-point";
 const PERSISTENT_POINT_SOURCE_ID = "walkable-routes-selected-point";
 const HOVER_POINT_LAYER_ID = "walkable-routes-hover-point-layer";
 const PERSISTENT_POINT_LAYER_ID = "walkable-routes-selected-point-layer";
+const MARKER_BUTTON_CLASS = "flex h-11 w-11 items-center justify-center rounded-full border-2 border-white bg-emerald-600 text-sm font-semibold text-white shadow-lg";
+const MARKER_IMAGE_CLASS = "h-10 w-10 rounded-full object-cover";
 
 export default function MapContainer({
   lat = 55.7558,
@@ -237,9 +239,9 @@ export default function MapContainer({
     markersRef.current = sponsoredStops.map((stop) => {
       const markerElement = document.createElement("button");
       markerElement.type = "button";
-      markerElement.className = "flex h-11 w-11 items-center justify-center rounded-full border-2 border-white bg-emerald-600 text-sm font-semibold text-white shadow-lg";
+      markerElement.className = MARKER_BUTTON_CLASS;
       if (stop.logoUrl) {
-        markerElement.innerHTML = `<img src="${stop.logoUrl}" alt="${stop.name}" class="h-10 w-10 rounded-full object-cover" />`;
+        markerElement.innerHTML = `<img src="${stop.logoUrl}" alt="${stop.name}" class="${MARKER_IMAGE_CLASS}" />`;
       } else {
         markerElement.textContent = "🍽️";
       }

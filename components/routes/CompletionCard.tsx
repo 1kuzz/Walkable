@@ -45,7 +45,7 @@ export default function CompletionCard({
   }, [distanceKm]);
 
   const shareUrl = typeof window !== "undefined" ? `${window.location.origin}${sharePath}` : sharePath;
-  const shareText = `I just walked ${distanceKm.toFixed(1)} km and burned about ${formatCalories(caloriesBurned)} on ${routeName} 🔥 ${shareUrl}`;
+  const shareText = `I just walked ${distanceKm.toFixed(1)} km and burned about ${formatCalories(caloriesBurned)} on the ${routeName} 🔥 ${shareUrl}`;
 
   if (!open) {
     return null;

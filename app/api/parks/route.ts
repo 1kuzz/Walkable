@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { ParkType } from "@prisma/client";
 import { db } from "@/lib/db";
 
+const KM_PER_DEGREE_LATITUDE = 111;
+
 const parkTypes = new Set<ParkType>(["urban", "forest", "waterfront", "national"]);
 
 export async function GET(req: NextRequest) {
@@ -16,8 +18,8 @@ export async function GET(req: NextRequest) {
     const parks = await db.park.findMany({
       where: {
         ...(parsedType ? { type: parsedType } : {}),
-        lat: { gte: lat - radius / 111, lte: lat + radius / 111 },
-        lng: { gte: lng - radius / (111 * Math.cos(lat * Math.PI / 180)), lte: lng + radius / (111 * Math.cos(lat * Math.PI / 180)) },
+        lat: { gte: lat - radius / KM_PER_DEGREE_LATITUDE, lte: lat + radius / KM_PER_DEGREE_LATITUDE },
+        lng: { gte: lng - radius / (KM_PER_DEGREE_LATITUDE * Math.cos(lat * Math.PI / 180)), lte: lng + radius / (KM_PER_DEGREE_LATITUDE * Math.cos(lat * Math.PI / 180)) },
       },
       include: { _count: { select: { routes: true } } },
       take: 50,

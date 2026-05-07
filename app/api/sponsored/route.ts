@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 
+const KM_PER_DEGREE_LATITUDE = 111;
+
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
   const lat = parseFloat(searchParams.get("lat") ?? "55.7558");
@@ -14,8 +16,8 @@ export async function GET(req: NextRequest) {
         ...(routeId ? { routeId } : {}),
         meal: {
           isActive: true,
-          lat: { gte: lat - radius / 111, lte: lat + radius / 111 },
-          lng: { gte: lng - radius / (111 * Math.cos(lat * Math.PI / 180)), lte: lng + radius / (111 * Math.cos(lat * Math.PI / 180)) },
+          lat: { gte: lat - radius / KM_PER_DEGREE_LATITUDE, lte: lat + radius / KM_PER_DEGREE_LATITUDE },
+          lng: { gte: lng - radius / (KM_PER_DEGREE_LATITUDE * Math.cos(lat * Math.PI / 180)), lte: lng + radius / (KM_PER_DEGREE_LATITUDE * Math.cos(lat * Math.PI / 180)) },
         },
       },
       include: {

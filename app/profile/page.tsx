@@ -9,6 +9,8 @@ import RouteCard from "@/components/routes/RouteCard";
 import ProfileWeightForm from "@/components/routes/ProfileWeightForm";
 import { formatCalories } from "@/lib/calories";
 
+const completionDateFormatter = new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" });
+
 export default async function ProfilePage() {
   const session = await getServerSession(authOptions);
   if (!session?.user?.id) redirect("/login");
@@ -129,7 +131,7 @@ export default async function ProfilePage() {
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <p className="font-medium">{completion.route.name}</p>
-                    <p className="text-sm text-muted-foreground">{new Intl.DateTimeFormat("en", { dateStyle: "medium", timeStyle: "short" }).format(completion.completedAt)}</p>
+                    <p className="text-sm text-muted-foreground">{completionDateFormatter.format(completion.completedAt)}</p>
                   </div>
                   <div className="flex gap-3 text-sm text-muted-foreground">
                     <span>{completion.route.lengthKm.toFixed(1)} km</span>
