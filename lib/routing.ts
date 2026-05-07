@@ -1,5 +1,6 @@
 import type { Position } from "geojson";
 import type { RouteFeature } from "@/lib/geo";
+import { loadYandexMapsApi, toGeoJsonCoordinates, toYandexCoordinates } from "@/lib/yandex-maps";
 
 export interface RoutedPath {
   feature: RouteFeature;
@@ -8,36 +9,83 @@ export interface RoutedPath {
 }
 
 export async function getRoute(waypoints: Position[], name = "Updated route"): Promise<RoutedPath | null> {
-  const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
-  if (!token || waypoints.length < 2) {
+  if (waypoints.length < 2) {
     return null;
   }
 
-  const coords = waypoints.map(([lng, lat]) => `${lng},${lat}`).join(";");
-  const url = `https://api.mapbox.com/directions/v5/mapbox/walking/${coords}?alternatives=false&continue_straight=true&geometries=geojson&overview=full&steps=false&access_token=${token}`;
-  const response = await fetch(url);
-
-  if (!response.ok) {
-    throw new Error("Failed to fetch directions");
+  const ymaps = await loadYandexMapsApi();
+  if (!ymaps) {
+    return null;
   }
 
-  const payload = await response.json() as {
-    routes?: Array<{
-      geometry?: GeoJSON.LineString;
-      distance?: number;
-      duration?: number;
-    }>;
-  };
+  const route = await new Promise<{
+    coordinates: Position[];
+    distanceMeters: number;
+    durationSeconds: number;
+  }>((resolve, reject) => {
+    const multiRoute = new ymaps.multiRouter.MultiRoute({
+      referencePoints: waypoints.map(toYandexCoordinates),
+      params: {
+        routingMode: "pedestrian",
+      },
+    });
+    let settled = false;
 
-  const route = payload.routes?.[0];
-  if (!route?.geometry) {
+    const cleanup = () => {
+      multiRoute.model.events.remove("requestsuccess", handleSuccess);
+      multiRoute.model.events.remove("requestfail", handleFailure);
+    };
+
+    const handleSuccess = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+
+      cleanup();
+
+      const activeRoute = multiRoute.getActiveRoute();
+      if (!activeRoute) {
+        resolve({ coordinates: [], distanceMeters: 0, durationSeconds: 0 });
+        return;
+      }
+
+      const coordinates = readCollection<{ getCoordinates(): number[][] }>(activeRoute.getPaths())
+        .flatMap((path, index) => {
+          const segment = path.getCoordinates().map(toGeoJsonCoordinates);
+          return index === 0 ? segment : segment.slice(1);
+        });
+      const distanceMeters = readMetricValue(activeRoute.properties.get("distance"));
+      const durationSeconds = readMetricValue(activeRoute.properties.get("duration"));
+
+      resolve({ coordinates, distanceMeters, durationSeconds });
+    };
+
+    const handleFailure = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+
+      cleanup();
+      reject(new Error("Failed to fetch directions"));
+    };
+
+    multiRoute.model.events.add("requestsuccess", handleSuccess);
+    multiRoute.model.events.add("requestfail", handleFailure);
+  });
+
+  if (route.coordinates.length === 0) {
     return null;
   }
 
   return {
     feature: {
       type: "Feature",
-      geometry: route.geometry,
+      geometry: {
+        type: "LineString",
+        coordinates: route.coordinates,
+      },
       properties: {
         id: `rerouted-${waypoints.length}`,
         name,
@@ -45,7 +93,50 @@ export async function getRoute(waypoints: Position[], name = "Updated route"): P
         source: "reroute",
       },
     },
-    distanceKm: (route.distance ?? 0) / 1000,
-    durationMin: Math.round((route.duration ?? 0) / 60),
+    distanceKm: route.distanceMeters / 1000,
+    durationMin: Math.round(route.durationSeconds / 60),
   };
+}
+
+function readCollection<T>(collection: unknown): T[] {
+  if (!collection) {
+    return [];
+  }
+
+  if (Array.isArray(collection)) {
+    return collection as T[];
+  }
+
+  const maybeCollection = collection as {
+    toArray?: () => T[];
+    getLength?: () => number;
+    get?: (index: number) => T;
+  };
+
+  if (typeof maybeCollection.toArray === "function") {
+    return maybeCollection.toArray();
+  }
+
+  if (typeof maybeCollection.getLength === "function" && typeof maybeCollection.get === "function") {
+    return Array.from({ length: maybeCollection.getLength() }, (_, index) => maybeCollection.get?.(index)).filter(
+      (item): item is T => Boolean(item),
+    );
+  }
+
+  return [];
+}
+
+function readMetricValue(metric: unknown): number {
+  if (typeof metric === "number") {
+    return metric;
+  }
+
+  if (metric && typeof metric === "object") {
+    const value = (metric as { value?: unknown }).value;
+    if (typeof value === "number") {
+      return value;
+    }
+  }
+
+  return 0;
 }

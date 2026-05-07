@@ -9,9 +9,9 @@ Discover, build, and share walking routes in parks. Check weather and trail cond
 | Framework | Next.js 16 (App Router) |
 | Database | PostgreSQL + Prisma ORM |
 | Auth | NextAuth v4 (Google & GitHub OAuth) |
-| Maps | Mapbox GL JS |
-| Photos | Cloudinary |
-| Weather | Open-Meteo (free, no key needed) |
+| Maps | Yandex Maps JS API |
+| Photos | Server-side file storage |
+| Weather | Yandex Weather API |
 | Styling | Tailwind CSS v4 + shadcn/ui |
 | Tests | Vitest |
 
@@ -45,10 +45,10 @@ The only externally required services for basic local work are:
 |---|---|
 | PostgreSQL | All pages (data layer) |
 | Google or GitHub OAuth app | Sign-in flow |
-| Mapbox token | Map pages |
-| Cloudinary account | Photo upload |
+| Yandex Maps API key | Map pages and rerouting |
+| Yandex Weather API key | Weather widgets |
 
-Open-Meteo is free and requires no key.
+Photo uploads are stored by the app on the server filesystem under `storage/photos`.
 
 ### 4. Initialise the database
 
@@ -116,10 +116,8 @@ The repo is configured for zero-config Vercel deployments via `vercel.json`.
    | `google-client-secret` | Google OAuth client secret |
    | `github-client-id` | GitHub OAuth app client ID |
    | `github-client-secret` | GitHub OAuth app client secret |
-   | `mapbox-token` | Mapbox public access token |
-   | `cloudinary-cloud-name` | Cloudinary cloud name |
-   | `cloudinary-api-key` | Cloudinary API key |
-   | `cloudinary-api-secret` | Cloudinary API secret |
+   | `yandex-maps-api-key` | Yandex Maps JS API key |
+   | `yandex-weather-api-key` | Yandex Weather API key |
 
 3. Add your Vercel domain to the **Authorised redirect URIs** of both OAuth apps:
    - Google: `https://<domain>/api/auth/callback/google`
@@ -146,8 +144,9 @@ app/
     auth/[...nextauth]/    – NextAuth handler
     parks/                 – park listing
     routes/                – route CRUD
-    photos/                – Cloudinary upload
-    weather/               – Open-Meteo proxy
+    photos/                – server-side upload
+    weather/               – Yandex Weather proxy
+  uploads/                 – stored photo delivery
   map/                     – interactive map page
   parks/[id]/              – park detail page
   routes/builder/          – route builder (protected)
@@ -160,7 +159,8 @@ components/
 lib/
   auth.ts                  – NextAuth config
   db.ts                    – Prisma client singleton
-  weather/open-meteo.ts    – typed weather fetch + trail-status logic
+  weather/yandex.ts        – typed weather fetch + trail-status logic
+  server/photo-storage.ts  – filesystem photo storage helpers
 prisma/
   schema.prisma            – database schema
 scripts/
@@ -184,12 +184,12 @@ The callback URL registered with the provider must exactly match `NEXTAUTH_URL +
 
 ### Map not loading
 
-`NEXT_PUBLIC_MAPBOX_TOKEN` must start with `pk.`. Verify the token has the **Styles: read** and **Tiles: read** scopes in your Mapbox account.
+Confirm `NEXT_PUBLIC_YANDEX_MAPS_API_KEY` is set and enabled for the Yandex Maps JS API.
 
 ### Photo upload fails
 
-Confirm all three Cloudinary variables (`CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET`) are set. The `NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME` client-side variable must equal `CLOUDINARY_CLOUD_NAME`.
+Confirm the app can write to `storage/photos` at runtime. Server-side filesystem uploads do not persist on read-only or ephemeral disks.
 
 ### Weather widget shows "Failed to fetch weather"
 
-Open-Meteo is a public API that requires no key. If the widget fails, the issue is likely a network restriction in your environment (e.g., corporate proxy). The app degrades gracefully — other features are unaffected.
+Confirm `YANDEX_WEATHER_API_KEY` is set and valid. The weather route proxies Yandex Weather responses into the app's existing weather shape.
