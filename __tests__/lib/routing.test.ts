@@ -54,6 +54,13 @@ describe("getRoute", () => {
       },
       distanceKm: 1.2,
       durationMin: 15,
+      routing: {
+        provider: "osrm",
+        profile: "foot",
+        preference: "park",
+        quality: "fallback",
+        fallbackReason: "ors_missing_key",
+      },
     });
   });
 
@@ -127,6 +134,104 @@ describe("getRoute", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("openrouteservice.org/v2/directions/foot-walking/geojson");
+  });
+
+  it("marks route metadata with ORS provider when park preference uses ORS", async () => {
+    process.env.NEXT_PUBLIC_ORS_API_KEY = "test-ors-key";
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        features: [{
+          geometry: {
+            coordinates: [[37.61, 55.75], [37.62, 55.76]],
+          },
+          properties: {
+            summary: {
+              distance: 1200,
+              duration: 900,
+            },
+          },
+        }],
+      }),
+    }));
+
+    const result = await getRoute([[37.61, 55.75], [37.62, 55.76]]);
+
+    expect(result?.routing).toEqual({
+      provider: "ors",
+      profile: "foot-walking",
+      preference: "park",
+      quality: "preferred",
+    });
+  });
+
+  it("falls back to OSRM with fallback metadata when ORS returns no geometry", async () => {
+    process.env.NEXT_PUBLIC_ORS_API_KEY = "test-ors-key";
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          features: [{
+            geometry: {
+              coordinates: [],
+            },
+          }],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          code: "Ok",
+          routes: [{
+            distance: 1200,
+            duration: 900,
+            geometry: {
+              coordinates: [[37.61, 55.75], [37.62, 55.76]],
+            },
+          }],
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getRoute([[37.61, 55.75], [37.62, 55.76]]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result?.routing).toMatchObject({
+      provider: "osrm",
+      quality: "fallback",
+      fallbackReason: "ors_no_geometry",
+      preference: "park",
+    });
+  });
+
+  it("falls back to OSRM with fallback metadata when ORS request fails", async () => {
+    process.env.NEXT_PUBLIC_ORS_API_KEY = "test-ors-key";
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          code: "Ok",
+          routes: [{
+            distance: 1200,
+            duration: 900,
+            geometry: {
+              coordinates: [[37.61, 55.75], [37.62, 55.76]],
+            },
+          }],
+        }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getRoute([[37.61, 55.75], [37.62, 55.76]]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result?.routing).toMatchObject({
+      provider: "osrm",
+      quality: "fallback",
+      fallbackReason: "ors_error",
+      preference: "park",
+    });
   });
 
   it("throws when OSRM request fails", async () => {

@@ -10,6 +10,7 @@ import maplibregl, {
   type Marker,
 } from "maplibre-gl";
 import { nearestPointOnRoute, type RouteFeature, type SponsoredStopMapItem } from "@/lib/geo";
+import { resolveRouteStyle, type RouteVisualMode } from "@/lib/map/route-visuals";
 import { createSatelliteStyle, createVectorStyle, createWalkableStyle, type Map as MapLibreMap, type MapStyleMode, VECTOR_FOOTPATH_COLOR, VECTOR_ROAD_COLOR, VECTOR_PARK_COLOR, WALKABLE_FOOTPATH_COLOR, WALKABLE_ROAD_COLOR, WALKABLE_PARK_COLOR } from "@/lib/maplibre";
 import { cn } from "@/lib/utils";
 
@@ -35,24 +36,9 @@ interface MapContainerProps {
   onSponsoredStopSelect?: (stop: SponsoredStopMapItem) => void;
   /** Fires on every mousemove over the map canvas (desktop only). */
   onMapHover?: (coordinates: Position) => void;
+  routeVisualMode?: RouteVisualMode;
+  enableRouteSnapping?: boolean;
 }
-
-const BASE_ROUTE_STYLE = {
-  strokeColor: "#2563eb",
-  strokeOpacity: 0.8,
-  strokeWidth: 7,
-  casingWidth: 14,
-  casingOpacity: 0.25,
-  highlightColor: "#bfdbfe",
-  highlightOpacity: 0.9,
-  highlightWidth: 2,
-};
-const ACTIVE_ROUTE_STYLE = {
-  strokeColor: "#f97316",
-  strokeOpacity: 0.95,
-  strokeWidth: 9,
-  casingWidth: 16,
-};
 const HOVER_POINT_COLOR = "#facc15";
 const SELECTED_POINT_COLOR = "#f97316";
 const WAYPOINT_START_COLOR = "#22c55e";
@@ -90,6 +76,8 @@ export default function MapContainer({
   onRoutePointSelect,
   onSponsoredStopSelect,
   onMapHover,
+  routeVisualMode = "default",
+  enableRouteSnapping = true,
 }: MapContainerProps) {
   const initialViewRef = useRef({ lat, lng, zoom });
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -257,6 +245,13 @@ export default function MapContainer({
       const casingLayerId = `${routeId}-${index}-casing`;
       const bodyLayerId = `${routeId}-${index}-body`;
       const highlightLayerId = `${routeId}-${index}-highlight`;
+      const initialStyle = resolveRouteStyle({
+        route: route.properties,
+        visualMode: routeVisualMode,
+        routeColor: route.properties.color,
+        isActive: selectedRouteIdRef.current === route.properties.id,
+        enableRouteSnapping,
+      });
 
       map.addSource(sourceId, {
         type: "geojson",
@@ -268,10 +263,10 @@ export default function MapContainer({
         type: "line",
         source: sourceId,
         paint: {
-          "line-color": route.properties.color ?? BASE_ROUTE_STYLE.strokeColor,
-          "line-opacity": BASE_ROUTE_STYLE.casingOpacity,
-          "line-width": BASE_ROUTE_STYLE.casingWidth,
-          "line-blur": 6,
+          "line-color": initialStyle.casingColor,
+          "line-opacity": initialStyle.casingOpacity,
+          "line-width": initialStyle.casingWidth,
+          "line-blur": initialStyle.casingBlur,
         },
         layout: {
           "line-cap": "round",
@@ -284,9 +279,9 @@ export default function MapContainer({
         type: "line",
         source: sourceId,
         paint: {
-          "line-color": route.properties.color ?? BASE_ROUTE_STYLE.strokeColor,
-          "line-opacity": BASE_ROUTE_STYLE.strokeOpacity,
-          "line-width": BASE_ROUTE_STYLE.strokeWidth,
+          "line-color": initialStyle.bodyColor,
+          "line-opacity": initialStyle.bodyOpacity,
+          "line-width": initialStyle.bodyWidth,
         },
         layout: {
           "line-cap": "round",
@@ -299,9 +294,9 @@ export default function MapContainer({
         type: "line",
         source: sourceId,
         paint: {
-          "line-color": BASE_ROUTE_STYLE.highlightColor,
-          "line-opacity": BASE_ROUTE_STYLE.highlightOpacity,
-          "line-width": BASE_ROUTE_STYLE.highlightWidth,
+          "line-color": initialStyle.highlightColor,
+          "line-opacity": initialStyle.highlightOpacity,
+          "line-width": initialStyle.highlightWidth,
         },
         layout: {
           "line-cap": "round",
@@ -314,32 +309,45 @@ export default function MapContainer({
         callback(snapped.coordinates);
       };
 
+      const routeIsInteractive = initialStyle.interactive;
       const handleMouseEnter = (event: MapLayerMouseEvent) => {
+        if (!routeIsInteractive) {
+          return;
+        }
         if (containerRef.current) {
           containerRef.current.style.cursor = "pointer";
         }
         updateSelection(event, (coordinates) => {
           updatePointMarker(hoverPointRef.current, coordinates);
-          applyRouteStyles(map, routeLayersRef.current, selectedRouteIdRef.current ?? route.properties.id);
+          applyRouteStyles(map, routeLayersRef.current, selectedRouteIdRef.current ?? route.properties.id, routeVisualMode, enableRouteSnapping);
         });
       };
 
       const handleMouseMove = (event: MapLayerMouseEvent) => {
+        if (!routeIsInteractive) {
+          return;
+        }
         updateSelection(event, (coordinates) => {
           updatePointMarker(hoverPointRef.current, coordinates);
-          applyRouteStyles(map, routeLayersRef.current, selectedRouteIdRef.current ?? route.properties.id);
+          applyRouteStyles(map, routeLayersRef.current, selectedRouteIdRef.current ?? route.properties.id, routeVisualMode, enableRouteSnapping);
         });
       };
 
       const handleMouseLeave = () => {
+        if (!routeIsInteractive) {
+          return;
+        }
         if (containerRef.current) {
           containerRef.current.style.cursor = "";
         }
         updatePointMarker(hoverPointRef.current, null);
-        applyRouteStyles(map, routeLayersRef.current, selectedRouteIdRef.current);
+        applyRouteStyles(map, routeLayersRef.current, selectedRouteIdRef.current, routeVisualMode, enableRouteSnapping);
       };
 
       const handleClick = (event: MapLayerMouseEvent) => {
+        if (!routeIsInteractive) {
+          return;
+        }
         event.preventDefault();
         updateSelection(event, (coordinates) => {
           if (isDuplicateSelection(lastRouteSelectionRef.current, coordinates)) {
@@ -351,7 +359,7 @@ export default function MapContainer({
           };
           selectedRouteIdRef.current = route.properties.id;
           updatePointMarker(selectedPointRef.current, coordinates);
-          applyRouteStyles(map, routeLayersRef.current, route.properties.id);
+          applyRouteStyles(map, routeLayersRef.current, route.properties.id, routeVisualMode, enableRouteSnapping);
           onRoutePointSelect?.({
             routeId: route.properties.id,
             routeName: route.properties.name,
@@ -360,10 +368,12 @@ export default function MapContainer({
         });
       };
 
-      map.on("mouseenter", bodyLayerId, handleMouseEnter);
-      map.on("mousemove", bodyLayerId, handleMouseMove);
-      map.on("mouseleave", bodyLayerId, handleMouseLeave);
-      map.on("click", bodyLayerId, handleClick);
+      if (routeIsInteractive) {
+        map.on("mouseenter", bodyLayerId, handleMouseEnter);
+        map.on("mousemove", bodyLayerId, handleMouseMove);
+        map.on("mouseleave", bodyLayerId, handleMouseLeave);
+        map.on("click", bodyLayerId, handleClick);
+      }
 
       return {
         feature: route,
@@ -385,7 +395,7 @@ export default function MapContainer({
       updatePointMarker(selectedPointRef.current, null);
     }
 
-    applyRouteStyles(map, routeLayersRef.current, selectedRouteIdRef.current);
+    applyRouteStyles(map, routeLayersRef.current, selectedRouteIdRef.current, routeVisualMode, enableRouteSnapping);
 
     return () => {
       cleanupRoutes(map, routeLayers);
@@ -393,7 +403,7 @@ export default function MapContainer({
         routeLayersRef.current = [];
       }
     };
-  }, [routes, onRoutePointSelect, mapReady]);
+  }, [routes, onRoutePointSelect, mapReady, routeVisualMode, enableRouteSnapping]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -624,9 +634,9 @@ export default function MapContainer({
       source: PREVIEW_SOURCE_ID,
       paint: {
         "line-color": PREVIEW_COLOR,
-        "line-opacity": 0.18,
-        "line-width": 14,
-        "line-blur": 6,
+        "line-opacity": 0.1,
+        "line-width": 8,
+        "line-blur": 4,
       },
       layout: { "line-cap": "round", "line-join": "round" },
     });
@@ -636,9 +646,9 @@ export default function MapContainer({
       source: PREVIEW_SOURCE_ID,
       paint: {
         "line-color": PREVIEW_COLOR,
-        "line-opacity": 0.8,
-        "line-width": 3,
-        "line-dasharray": [4, 2],
+        "line-opacity": 0.55,
+        "line-width": 2.5,
+        "line-dasharray": [2, 3],
       },
       layout: { "line-cap": "round", "line-join": "round" },
     });
@@ -752,22 +762,40 @@ function cleanupRoutes(map: MapLibreMap, routeLayers: RouteLayerState[]) {
   });
 }
 
-function applyRouteStyles(map: MapLibreMap, routeLayers: RouteLayerState[], activeRouteId: string | null) {
+function applyRouteStyles(
+  map: MapLibreMap,
+  routeLayers: RouteLayerState[],
+  activeRouteId: string | null,
+  routeVisualMode: RouteVisualMode,
+  enableRouteSnapping: boolean,
+) {
   routeLayers.forEach((routeLayer) => {
     if (!map.getLayer(routeLayer.bodyLayerId) || !map.getLayer(routeLayer.casingLayerId)) {
       return;
     }
 
     const isActive = routeLayer.feature.properties.id === activeRouteId;
-    const baseColor = routeLayer.feature.properties.color ?? BASE_ROUTE_STYLE.strokeColor;
+    const style = resolveRouteStyle({
+      route: routeLayer.feature.properties,
+      visualMode: routeVisualMode,
+      routeColor: routeLayer.feature.properties.color,
+      isActive,
+      enableRouteSnapping,
+    });
 
-    map.setPaintProperty(routeLayer.bodyLayerId, "line-color", isActive ? ACTIVE_ROUTE_STYLE.strokeColor : baseColor);
-    map.setPaintProperty(routeLayer.bodyLayerId, "line-opacity", isActive ? ACTIVE_ROUTE_STYLE.strokeOpacity : BASE_ROUTE_STYLE.strokeOpacity);
-    map.setPaintProperty(routeLayer.bodyLayerId, "line-width", isActive ? ACTIVE_ROUTE_STYLE.strokeWidth : BASE_ROUTE_STYLE.strokeWidth);
+    map.setPaintProperty(routeLayer.bodyLayerId, "line-color", style.bodyColor);
+    map.setPaintProperty(routeLayer.bodyLayerId, "line-opacity", style.bodyOpacity);
+    map.setPaintProperty(routeLayer.bodyLayerId, "line-width", style.bodyWidth);
 
-    map.setPaintProperty(routeLayer.casingLayerId, "line-color", isActive ? ACTIVE_ROUTE_STYLE.strokeColor : baseColor);
-    map.setPaintProperty(routeLayer.casingLayerId, "line-width", isActive ? ACTIVE_ROUTE_STYLE.casingWidth : BASE_ROUTE_STYLE.casingWidth);
-    map.setPaintProperty(routeLayer.casingLayerId, "line-opacity", isActive ? 0.35 : BASE_ROUTE_STYLE.casingOpacity);
+    map.setPaintProperty(routeLayer.casingLayerId, "line-color", style.casingColor);
+    map.setPaintProperty(routeLayer.casingLayerId, "line-width", style.casingWidth);
+    map.setPaintProperty(routeLayer.casingLayerId, "line-opacity", style.casingOpacity);
+    map.setPaintProperty(routeLayer.casingLayerId, "line-blur", style.casingBlur);
+    if (map.getLayer(routeLayer.highlightLayerId)) {
+      map.setPaintProperty(routeLayer.highlightLayerId, "line-color", style.highlightColor);
+      map.setPaintProperty(routeLayer.highlightLayerId, "line-opacity", style.highlightOpacity);
+      map.setPaintProperty(routeLayer.highlightLayerId, "line-width", style.highlightWidth);
+    }
   });
 }
 
