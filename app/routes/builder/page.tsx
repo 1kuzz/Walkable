@@ -95,8 +95,6 @@ export default function RouteBuilderPage() {
 
   useEffect(() => {
     if (waypointPositions.length < 2) {
-      setDraftRouteState(emptyDraftRouteState);
-      setDraftStatus("idle");
       return;
     }
 
@@ -110,7 +108,11 @@ export default function RouteBuilderPage() {
 
     let cancelled = false;
     const requestId = ++draftRequestIdRef.current;
-    setDraftStatus("loading");
+    queueMicrotask(() => {
+      if (!cancelled && requestId === draftRequestIdRef.current) {
+        setDraftStatus("loading");
+      }
+    });
     getRoute(points, routeName || DEFAULT_DRAFT_ROUTE_NAME)
       .then((result) => {
         if (!cancelled && requestId === draftRequestIdRef.current) {
@@ -187,6 +189,7 @@ export default function RouteBuilderPage() {
     && Boolean(visibleDraftRoute)
     && draftStatus === "ready"
     && !publishing;
+  const visibleDraftStatus = waypointPositions.length < 2 ? "idle" : draftStatus;
   const waypointMarkers = useMemo(
     () =>
       waypoints.map((waypoint, index) => ({
@@ -236,7 +239,7 @@ export default function RouteBuilderPage() {
       setPublishError("Draft route geometry is invalid. Adjust waypoints and try again.");
       return;
     }
-    if (draftStatus === "loading") {
+    if (visibleDraftStatus === "loading") {
       setPublishError("Route is still being calculated. Please wait.");
       return;
     }
@@ -361,7 +364,7 @@ export default function RouteBuilderPage() {
             <p>📏 Distance: {visibleDistanceKm > 0 ? `${visibleDistanceKm.toFixed(1)} km` : "calculating…"}</p>
             <p>⏱️ Time: {visibleDurationMin > 0 ? `${visibleDurationMin} min` : "—"}</p>
             <p>🔥 Calories: {visibleDurationMin > 0 ? `${estimateCalories({ estimatedMin: visibleDurationMin, lengthKm: visibleDistanceKm })} kcal` : "—"}</p>
-            <p>🧭 Draft: {draftStatus === "idle" ? "add 2+ points" : draftStatus}</p>
+            <p>🧭 Draft: {visibleDraftStatus === "idle" ? "add 2+ points" : visibleDraftStatus}</p>
           </CardContent>
         </Card>
         <div>
