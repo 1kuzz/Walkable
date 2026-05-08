@@ -24,7 +24,9 @@ export async function GET(req: NextRequest) {
       },
       take: 50,
     });
-    return NextResponse.json(routes);
+    return NextResponse.json(routes, {
+      headers: { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300" },
+    });
   } catch (error) {
     logServerEvent("error", "routes.list_failed", {
       parkId,

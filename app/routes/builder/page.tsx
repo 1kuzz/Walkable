@@ -306,8 +306,14 @@ export default function RouteBuilderPage() {
             <div className="space-y-1">
               {waypoints.map((wp, i) => (
                 <div key={wp.id} className="flex items-center justify-between text-xs p-2 rounded border">
-                  <span>{wp.name || `Point ${i + 1}`}</span>
-                  <button onClick={() => setWaypoints((current) => current.filter((_, index) => index !== i))} className="text-destructive hover:underline" aria-label="Remove waypoint">×</button>
+                  <span className="truncate mr-2">{wp.name || `Point ${i + 1}`}</span>
+                  <button
+                    onClick={() => setWaypoints((current) => current.filter((_, index) => index !== i))}
+                    className="shrink-0 flex items-center justify-center min-w-[36px] min-h-[36px] rounded text-destructive hover:bg-destructive/10 active:scale-95 transition-all"
+                    aria-label={`Remove waypoint ${i + 1}`}
+                  >
+                    ×
+                  </button>
                 </div>
               ))}
             </div>

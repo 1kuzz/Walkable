@@ -9,6 +9,7 @@ import { parseRouteGeometry, type RouteFeature } from "@/lib/geo";
 const MapContainer = dynamic(() => import("@/components/map/MapContainer"), { ssr: false, loading: () => <Skeleton className="w-full h-full" /> });
 
 const defaultFilters: FilterState = { parkTypes: [], difficulties: [], maxLength: 20, sort: "popular" };
+const MD_BREAKPOINT = "(min-width: 768px)";
 
 interface ApiRoute {
   id: string;
@@ -17,9 +18,14 @@ interface ApiRoute {
   geometryGeoJson?: string | null;
 }
 
+function isDesktop() {
+  return typeof window !== "undefined" && window.matchMedia(MD_BREAKPOINT).matches;
+}
+
 export default function MapPage() {
   const [filters, setFilters] = useState<FilterState>(defaultFilters);
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  // Lazy initializer avoids setState-in-effect lint and handles SSR (returns false when window is undefined).
+  const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => isDesktop());
   const [routes, setRoutes] = useState<ApiRoute[]>([]);
   const [nextDestination, setNextDestination] = useState<{ routeName: string; coordinates: [number, number] } | null>(null);
 
@@ -37,10 +43,22 @@ export default function MapPage() {
   }, [routes]);
 
   return (
-    <div className="flex h-[calc(100vh-64px)] overflow-hidden">
-      <div className={`${sidebarOpen ? "w-80" : "w-0"} shrink-0 overflow-y-auto border-r bg-background transition-all duration-300 z-10`}>
+    <div className="flex h-[calc(100vh-64px)] overflow-hidden relative">
+      {/* Overlay for mobile when sidebar is open */}
+      {sidebarOpen && (
+        <div
+          className="absolute inset-0 bg-black/40 z-10 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
+        />
+      )}
+
+      <div className={`${sidebarOpen ? "translate-x-0" : "-translate-x-full"} md:translate-x-0 ${sidebarOpen ? "md:w-80" : "md:w-0"} absolute md:relative z-20 h-full w-80 shrink-0 overflow-y-auto border-r bg-background transition-transform md:transition-all duration-300`}>
         <div className="p-4">
-          <FilterSidebar filters={filters} onChange={setFilters} />
+          <FilterSidebar filters={filters} onChange={(f) => {
+            setFilters(f);
+            if (!isDesktop()) setSidebarOpen(false);
+          }} />
         </div>
       </div>
 
@@ -52,8 +70,8 @@ export default function MapPage() {
         />
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="absolute top-4 left-4 z-20 bg-background border rounded-lg p-2 shadow-md hover:bg-muted transition-colors"
-          aria-label="Toggle sidebar"
+          className="absolute top-4 left-4 z-20 bg-background border rounded-lg p-2.5 shadow-md hover:bg-muted active:scale-95 transition-all min-w-[44px] min-h-[44px] flex items-center justify-center"
+          aria-label="Toggle filters"
         >
           {sidebarOpen ? "◀" : "▶"}
         </button>
