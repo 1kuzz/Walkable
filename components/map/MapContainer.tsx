@@ -108,21 +108,23 @@ export default function MapContainer({
     });
     let cancelled = false;
     let resizeFrameId: number | null = null;
-    const resizeObserver = new ResizeObserver(() => {
-      if (cancelled) {
-        return;
-      }
-      if (resizeFrameId !== null) {
-        cancelAnimationFrame(resizeFrameId);
-      }
-      resizeFrameId = requestAnimationFrame(() => {
+    const resizeObserver = typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(() => {
         if (cancelled) {
           return;
         }
-        resizeFrameId = null;
-        map.resize();
+        if (resizeFrameId !== null) {
+          cancelAnimationFrame(resizeFrameId);
+        }
+        resizeFrameId = requestAnimationFrame(() => {
+          if (cancelled) {
+            return;
+          }
+          resizeFrameId = null;
+          map.resize();
+        });
       });
-    });
 
     const handleLoad = () => {
       if (cancelled) {
@@ -161,15 +163,15 @@ export default function MapContainer({
 
     map.on("load", handleLoad);
     map.on("error", handleError);
-    resizeObserver.observe(containerElement);
+    resizeObserver?.observe(containerElement);
 
     return () => {
       cancelled = true;
       setMapReady(false);
-      resizeObserver.disconnect();
       if (resizeFrameId !== null) {
         cancelAnimationFrame(resizeFrameId);
       }
+      resizeObserver?.disconnect();
       cleanupRoutes(map, routeLayersRef.current);
       routeLayersRef.current = [];
       waypointMarkers.clear();

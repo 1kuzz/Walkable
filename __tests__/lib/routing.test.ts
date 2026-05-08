@@ -117,4 +117,47 @@ describe("getRoute", () => {
     expect(second?.feature.properties.name).toBe("Second name");
     expect(second?.feature.geometry.coordinates).toEqual(first?.feature.geometry.coordinates);
   });
+
+  it("promotes a resolved in-flight request into the route cache", async () => {
+    let resolveFetch: ((value: {
+      ok: boolean;
+      json: () => Promise<{
+        code: string;
+        routes: Array<{
+          distance: number;
+          duration: number;
+          geometry: { coordinates: number[][] };
+        }>;
+      }>;
+    }) => void) | undefined;
+    const fetchMock = vi.fn().mockImplementation(() => new Promise((resolve) => {
+      resolveFetch = resolve;
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const firstPromise = getRoute([[37.61, 55.75], [37.62, 55.76]], "First");
+    const secondPromise = getRoute([[37.61, 55.75], [37.62, 55.76]], "Second");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    resolveFetch?.({
+      ok: true,
+      json: async () => ({
+        code: "Ok",
+        routes: [{
+          distance: 1200,
+          duration: 900,
+          geometry: {
+            coordinates: [[37.61, 55.75], [37.62, 55.76]],
+          },
+        }],
+      }),
+    });
+
+    await firstPromise;
+    await secondPromise;
+    await getRoute([[37.61, 55.75], [37.62, 55.76]], "Third");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });
