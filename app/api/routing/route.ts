@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getRoute } from "@/lib/routing";
 import type { GetRouteOptions } from "@/lib/routing";
+import { DEFAULT_ROUTE_NAME } from "@/lib/routing-defaults";
 import { logServerEvent, toErrorMessage } from "@/lib/server/logger";
 
 function isPosition(value: unknown): value is [number, number] {
@@ -56,6 +57,10 @@ function parseRouteOptions(value: unknown): GetRouteOptions | undefined {
 }
 
 export async function POST(req: NextRequest) {
+  let waypointCount: number | undefined;
+  let routeName: string | undefined;
+  let routePreference: "foot" | "park" | "walkable" | undefined;
+
   try {
     const payload = await req.json() as {
       waypoints?: unknown;
@@ -68,20 +73,26 @@ export async function POST(req: NextRequest) {
     if (!waypoints) {
       return NextResponse.json({ error: "Invalid waypoints payload." }, { status: 400 });
     }
+    waypointCount = waypoints.length;
 
     const name = typeof payload.name === "string" && payload.name.trim()
       ? payload.name.trim()
-      : "Updated route";
+      : DEFAULT_ROUTE_NAME;
+    routeName = name;
 
     const preference = payload.preference === "foot" || payload.preference === "park" || payload.preference === "walkable"
       ? payload.preference
       : "park";
+    routePreference = preference;
 
     const result = await getRoute(waypoints, name, preference, parseRouteOptions(payload.options));
     return NextResponse.json(result);
   } catch (error) {
     logServerEvent("error", "routing.calculate_failed", {
       error: toErrorMessage(error),
+      waypointCount,
+      routeName,
+      routePreference,
     });
     return NextResponse.json({ error: "Failed to calculate route" }, { status: 500 });
   }

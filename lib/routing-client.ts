@@ -1,4 +1,5 @@
 import type { Position } from "geojson";
+import { DEFAULT_ROUTE_NAME } from "@/lib/routing-defaults";
 import type { GetRouteOptions, RoutePreference, RoutedPath } from "@/lib/routing";
 
 interface RouteRequestPayload {
@@ -10,7 +11,7 @@ interface RouteRequestPayload {
 
 export async function getRouteFromApi(
   waypoints: Position[],
-  name = "Updated route",
+  name = DEFAULT_ROUTE_NAME,
   preference: RoutePreference = "park",
   options?: GetRouteOptions,
 ): Promise<RoutedPath | null> {

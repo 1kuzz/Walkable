@@ -1,5 +1,6 @@
 import type { Position } from "geojson";
 import type { RouteFeature } from "@/lib/geo";
+import { DEFAULT_ROUTE_NAME } from "@/lib/routing-defaults";
 
 export interface RoutedPath {
   feature: RouteFeature;
@@ -120,11 +121,14 @@ export function getRoutingFallbackMessage(diagnostics: RoutingDiagnostics | null
 
 export async function getRoute(
   waypoints: Position[],
-  name = "Updated route",
+  name = DEFAULT_ROUTE_NAME,
   preference: RoutePreference = "park",
   options?: GetRouteOptions,
 ): Promise<RoutedPath | null> {
   if (waypoints.length < 2) {
+    return null;
+  }
+  if (!waypoints.every(isValidWaypoint)) {
     return null;
   }
 
@@ -761,6 +765,15 @@ function normalizeCoordinates(value: unknown): Position[] {
       return [lng, lat] as Position;
     })
     .filter((point): point is Position => Boolean(point));
+}
+
+function isValidWaypoint(point: Position): boolean {
+  return Number.isFinite(point[0])
+    && Number.isFinite(point[1])
+    && point[0] >= -180
+    && point[0] <= 180
+    && point[1] >= -90
+    && point[1] <= 90;
 }
 
 function resolveWalkingOsrmProfile(): string {
