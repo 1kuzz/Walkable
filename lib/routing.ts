@@ -29,6 +29,12 @@ export interface RoutingDiagnostics {
   profile: string;
   preference: RoutePreference;
   quality: "preferred" | "fallback";
+  /**
+   * ORS fallback reasons for park preference:
+   * - ors_missing_key: no ORS API key configured
+   * - ors_error: ORS request failed
+   * - ors_no_geometry: ORS succeeded but returned unusable geometry
+   */
   fallbackReason?: "ors_missing_key" | "ors_error" | "ors_no_geometry";
 }
 

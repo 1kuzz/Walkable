@@ -633,6 +633,7 @@ export default function MapContainer({
       type: "line",
       source: PREVIEW_SOURCE_ID,
       paint: {
+        // Keep preview clearly secondary to the active draft route.
         "line-color": PREVIEW_COLOR,
         "line-opacity": 0.1,
         "line-width": 8,
@@ -645,6 +646,7 @@ export default function MapContainer({
       type: "line",
       source: PREVIEW_SOURCE_ID,
       paint: {
+        // Dashed and lighter than the draft route to avoid route-type confusion.
         "line-color": PREVIEW_COLOR,
         "line-opacity": 0.55,
         "line-width": 2.5,
