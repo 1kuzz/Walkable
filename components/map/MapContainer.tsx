@@ -31,8 +31,8 @@ const ACTIVE_ROUTE_STYLE = {
 };
 const HOVER_POINT_COLOR = "#facc15";
 const SELECTED_POINT_COLOR = "#f97316";
-const DUPLICATE_SELECTION_WINDOW_MS = 700;
-const DUPLICATE_SELECTION_EPSILON = 0.000001;
+const TAP_CLICK_DUPLICATE_WINDOW_MS = 700;
+const POSITION_PROXIMITY_EPSILON_DEGREES = 0.000001;
 
 export default function MapContainer({
   lat = 55.7558,
@@ -246,11 +246,12 @@ function createRouteLine(
       return false;
     }
 
-    const [lng, lat] = position;
-    const [lastLng, lastLat] = handlers.lastSelectionRef.current.position;
-    const isSameLocation = Math.abs(lng - lastLng) < DUPLICATE_SELECTION_EPSILON
-      && Math.abs(lat - lastLat) < DUPLICATE_SELECTION_EPSILON;
-    return isSameLocation && Date.now() - handlers.lastSelectionRef.current.timestamp < DUPLICATE_SELECTION_WINDOW_MS;
+    const isSameLocation = arePositionsNear(
+      position,
+      handlers.lastSelectionRef.current.position,
+      POSITION_PROXIMITY_EPSILON_DEGREES,
+    );
+    return isSameLocation && Date.now() - handlers.lastSelectionRef.current.timestamp < TAP_CLICK_DUPLICATE_WINDOW_MS;
   };
   const handleSelect = (coords: unknown) => {
     updateSelection(coords, (position) => {
@@ -337,4 +338,8 @@ function escapeHtml(value: string): string {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function arePositionsNear(a: Position, b: Position, epsilon: number): boolean {
+  return Math.abs(a[0] - b[0]) < epsilon && Math.abs(a[1] - b[1]) < epsilon;
 }
