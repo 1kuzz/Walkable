@@ -18,6 +18,7 @@ import {
   getRoute,
   getRoutingFallbackMessage,
   ROUTE_PREFERENCES,
+  type GetRouteOptions,
   type RoutePreference,
   type RoutingDiagnostics,
 } from "@/lib/routing";
@@ -130,6 +131,13 @@ export default function RouteBuilderPage() {
   }, []);
 
   const waypointPositions = useMemo<Position[]>(() => waypoints.map((waypoint) => [waypoint.lng, waypoint.lat]), [waypoints]);
+  const knownRouteGeometries: NonNullable<GetRouteOptions["knownRouteGeometries"]> = baseRoutes.reduce((acc, route) => {
+    const parsed = parseRouteGeometry(route.geometryGeoJson, { id: route.id, name: route.name });
+    if (parsed?.properties.id && parsed.geometry.coordinates.length >= 2) {
+      acc[parsed.properties.id] = parsed.geometry.coordinates;
+    }
+    return acc;
+  }, {} as NonNullable<GetRouteOptions["knownRouteGeometries"]>);
   const hoverPreviewResetKey = useMemo(
     () => createHoverPreviewResetKey(waypointPositions, routePreference),
     [waypointPositions, routePreference],
@@ -162,11 +170,14 @@ export default function RouteBuilderPage() {
       return;
     }
 
-    const points = [...waypointPositions];
+    const routingWaypoints: Array<{ position: Position; routeId?: string }> = waypoints.map((waypoint) => ({
+      position: [waypoint.lng, waypoint.lat] as Position,
+      routeId: waypoint.routeId,
+    }));
     if (effectiveSelectedSponsoredStopId) {
       const stop = sponsoredStops.find((item) => item.id === effectiveSelectedSponsoredStopId);
       if (stop) {
-        points.splice(1, 0, [stop.lng, stop.lat]);
+        routingWaypoints.splice(1, 0, { position: [stop.lng, stop.lat], routeId: undefined });
       }
     }
 
@@ -177,7 +188,15 @@ export default function RouteBuilderPage() {
         setDraftStatus("loading");
       }
     });
-    getRoute(points, routeName || DEFAULT_DRAFT_ROUTE_NAME, routePreference)
+    getRoute(
+      routingWaypoints.map((item) => item.position),
+      routeName || DEFAULT_DRAFT_ROUTE_NAME,
+      routePreference,
+      {
+        waypointHints: routingWaypoints.map((item) => ({ routeId: item.routeId })),
+        knownRouteGeometries,
+      },
+    )
       .then((result) => {
         if (!cancelled && requestId === draftRequestIdRef.current) {
           setDraftRouteState(
@@ -212,7 +231,7 @@ export default function RouteBuilderPage() {
     return () => {
       cancelled = true;
     };
-  }, [effectiveSelectedSponsoredStopId, routeName, routePreference, sponsoredStops, waypointPositions]);
+  }, [effectiveSelectedSponsoredStopId, knownRouteGeometries, routeName, routePreference, sponsoredStops, waypointPositions, waypoints]);
 
   useEffect(() => {
     if (!includeFoodStops) {
@@ -460,7 +479,10 @@ export default function RouteBuilderPage() {
     const requestId = ++hoverRequestIdRef.current;
     hoverDebounceTimerRef.current = setTimeout(() => {
       hoverDebounceTimerRef.current = null;
-      getRoute([from, coordinates], "Preview", routePreference)
+      getRoute([from, coordinates], "Preview", routePreference, {
+        waypointHints: [{ routeId: lastWaypoint.routeId }, {}],
+        knownRouteGeometries,
+      })
         .then((result) => {
           if (requestId !== hoverRequestIdRef.current || !result) {
             return;
@@ -481,7 +503,7 @@ export default function RouteBuilderPage() {
           // Silently ignore preview routing errors.
         });
     }, HOVER_PREVIEW_DEBOUNCE_MS);
-  }, [waypoints, routePreference]);
+  }, [knownRouteGeometries, waypoints, routePreference]);
 
   return (
     <div className="flex h-[calc(100vh-64px)] overflow-hidden">
@@ -541,7 +563,11 @@ export default function RouteBuilderPage() {
               {routingDiagnostics
                 ? routingDiagnostics.provider === "ors"
                   ? `OpenRouteService (${routingDiagnostics.profile})`
-                  : `OSRM (${routingDiagnostics.profile})`
+                  : routingDiagnostics.provider === "osrm"
+                    ? `OSRM (${routingDiagnostics.profile})`
+                    : routingDiagnostics.provider === "community"
+                      ? `Community path geometry (${routingDiagnostics.profile})`
+                      : `Hybrid community + network (${routingDiagnostics.profile})`
                 : "Waiting for route update…"}
             </p>
             {routingFallbackMessage && (

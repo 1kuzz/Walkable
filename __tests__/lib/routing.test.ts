@@ -340,6 +340,67 @@ describe("getRoute", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it("prefers community route geometry for park legs when both waypoints are on the same route", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getRoute(
+      [[37.61, 55.75], [37.613, 55.753]],
+      "Community leg",
+      "park",
+      {
+        waypointHints: [{ routeId: "route-1" }, { routeId: "route-1" }],
+        knownRouteGeometries: {
+          "route-1": [[37.61, 55.75], [37.6115, 55.7515], [37.613, 55.753]],
+        },
+      },
+    );
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(result?.routing).toMatchObject({
+      provider: "community",
+      quality: "preferred",
+      preference: "park",
+    });
+  });
+
+  it("uses hybrid diagnostics when community and network legs are combined", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        code: "Ok",
+        routes: [{
+          distance: 700,
+          duration: 500,
+          geometry: {
+            coordinates: [[37.613, 55.753], [37.616, 55.756]],
+          },
+        }],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getRoute(
+      [[37.61, 55.75], [37.613, 55.753], [37.616, 55.756]],
+      "Hybrid leg",
+      "park",
+      {
+        waypointHints: [{ routeId: "route-1" }, { routeId: "route-1" }, {}],
+        knownRouteGeometries: {
+          "route-1": [[37.61, 55.75], [37.6115, 55.7515], [37.613, 55.753]],
+        },
+      },
+    );
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result?.routing).toMatchObject({
+      provider: "hybrid",
+      quality: "fallback",
+      fallbackReason: "ors_missing_key",
+      preference: "park",
+    });
+  });
+
   it("returns explicit fallback message for missing park-aware routing configuration", () => {
     const message = getRoutingFallbackMessage({
       provider: "osrm",
