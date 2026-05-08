@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import type { Position } from "geojson";
 import { nearestPointOnRoute, type RouteFeature, type SponsoredStopMapItem } from "@/lib/geo";
 import { cn } from "@/lib/utils";
@@ -31,6 +31,8 @@ const ACTIVE_ROUTE_STYLE = {
 };
 const HOVER_POINT_COLOR = "#facc15";
 const SELECTED_POINT_COLOR = "#f97316";
+const DUPLICATE_EVENT_WINDOW_MS = 400;
+const POSITION_PROXIMITY_EPSILON_DEGREES = 0.000001;
 
 export default function MapContainer({
   lat = 55.7558,
@@ -53,6 +55,7 @@ export default function MapContainer({
   const routeObjectsRef = useRef<Array<{ feature: RouteFeature; line: YandexGeoObject }>>([]);
   const sponsoredStopObjectsRef = useRef<YandexGeoObject[]>([]);
   const selectedRouteIdRef = useRef<string | null>(null);
+  const lastRouteSelectionRef = useRef<{ position: Position; timestamp: number } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -132,10 +135,11 @@ export default function MapContainer({
 
     routeObjectsRef.current.forEach(({ line }) => map.geoObjects.remove(line));
     routeObjectsRef.current = routes.map((route) => {
-      const line = createRouteLine(route, {
-        onHover: (coordinates) => {
-          updatePointMarker(hoverPointRef.current, coordinates);
-          applyRouteStyles(routeObjectsRef.current, selectedRouteIdRef.current ?? route.properties.id);
+        const line = createRouteLine(route, {
+          lastSelectionRef: lastRouteSelectionRef,
+          onHover: (coordinates) => {
+            updatePointMarker(hoverPointRef.current, coordinates);
+            applyRouteStyles(routeObjectsRef.current, selectedRouteIdRef.current ?? route.properties.id);
           if (containerRef.current) {
             containerRef.current.style.cursor = "pointer";
           }
@@ -212,6 +216,7 @@ export default function MapContainer({
 function createRouteLine(
   route: RouteFeature,
   handlers: {
+    lastSelectionRef: MutableRefObject<{ position: Position; timestamp: number } | null>;
     onHover: (coordinates: Position) => void;
     onLeave: () => void;
     onSelect: (coordinates: Position) => void;
@@ -236,10 +241,41 @@ function createRouteLine(
     callback(snapped.coordinates);
   };
 
+  const isDuplicateSelection = (position: Position) => {
+    if (!handlers.lastSelectionRef.current) {
+      return false;
+    }
+
+    const selectionAgeMs = Date.now() - handlers.lastSelectionRef.current.timestamp;
+    if (selectionAgeMs >= DUPLICATE_EVENT_WINDOW_MS) {
+      return false;
+    }
+
+    return arePositionsNear(
+      position,
+      handlers.lastSelectionRef.current.position,
+      POSITION_PROXIMITY_EPSILON_DEGREES,
+    );
+  };
+  const handleSelect = (coords: unknown) => {
+    updateSelection(coords, (position) => {
+      if (isDuplicateSelection(position)) {
+        return;
+      }
+
+      handlers.lastSelectionRef.current = {
+        position,
+        timestamp: Date.now(),
+      };
+      handlers.onSelect(position);
+    });
+  };
+
   line.events.add("mouseenter", (event) => updateSelection(event.get("coords"), handlers.onHover));
   line.events.add("mousemove", (event) => updateSelection(event.get("coords"), handlers.onHover));
   line.events.add("mouseleave", () => handlers.onLeave());
-  line.events.add("click", (event) => updateSelection(event.get("coords"), handlers.onSelect));
+  line.events.add("click", (event) => handleSelect(event.get("coords")));
+  line.events.add("tap", (event) => handleSelect(event.get("coords")));
 
   return line;
 }
@@ -306,4 +342,8 @@ function escapeHtml(value: string): string {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function arePositionsNear(a: Position, b: Position, epsilon: number): boolean {
+  return Math.abs(a[0] - b[0]) < epsilon && Math.abs(a[1] - b[1]) < epsilon;
 }

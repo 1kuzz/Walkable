@@ -371,7 +371,7 @@ export default function RouteBuilderPage() {
           }}
         />
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-background/90 backdrop-blur rounded-lg px-4 py-2 text-sm text-muted-foreground shadow">
-          Tap a route to snap in your next waypoint.
+          Tap or click a route to snap in your next waypoint.
         </div>
       </div>
     </div>
