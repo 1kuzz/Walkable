@@ -532,7 +532,7 @@ export default function RouteBuilderPage() {
               <span className="font-medium">Provider:</span>{" "}
               {routingDiagnostics
                 ? routingDiagnostics.provider === "ors"
-                  ? "OpenRouteService (foot-walking)"
+                  ? `OpenRouteService (${routingDiagnostics.profile})`
                   : `OSRM (${routingDiagnostics.profile})`
                 : "Waiting for route update…"}
             </p>

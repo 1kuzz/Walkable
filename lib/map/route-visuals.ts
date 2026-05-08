@@ -64,6 +64,7 @@ export function resolveRouteStyle({
   isActive: boolean;
   enableRouteSnapping: boolean;
 }): ResolvedRouteStyle {
+  // Treat missing source as a persisted/community route to preserve existing defaults.
   const source = route.source ?? "route";
   const isDraftLike = source === "draft" || source === "reroute";
   const isCommunity = source === "route";
