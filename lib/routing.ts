@@ -42,6 +42,7 @@ interface OrsGeoJsonResponse {
 
 const ROUTE_CACHE_TTL_MS = 5 * 60 * 1000;
 const ROUTE_CACHE_MAX_ENTRIES = 50;
+const WALKING_OSRM_PROFILES = new Set(["foot", "walking", "pedestrian", "hiking"]);
 const routeCache = new Map<string, { value: CachedRoutedPath | null; expiresAt: number }>();
 const inFlightRouteRequests = new Map<string, Promise<CachedRoutedPath | null>>();
 
@@ -55,10 +56,11 @@ export async function getRoute(
   }
 
   const osrmBaseUrl = (process.env.NEXT_PUBLIC_OSRM_BASE_URL ?? "https://router.project-osrm.org").replace(/\/+$/, "");
+  const osrmProfile = resolveWalkingOsrmProfile();
   const coordinates = waypoints
     .map(([lng, lat]) => `${lng},${lat}`)
     .join(";");
-  const cacheKey = `${preference}|${osrmBaseUrl}|${coordinates}`;
+  const cacheKey = `${preference}|${osrmBaseUrl}|${osrmProfile}|${coordinates}`;
 
   evictExpiredRouteCacheEntries();
 
@@ -74,7 +76,7 @@ export async function getRoute(
     return buildRoutedPath(result, name, waypoints.length);
   }
 
-  const request = fetchRoute(osrmBaseUrl, coordinates, waypoints, preference);
+  const request = fetchRoute(osrmBaseUrl, osrmProfile, coordinates, waypoints, preference);
   inFlightRouteRequests.set(cacheKey, request);
 
   try {
@@ -101,6 +103,7 @@ export function clearRouteCache() {
  */
 async function fetchRoute(
   osrmBaseUrl: string,
+  osrmProfile: string,
   coordinates: string,
   waypoints: Position[],
   preference: RoutePreference,
@@ -115,12 +118,12 @@ async function fetchRoute(
       }
     }
   }
-  return fetchRouteFromOsrm(osrmBaseUrl, coordinates);
+  return fetchRouteFromOsrm(osrmBaseUrl, osrmProfile, coordinates);
 }
 
-async function fetchRouteFromOsrm(osrmBaseUrl: string, coordinates: string): Promise<CachedRoutedPath | null> {
+async function fetchRouteFromOsrm(osrmBaseUrl: string, osrmProfile: string, coordinates: string): Promise<CachedRoutedPath | null> {
 
-  const url = new URL(`${osrmBaseUrl}/route/v1/foot/${coordinates}`);
+  const url = new URL(`${osrmBaseUrl}/route/v1/${osrmProfile}/${coordinates}`);
   url.searchParams.set("overview", "full");
   url.searchParams.set("geometries", "geojson");
 
@@ -267,4 +270,12 @@ function normalizeCoordinates(value: unknown): Position[] {
       return [lng, lat] as Position;
     })
     .filter((point): point is Position => Boolean(point));
+}
+
+function resolveWalkingOsrmProfile(): string {
+  const configuredProfile = process.env.NEXT_PUBLIC_OSRM_PROFILE?.trim().toLowerCase();
+  if (!configuredProfile) {
+    return "foot";
+  }
+  return WALKING_OSRM_PROFILES.has(configuredProfile) ? configuredProfile : "foot";
 }

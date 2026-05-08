@@ -5,6 +5,7 @@ describe("getRoute", () => {
   afterEach(() => {
     clearRouteCache();
     vi.unstubAllGlobals();
+    delete process.env.NEXT_PUBLIC_OSRM_PROFILE;
   });
 
   it("returns null when there are fewer than two waypoints", async () => {
@@ -53,6 +54,52 @@ describe("getRoute", () => {
       distanceKm: 1.2,
       durationMin: 15,
     });
+  });
+
+  it("uses a pedestrian OSRM profile from env", async () => {
+    process.env.NEXT_PUBLIC_OSRM_PROFILE = "walking";
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        code: "Ok",
+        routes: [{
+          distance: 1200,
+          duration: 900,
+          geometry: {
+            coordinates: [[37.61, 55.75], [37.62, 55.76]],
+          },
+        }],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getRoute([[37.61, 55.75], [37.62, 55.76]]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/route/v1/walking/");
+  });
+
+  it("ignores non-pedestrian OSRM profiles and falls back to foot", async () => {
+    process.env.NEXT_PUBLIC_OSRM_PROFILE = "driving";
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        code: "Ok",
+        routes: [{
+          distance: 1200,
+          duration: 900,
+          geometry: {
+            coordinates: [[37.61, 55.75], [37.62, 55.76]],
+          },
+        }],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getRoute([[37.61, 55.75], [37.62, 55.76]]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/route/v1/foot/");
   });
 
   it("throws when OSRM request fails", async () => {
