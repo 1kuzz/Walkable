@@ -106,6 +106,7 @@ export default function MapContainer({
       center: [initialView.lng, initialView.lat],
       zoom: initialView.zoom,
     });
+    let cancelled = false;
     let resizeFrameId: number | null = null;
     const resizeObserver = new ResizeObserver(() => {
       if (cancelled) {
@@ -122,8 +123,6 @@ export default function MapContainer({
         map.resize();
       });
     });
-
-    let cancelled = false;
 
     const handleLoad = () => {
       if (cancelled) {

@@ -146,6 +146,7 @@ function evictExpiredRouteCacheEntries() {
 }
 
 function trimRouteCache() {
+  // Accessed entries are re-inserted via touchRouteCacheEntry, so insertion order reflects LRU order here.
   while (routeCache.size > ROUTE_CACHE_MAX_ENTRIES) {
     const oldestKey = routeCache.keys().next().value;
     if (!oldestKey) {
