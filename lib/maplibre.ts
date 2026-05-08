@@ -14,6 +14,8 @@ export const WALKABLE_ROAD_COLOR = "#6baed6";
 export const WALKABLE_PARK_COLOR = "#22c55e";
 export const WALKWAY_COLOR = "#d7e8c7";
 
+// Transportation classes treated as roads and explicitly excluded from the
+// pathway layer rendering.
 const ROAD_TRANSPORT_CLASSES: string[] = [
   "motorway",
   "trunk",
@@ -32,6 +34,7 @@ const ROAD_TRANSPORT_CLASSES: string[] = [
   "tertiary_link",
 ];
 
+// Primary transportation classes that should appear as non-road pathways.
 const PATHWAY_TRANSPORT_CLASSES: string[] = [
   "path",
   "pedestrian",
@@ -43,6 +46,7 @@ const PATHWAY_TRANSPORT_CLASSES: string[] = [
   "corridor",
 ];
 
+// Subclass-level pathway tags used by some vector tile features.
 const PATHWAY_TRANSPORT_SUBCLASSES: string[] = [
   "path",
   "pedestrian",
@@ -56,6 +60,7 @@ const PATHWAY_TRANSPORT_SUBCLASSES: string[] = [
   "corridor",
 ];
 
+// Non-path transport classes to exclude (rail, ferry, aerial, etc.).
 const NON_PATH_TRANSPORT_CLASSES: string[] = [
   "rail",
   "transit",
@@ -65,6 +70,7 @@ const NON_PATH_TRANSPORT_CLASSES: string[] = [
   "taxiway",
 ];
 
+// Non-path transport subclasses to exclude from pathway rendering.
 const NON_PATH_TRANSPORT_SUBCLASSES: string[] = [
   "rail",
   "railway",
@@ -78,6 +84,8 @@ const NON_PATH_TRANSPORT_SUBCLASSES: string[] = [
   "gondola",
   "chair_lift",
 ];
+
+const PATHWAY_DASHARRAY = [2, 1.25];
 
 export function createSatelliteStyle(): StyleSpecification {
   return {
@@ -312,7 +320,7 @@ export function createVectorStyle(): StyleSpecification {
           "line-color": VECTOR_FOOTPATH_COLOR,
           "line-opacity": 0.95,
           "line-width": ["interpolate", ["linear"], ["zoom"], 10, 1.2, 13, 2.2, 16, 4],
-          "line-dasharray": [2, 1.25],
+          "line-dasharray": PATHWAY_DASHARRAY,
         },
       },
     ],
