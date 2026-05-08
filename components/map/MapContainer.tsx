@@ -368,7 +368,7 @@ export default function MapContainer({
 
     cleanupRoutes(map, routeLayersRef.current);
 
-    const routeLayers: RouteLayerState[] = routes.map((route, index) => {
+    const routeLayers: RouteLayerState[] = routes.flatMap((route, index) => {
       const routeId = sanitizeLayerId(route.properties.id || `route-${index}`);
       const sourceId = `${routeId}-${index}-source`;
       const casingLayerId = `${routeId}-${index}-casing`;
@@ -382,56 +382,66 @@ export default function MapContainer({
         enableRouteSnapping,
       });
 
-      map.addSource(sourceId, {
-        type: "geojson",
-        data: route,
-      });
+      try {
+        map.addSource(sourceId, {
+          type: "geojson",
+          data: route,
+        });
 
-      map.addLayer({
-        id: casingLayerId,
-        type: "line",
-        source: sourceId,
-        paint: {
-          "line-color": initialStyle.casingColor,
-          "line-opacity": initialStyle.casingOpacity,
-          "line-width": initialStyle.casingWidth,
-          "line-blur": initialStyle.casingBlur,
-        },
-        layout: {
-          "line-cap": "round",
-          "line-join": "round",
-        },
-      });
+        map.addLayer({
+          id: casingLayerId,
+          type: "line",
+          source: sourceId,
+          paint: {
+            "line-color": initialStyle.casingColor,
+            "line-opacity": initialStyle.casingOpacity,
+            "line-width": initialStyle.casingWidth,
+            "line-blur": initialStyle.casingBlur,
+          },
+          layout: {
+            "line-cap": "round",
+            "line-join": "round",
+          },
+        });
 
-      map.addLayer({
-        id: bodyLayerId,
-        type: "line",
-        source: sourceId,
-        paint: {
-          "line-color": initialStyle.bodyColor,
-          "line-opacity": initialStyle.bodyOpacity,
-          "line-width": initialStyle.bodyWidth,
-        },
-        layout: {
-          "line-cap": "round",
-          "line-join": "round",
-        },
-      });
+        map.addLayer({
+          id: bodyLayerId,
+          type: "line",
+          source: sourceId,
+          paint: {
+            "line-color": initialStyle.bodyColor,
+            "line-opacity": initialStyle.bodyOpacity,
+            "line-width": initialStyle.bodyWidth,
+          },
+          layout: {
+            "line-cap": "round",
+            "line-join": "round",
+          },
+        });
 
-      map.addLayer({
-        id: highlightLayerId,
-        type: "line",
-        source: sourceId,
-        paint: {
-          "line-color": initialStyle.highlightColor,
-          "line-opacity": initialStyle.highlightOpacity,
-          "line-width": initialStyle.highlightWidth,
-        },
-        layout: {
-          "line-cap": "round",
-          "line-join": "round",
-        },
-      });
+        map.addLayer({
+          id: highlightLayerId,
+          type: "line",
+          source: sourceId,
+          paint: {
+            "line-color": initialStyle.highlightColor,
+            "line-opacity": initialStyle.highlightOpacity,
+            "line-width": initialStyle.highlightWidth,
+          },
+          layout: {
+            "line-cap": "round",
+            "line-join": "round",
+          },
+        });
+      } catch (err) {
+        console.warn(`[MapContainer] Failed to add route layer for "${route.properties.id}":`, err);
+        // Clean up any partial additions before returning an empty slot.
+        if (map.getLayer(highlightLayerId)) map.removeLayer(highlightLayerId);
+        if (map.getLayer(bodyLayerId)) map.removeLayer(bodyLayerId);
+        if (map.getLayer(casingLayerId)) map.removeLayer(casingLayerId);
+        if (map.getSource(sourceId)) map.removeSource(sourceId);
+        return [];
+      }
 
       const updateSelection = (event: MapLayerMouseEvent, callback: (position: Position) => void) => {
         const snapped = nearestPointOnRoute(route, [event.lngLat.lng, event.lngLat.lat]);
@@ -504,7 +514,7 @@ export default function MapContainer({
         map.on("click", bodyLayerId, handleClick);
       }
 
-      return {
+      return [{
         feature: route,
         sourceId,
         casingLayerId,
@@ -514,7 +524,7 @@ export default function MapContainer({
         handleMouseMove,
         handleMouseLeave,
         handleClick,
-      };
+      }];
     });
 
     routeLayersRef.current = routeLayers;

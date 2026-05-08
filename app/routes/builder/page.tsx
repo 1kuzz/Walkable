@@ -427,7 +427,7 @@ export default function RouteBuilderPage() {
     }
   };
 
-  const addWaypoint = (waypoint: Omit<BuilderWaypoint, "id">) => {
+  const addWaypoint = useCallback((waypoint: Omit<BuilderWaypoint, "id">) => {
     setWaypoints((current) => {
       if (current.length >= MAX_WAYPOINTS) {
         return current;
@@ -444,7 +444,7 @@ export default function RouteBuilderPage() {
         },
       ];
     });
-  };
+  }, []);
 
   const handleCopyShareLink = async () => {
     setShareError(null);
@@ -464,6 +464,29 @@ export default function RouteBuilderPage() {
       setShareError("Could not copy the link. Please copy it manually.");
     }
   };
+
+  const handleMapPointSelect = useCallback((coordinates: Position) => {
+    setHoverPreviewRoute(null);
+    addWaypoint({
+      lat: coordinates[1],
+      lng: coordinates[0],
+      name: `Point ${waypoints.length + 1}`,
+    });
+  }, [addWaypoint, waypoints.length]);
+
+  const handleRoutePointSelect = useCallback(({ routeId, routeName: selectedRouteName, coordinates }: { routeId: string; routeName: string; coordinates: Position }) => {
+    setHoverPreviewRoute(null);
+    addWaypoint({
+      lat: coordinates[1],
+      lng: coordinates[0],
+      name: `${selectedRouteName} · Point ${waypoints.length + 1}`,
+      routeId,
+    });
+  }, [addWaypoint, waypoints.length]);
+
+  const handleSponsoredStopSelect = useCallback((stop: SponsoredStopMapItem) => {
+    setSelectedSponsoredStopId(stop.id);
+  }, []);
 
   /**
    * Fires on every map mousemove (desktop).
@@ -791,24 +814,9 @@ export default function RouteBuilderPage() {
             onMapStatusChange={setMapStatus}
             onPathwayDiagnosticsChange={setPathwayDiagnostics}
             onMapHover={handleMapHover}
-            onMapPointSelect={(coordinates) => {
-              setHoverPreviewRoute(null);
-              addWaypoint({
-                lat: coordinates[1],
-                lng: coordinates[0],
-                name: `Point ${waypoints.length + 1}`,
-              });
-            }}
-            onSponsoredStopSelect={(stop) => setSelectedSponsoredStopId(stop.id)}
-            onRoutePointSelect={({ routeId, routeName: selectedRouteName, coordinates }) => {
-              setHoverPreviewRoute(null);
-              addWaypoint({
-                lat: coordinates[1],
-                lng: coordinates[0],
-                name: `${selectedRouteName} · Point ${waypoints.length + 1}`,
-                routeId,
-              });
-            }}
+            onMapPointSelect={handleMapPointSelect}
+            onSponsoredStopSelect={handleSponsoredStopSelect}
+            onRoutePointSelect={handleRoutePointSelect}
           />
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-background/90 backdrop-blur rounded-lg px-4 py-2 text-sm text-muted-foreground shadow">
           {snapToRoutes
