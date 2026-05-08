@@ -60,8 +60,17 @@ interface MapContainerProps {
   onSponsoredStopSelect?: (stop: SponsoredStopMapItem) => void;
   /** Fires on every mousemove over the map canvas (desktop only). */
   onMapHover?: (coordinates: Position) => void;
+  onPathwayDiagnosticsChange?: (diagnostics: PathwayDiagnostics) => void;
   routeVisualMode?: RouteVisualMode;
   enableRouteSnapping?: boolean;
+}
+
+export interface PathwayDiagnostics {
+  styleMode: MapStyleMode;
+  vectorSourceLoaded: boolean;
+  pathLayerPresent: boolean;
+  visiblePathFeatureCount: number;
+  status: "satellite_mode" | "source_loading" | "layer_missing" | "no_visible_paths" | "paths_visible";
 }
 const HOVER_POINT_COLOR = "#facc15";
 const SELECTED_POINT_COLOR = "#f97316";
@@ -101,6 +110,7 @@ export default function MapContainer({
   onRoutePointSelect,
   onSponsoredStopSelect,
   onMapHover,
+  onPathwayDiagnosticsChange,
   routeVisualMode = "default",
   enableRouteSnapping = true,
 }: MapContainerProps) {
@@ -109,6 +119,7 @@ export default function MapContainer({
   const containerRef = useRef<HTMLDivElement>(null);
   const [mapReady, setMapReady] = useState(false);
   const [styleMode, setStyleMode] = useState<MapStyleMode>("walkable");
+  const [pathwayDiagnostics, setPathwayDiagnostics] = useState<PathwayDiagnostics | null>(null);
   const styleModeRef = useRef<MapStyleMode>("walkable");
   const routeLayersRef = useRef<RouteLayerState[]>([]);
   const waypointMarkersRef = useRef<Map<string, { marker: Marker; label: HTMLSpanElement }>>(new Map());
@@ -245,6 +256,33 @@ export default function MapContainer({
       }
     });
   }, [styleMode]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) {
+      return;
+    }
+
+    const emitDiagnostics = () => {
+      const diagnostics = collectPathwayDiagnostics(map, styleMode);
+      setPathwayDiagnostics(diagnostics);
+      onPathwayDiagnosticsChange?.(diagnostics);
+    };
+
+    emitDiagnostics();
+
+    map.on("moveend", emitDiagnostics);
+    map.on("zoomend", emitDiagnostics);
+    map.on("styledata", emitDiagnostics);
+    map.on("sourcedata", emitDiagnostics);
+
+    return () => {
+      map.off("moveend", emitDiagnostics);
+      map.off("zoomend", emitDiagnostics);
+      map.off("styledata", emitDiagnostics);
+      map.off("sourcedata", emitDiagnostics);
+    };
+  }, [mapReady, onPathwayDiagnosticsChange, styleMode]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -834,8 +872,94 @@ export default function MapContainer({
           )}
         </div>
       )}
+      {pathwayDiagnostics && pathwayDiagnostics.status !== "paths_visible" && (
+        <aside
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className="absolute bottom-16 left-2 z-10 max-w-sm rounded-md border bg-background/90 px-3 py-1.5 text-xs text-muted-foreground shadow backdrop-blur"
+        >
+          {describePathwayDiagnostics(pathwayDiagnostics)}
+        </aside>
+      )}
     </div>
   );
+}
+
+function collectPathwayDiagnostics(map: MapLibreMap, styleMode: MapStyleMode): PathwayDiagnostics {
+  if (styleMode === "satellite") {
+    return {
+      styleMode,
+      vectorSourceLoaded: false,
+      pathLayerPresent: false,
+      visiblePathFeatureCount: 0,
+      status: "satellite_mode",
+    };
+  }
+
+  const vectorSourceLoaded = Boolean(map.getSource("openmaptiles")) && map.isSourceLoaded("openmaptiles");
+  const pathLayerPresent = Boolean(map.getLayer("walkable-paths"));
+  const visiblePathFeatureCount = pathLayerPresent
+    ? safelyCountRenderedPathFeatures(map)
+    : 0;
+
+  if (!vectorSourceLoaded) {
+    return {
+      styleMode,
+      vectorSourceLoaded,
+      pathLayerPresent,
+      visiblePathFeatureCount,
+      status: "source_loading",
+    };
+  }
+  if (!pathLayerPresent) {
+    return {
+      styleMode,
+      vectorSourceLoaded,
+      pathLayerPresent,
+      visiblePathFeatureCount,
+      status: "layer_missing",
+    };
+  }
+  if (visiblePathFeatureCount === 0) {
+    return {
+      styleMode,
+      vectorSourceLoaded,
+      pathLayerPresent,
+      visiblePathFeatureCount,
+      status: "no_visible_paths",
+    };
+  }
+  return {
+    styleMode,
+    vectorSourceLoaded,
+    pathLayerPresent,
+    visiblePathFeatureCount,
+    status: "paths_visible",
+  };
+}
+
+function safelyCountRenderedPathFeatures(map: MapLibreMap): number {
+  try {
+    return map.queryRenderedFeatures(undefined, { layers: ["walkable-paths"] }).length;
+  } catch {
+    return 0;
+  }
+}
+
+function describePathwayDiagnostics(diagnostics: PathwayDiagnostics): string {
+  switch (diagnostics.status) {
+    case "source_loading":
+      return "Loading pedestrian vector data for this map view.";
+    case "layer_missing":
+      return "Pedestrian pathway layer is unavailable in the current style.";
+    case "no_visible_paths":
+      return "No pedestrian vector pathways are visible in this area or zoom level.";
+    case "satellite_mode":
+      return "Satellite view hides vector pathway overlays.";
+    case "paths_visible":
+      return `Pedestrian pathways visible: ${diagnostics.visiblePathFeatureCount}.`;
+  }
 }
 
 function sanitizeLayerId(value: string): string {

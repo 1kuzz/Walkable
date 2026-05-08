@@ -25,7 +25,7 @@ interface CachedRoutedPath {
 }
 
 export interface RoutingDiagnostics {
-  provider: "ors" | "osrm";
+  provider: "ors" | "osrm" | "community" | "hybrid";
   profile: string;
   preference: RoutePreference;
   quality: "preferred" | "fallback";
@@ -35,7 +35,18 @@ export interface RoutingDiagnostics {
    * - ors_error: ORS request failed
    * - ors_no_geometry: ORS succeeded but returned unusable geometry
    */
-  fallbackReason?: "ors_missing_key" | "ors_error" | "ors_no_geometry";
+  fallbackReason?: RoutingFallbackReason;
+}
+
+export type RoutingFallbackReason = "ors_missing_key" | "ors_error" | "ors_no_geometry";
+
+export interface RouteWaypointHint {
+  routeId?: string | null;
+}
+
+export interface GetRouteOptions {
+  waypointHints?: RouteWaypointHint[];
+  knownRouteGeometries?: Record<string, Position[]>;
 }
 
 interface OsrmResponse {
@@ -58,14 +69,37 @@ interface OrsGeoJsonResponse {
 
 const ROUTE_CACHE_TTL_MS = 5 * 60 * 1000;
 const ROUTE_CACHE_MAX_ENTRIES = 50;
+const MIN_ROUTE_DURATION_MINUTES = 1;
+const WALKING_SPEED_KMH = 5;
 const WALKING_OSRM_PROFILES = new Set(["foot", "walking", "pedestrian", "hiking"]);
 const routeCache = new Map<string, { value: CachedRoutedPath | null; expiresAt: number }>();
 const inFlightRouteRequests = new Map<string, Promise<CachedRoutedPath | null>>();
+
+export function getRoutingFallbackMessage(diagnostics: RoutingDiagnostics | null): string | null {
+  if (!diagnostics || diagnostics.preference !== "park" || diagnostics.quality !== "fallback") {
+    return null;
+  }
+
+  if (!diagnostics.fallbackReason) {
+    // Defensive guard for partially-populated diagnostics payloads.
+    return "Park-aware routing is unavailable; using standard walking network.";
+  }
+
+  switch (diagnostics.fallbackReason) {
+    case "ors_missing_key":
+      return "Park-aware routing provider is not configured; using standard walking network.";
+    case "ors_error":
+      return "Park-aware routing provider is temporarily unavailable; using standard walking network.";
+    case "ors_no_geometry":
+      return "Park-aware routing returned no usable park-path geometry; using standard walking network.";
+  }
+}
 
 export async function getRoute(
   waypoints: Position[],
   name = "Updated route",
   preference: RoutePreference = "park",
+  options?: GetRouteOptions,
 ): Promise<RoutedPath | null> {
   if (waypoints.length < 2) {
     return null;
@@ -76,7 +110,10 @@ export async function getRoute(
   const coordinates = waypoints
     .map(([lng, lat]) => `${lng},${lat}`)
     .join(";");
-  const cacheKey = `${preference}|${osrmBaseUrl}|${osrmProfile}|${coordinates}`;
+  const hintsKey = options?.waypointHints
+    ?.map((hint, index) => `${index}:${hint.routeId ?? "-"}`)
+    .join("|");
+  const cacheKey = `${preference}|${osrmBaseUrl}|${osrmProfile}|${coordinates}|${hintsKey ?? ""}`;
 
   evictExpiredRouteCacheEntries();
 
@@ -92,7 +129,7 @@ export async function getRoute(
     return buildRoutedPath(result, name, waypoints.length);
   }
 
-  const request = fetchRoute(osrmBaseUrl, osrmProfile, coordinates, waypoints, preference);
+  const request = fetchRoute(osrmBaseUrl, osrmProfile, coordinates, waypoints, preference, options);
   inFlightRouteRequests.set(cacheKey, request);
 
   try {
@@ -123,32 +160,16 @@ async function fetchRoute(
   coordinates: string,
   waypoints: Position[],
   preference: RoutePreference,
+  options?: GetRouteOptions,
 ): Promise<CachedRoutedPath | null> {
   if (preference === "park") {
-    const orsApiKey = process.env.NEXT_PUBLIC_ORS_API_KEY;
-    if (orsApiKey) {
-      try {
-        const orsResult = await fetchRouteFromOrs(orsApiKey, waypoints, preference);
-        if (orsResult) {
-          return orsResult;
-        }
-        return fetchRouteFromOsrm(osrmBaseUrl, osrmProfile, coordinates, {
-          preference,
-          quality: "fallback",
-          fallbackReason: "ors_no_geometry",
-        });
-      } catch {
-        return fetchRouteFromOsrm(osrmBaseUrl, osrmProfile, coordinates, {
-          preference,
-          quality: "fallback",
-          fallbackReason: "ors_error",
-        });
-      }
-    }
-    return fetchRouteFromOsrm(osrmBaseUrl, osrmProfile, coordinates, {
+    return fetchSegmentedParkRoute({
+      osrmBaseUrl,
+      osrmProfile,
+      waypoints,
       preference,
-      quality: "fallback",
-      fallbackReason: "ors_missing_key",
+      waypointHints: options?.waypointHints,
+      knownRouteGeometries: options?.knownRouteGeometries,
     });
   }
   return fetchRouteFromOsrm(osrmBaseUrl, osrmProfile, coordinates, {
@@ -224,7 +245,7 @@ async function fetchRouteFromOrs(apiKey: string, waypoints: Position[], preferen
       body: JSON.stringify({
         coordinates: waypoints,
         preference: "recommended",
-        options: { avoid_features: ["highways", "tollways"] },
+        options: { avoid_features: ["highways", "tollways", "ferries", "fords"] },
       }),
     },
   );
@@ -259,6 +280,268 @@ async function fetchRouteFromOrs(apiKey: string, waypoints: Position[], preferen
       quality: "preferred",
     },
   };
+}
+
+async function fetchSegmentedParkRoute({
+  osrmBaseUrl,
+  osrmProfile,
+  waypoints,
+  preference,
+  waypointHints,
+  knownRouteGeometries,
+}: {
+  osrmBaseUrl: string;
+  osrmProfile: string;
+  waypoints: Position[];
+  preference: RoutePreference;
+  waypointHints?: RouteWaypointHint[];
+  knownRouteGeometries?: Record<string, Position[]>;
+}): Promise<CachedRoutedPath | null> {
+  const legResults: CachedRoutedPath[] = [];
+  for (let index = 0; index < waypoints.length - 1; index += 1) {
+    const legStart = waypoints[index];
+    const legEnd = waypoints[index + 1];
+    const startHint = waypointHints?.[index];
+    const endHint = waypointHints?.[index + 1];
+
+    const preferredCommunityLeg = buildCommunityLeg(
+      legStart,
+      legEnd,
+      startHint,
+      endHint,
+      knownRouteGeometries,
+      preference,
+    );
+    if (preferredCommunityLeg) {
+      legResults.push(preferredCommunityLeg);
+      continue;
+    }
+
+    const networkLeg = await fetchParkNetworkLeg({
+      osrmBaseUrl,
+      osrmProfile,
+      legStart,
+      legEnd,
+      preference,
+    });
+    if (!networkLeg) {
+      return null;
+    }
+    legResults.push(networkLeg);
+  }
+
+  return combineLegResults(legResults, preference);
+}
+
+async function fetchParkNetworkLeg({
+  osrmBaseUrl,
+  osrmProfile,
+  legStart,
+  legEnd,
+  preference,
+}: {
+  osrmBaseUrl: string;
+  osrmProfile: string;
+  legStart: Position;
+  legEnd: Position;
+  preference: RoutePreference;
+}): Promise<CachedRoutedPath | null> {
+  const coordinates = `${legStart[0]},${legStart[1]};${legEnd[0]},${legEnd[1]}`;
+  const orsApiKey = process.env.NEXT_PUBLIC_ORS_API_KEY;
+  if (orsApiKey) {
+    try {
+      const orsResult = await fetchRouteFromOrs(orsApiKey, [legStart, legEnd], preference);
+      if (orsResult) {
+        return orsResult;
+      }
+      return fetchRouteFromOsrm(osrmBaseUrl, osrmProfile, coordinates, {
+        preference,
+        quality: "fallback",
+        fallbackReason: "ors_no_geometry",
+      });
+    } catch {
+      return fetchRouteFromOsrm(osrmBaseUrl, osrmProfile, coordinates, {
+        preference,
+        quality: "fallback",
+        fallbackReason: "ors_error",
+      });
+    }
+  }
+  return fetchRouteFromOsrm(osrmBaseUrl, osrmProfile, coordinates, {
+    preference,
+    quality: "fallback",
+    fallbackReason: "ors_missing_key",
+  });
+}
+
+function buildCommunityLeg(
+  legStart: Position,
+  legEnd: Position,
+  startHint: RouteWaypointHint | undefined,
+  endHint: RouteWaypointHint | undefined,
+  knownRouteGeometries: Record<string, Position[]> | undefined,
+  preference: RoutePreference,
+): CachedRoutedPath | null {
+  if (!knownRouteGeometries || !startHint?.routeId || startHint.routeId !== endHint?.routeId) {
+    return null;
+  }
+
+  const routeCoordinates = knownRouteGeometries[startHint.routeId];
+  if (!Array.isArray(routeCoordinates) || routeCoordinates.length < 2) {
+    return null;
+  }
+
+  const slicedCoordinates = sliceRouteBetweenNearestVertices(routeCoordinates, legStart, legEnd);
+  if (slicedCoordinates.length < 2) {
+    return null;
+  }
+
+  const distanceKm = computePathDistanceKm(slicedCoordinates);
+  const durationMin = Math.max(MIN_ROUTE_DURATION_MINUTES, Math.round((distanceKm / WALKING_SPEED_KMH) * 60));
+  return {
+    coordinates: slicedCoordinates,
+    distanceKm,
+    durationMin,
+    routing: {
+      provider: "community",
+      profile: "community-path",
+      preference,
+      quality: "preferred",
+    },
+  };
+}
+
+function combineLegResults(legs: CachedRoutedPath[], preference: RoutePreference): CachedRoutedPath | null {
+  if (legs.length === 0) {
+    return null;
+  }
+
+  const coordinates: Position[] = [];
+  let distanceKm = 0;
+  let durationMin = 0;
+  let hasCommunity = false;
+  let hasOrs = false;
+  let hasOsrm = false;
+  let hasFallback = false;
+  let fallbackReason: RoutingFallbackReason | undefined;
+
+  legs.forEach((leg, legIndex) => {
+    leg.coordinates.forEach((coordinate, coordinateIndex) => {
+      if (legIndex > 0 && coordinateIndex === 0) {
+        return;
+      }
+      coordinates.push(coordinate);
+    });
+    distanceKm += leg.distanceKm;
+    durationMin += leg.durationMin;
+    hasCommunity ||= leg.routing.provider === "community";
+    hasOrs ||= leg.routing.provider === "ors";
+    hasOsrm ||= leg.routing.provider === "osrm";
+    hasFallback ||= leg.routing.quality === "fallback";
+    if (!fallbackReason && leg.routing.fallbackReason) {
+      fallbackReason = leg.routing.fallbackReason;
+    }
+  });
+
+  let provider: RoutingDiagnostics["provider"];
+  if (hasCommunity && (hasOrs || hasOsrm)) {
+    provider = "hybrid";
+  } else if (hasCommunity) {
+    provider = "community";
+  } else if (hasOrs) {
+    provider = "ors";
+  } else {
+    provider = "osrm";
+  }
+
+  let profile: string;
+  if (provider === "hybrid") {
+    profile = ["community-path", hasOrs ? "foot-walking" : null, hasOsrm ? "foot" : null].filter(Boolean).join("+");
+  } else if (provider === "community") {
+    profile = "community-path";
+  } else if (provider === "ors") {
+    profile = "foot-walking";
+  } else {
+    profile = "foot";
+  }
+
+  return {
+    coordinates,
+    distanceKm,
+    durationMin: Math.max(MIN_ROUTE_DURATION_MINUTES, Math.round(durationMin)),
+    routing: {
+      provider,
+      profile,
+      preference,
+      quality: hasFallback ? "fallback" : "preferred",
+      fallbackReason,
+    },
+  };
+}
+
+function sliceRouteBetweenNearestVertices(routeCoordinates: Position[], legStart: Position, legEnd: Position): Position[] {
+  const startIndex = findNearestVertexIndex(routeCoordinates, legStart);
+  const endIndex = findNearestVertexIndex(routeCoordinates, legEnd);
+  if (startIndex < 0 || endIndex < 0) {
+    return [];
+  }
+
+  const minIndex = Math.min(startIndex, endIndex);
+  const maxIndex = Math.max(startIndex, endIndex);
+  const coreSegment = routeCoordinates.slice(minIndex, maxIndex + 1);
+  const orientedCoreSegment = startIndex <= endIndex ? coreSegment : [...coreSegment].reverse();
+  return dedupeSequentialCoordinates([legStart, ...orientedCoreSegment, legEnd]);
+}
+
+function dedupeSequentialCoordinates(coordinates: Position[]): Position[] {
+  return coordinates.filter((coordinate, index) => {
+    if (index === 0) {
+      return true;
+    }
+    const previous = coordinates[index - 1];
+    return previous[0] !== coordinate[0] || previous[1] !== coordinate[1];
+  });
+}
+
+function findNearestVertexIndex(routeCoordinates: Position[], target: Position): number {
+  let nearestIndex = -1;
+  let nearestDistance = Number.POSITIVE_INFINITY;
+  routeCoordinates.forEach((coordinate, index) => {
+    const distance = squaredDistance(coordinate, target);
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      nearestIndex = index;
+    }
+  });
+  return nearestIndex;
+}
+
+function squaredDistance(a: Position, b: Position): number {
+  const lngDelta = a[0] - b[0];
+  const latDelta = a[1] - b[1];
+  return lngDelta * lngDelta + latDelta * latDelta;
+}
+
+function computePathDistanceKm(coordinates: Position[]): number {
+  let distanceKm = 0;
+  for (let index = 1; index < coordinates.length; index += 1) {
+    distanceKm += haversineDistanceKm(coordinates[index - 1], coordinates[index]);
+  }
+  return distanceKm;
+}
+
+function haversineDistanceKm(a: Position, b: Position): number {
+  const toRadians = (degrees: number) => (degrees * Math.PI) / 180;
+  const earthRadiusKm = 6371;
+  const dLat = toRadians(b[1] - a[1]);
+  const dLng = toRadians(b[0] - a[0]);
+  const lat1 = toRadians(a[1]);
+  const lat2 = toRadians(b[1]);
+  const sinLat = Math.sin(dLat / 2);
+  const sinLng = Math.sin(dLng / 2);
+  const haversine = sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLng * sinLng;
+  const c = 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
+  return earthRadiusKm * c;
 }
 
 function buildRoutedPath(result: CachedRoutedPath | null, name: string, waypointCount: number): RoutedPath | null {

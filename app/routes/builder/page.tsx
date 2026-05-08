@@ -13,7 +13,15 @@ import ParkWaypointPicker from "@/components/routes/ParkWaypointPicker";
 import { estimateCalories } from "@/lib/calories";
 import { parseRouteGeometry, type RouteFeature, type SponsoredStopMapItem } from "@/lib/geo";
 import { createHoverPreviewResetKey } from "@/lib/routes/hover-preview";
-import { getRoute, ROUTE_PREFERENCES, type RoutePreference, type RoutingDiagnostics } from "@/lib/routing";
+import type { PathwayDiagnostics } from "@/components/map/MapContainer";
+import {
+  getRoute,
+  getRoutingFallbackMessage,
+  ROUTE_PREFERENCES,
+  type GetRouteOptions,
+  type RoutePreference,
+  type RoutingDiagnostics,
+} from "@/lib/routing";
 
 const MapContainer = dynamic(() => import("@/components/map/MapContainer"), {
   ssr: false,
@@ -87,6 +95,7 @@ export default function RouteBuilderPage() {
   const [snapToRoutes, setSnapToRoutes] = useState(false);
   const [draftRoutingDiagnostics, setDraftRoutingDiagnostics] = useState<RoutingDiagnostics | null>(null);
   const [hoverRoutingDiagnostics, setHoverRoutingDiagnostics] = useState<RoutingDiagnostics | null>(null);
+  const [pathwayDiagnostics, setPathwayDiagnostics] = useState<PathwayDiagnostics | null>(null);
   const draftRequestIdRef = useRef(0);
   const [hoverPreviewRoute, setHoverPreviewRoute] = useState<RouteFeature | null>(null);
   const hoverDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -122,6 +131,20 @@ export default function RouteBuilderPage() {
   }, []);
 
   const waypointPositions = useMemo<Position[]>(() => waypoints.map((waypoint) => [waypoint.lng, waypoint.lat]), [waypoints]);
+  const knownRouteGeometries = useMemo<NonNullable<GetRouteOptions["knownRouteGeometries"]>>(
+    () => Object.fromEntries(
+      baseRoutes
+        .map((route) => parseRouteGeometry(route.geometryGeoJson, { id: route.id, name: route.name }))
+        .filter((feature): feature is RouteFeature => {
+          if (!feature) {
+            return false;
+          }
+          return feature.geometry.coordinates.length >= 2;
+        })
+        .map((feature) => [feature.properties.id, feature.geometry.coordinates] as const),
+    ),
+    [baseRoutes],
+  );
   const hoverPreviewResetKey = useMemo(
     () => createHoverPreviewResetKey(waypointPositions, routePreference),
     [waypointPositions, routePreference],
@@ -154,11 +177,14 @@ export default function RouteBuilderPage() {
       return;
     }
 
-    const points = [...waypointPositions];
+    const routingWaypoints: Array<{ position: Position; routeId?: string }> = waypoints.map((waypoint) => ({
+      position: [waypoint.lng, waypoint.lat] as Position,
+      routeId: waypoint.routeId,
+    }));
     if (effectiveSelectedSponsoredStopId) {
       const stop = sponsoredStops.find((item) => item.id === effectiveSelectedSponsoredStopId);
       if (stop) {
-        points.splice(1, 0, [stop.lng, stop.lat]);
+        routingWaypoints.splice(1, 0, { position: [stop.lng, stop.lat], routeId: undefined });
       }
     }
 
@@ -169,7 +195,15 @@ export default function RouteBuilderPage() {
         setDraftStatus("loading");
       }
     });
-    getRoute(points, routeName || DEFAULT_DRAFT_ROUTE_NAME, routePreference)
+    getRoute(
+      routingWaypoints.map((item) => item.position),
+      routeName || DEFAULT_DRAFT_ROUTE_NAME,
+      routePreference,
+      {
+        waypointHints: routingWaypoints.map((item) => ({ routeId: item.routeId })),
+        knownRouteGeometries,
+      },
+    )
       .then((result) => {
         if (!cancelled && requestId === draftRequestIdRef.current) {
           setDraftRouteState(
@@ -204,7 +238,7 @@ export default function RouteBuilderPage() {
     return () => {
       cancelled = true;
     };
-  }, [effectiveSelectedSponsoredStopId, routeName, routePreference, sponsoredStops, waypointPositions]);
+  }, [effectiveSelectedSponsoredStopId, knownRouteGeometries, routeName, routePreference, sponsoredStops, waypointPositions, waypoints]);
 
   useEffect(() => {
     if (!includeFoodStops) {
@@ -264,7 +298,7 @@ export default function RouteBuilderPage() {
     && !publishing;
   const visibleDraftStatus = waypointPositions.length < 2 ? "idle" : draftStatus;
   const routingDiagnostics = waypointPositions.length < 2 ? null : (draftRoutingDiagnostics ?? hoverRoutingDiagnostics);
-  const isRoutingFallbackActive = routePreference === "park" && routingDiagnostics?.provider === "osrm";
+  const routingFallbackMessage = getRoutingFallbackMessage(routingDiagnostics);
   const waypointMarkers = useMemo(
     () =>
       waypoints.map((waypoint, index) => ({
@@ -452,7 +486,10 @@ export default function RouteBuilderPage() {
     const requestId = ++hoverRequestIdRef.current;
     hoverDebounceTimerRef.current = setTimeout(() => {
       hoverDebounceTimerRef.current = null;
-      getRoute([from, coordinates], "Preview", routePreference)
+      getRoute([from, coordinates], "Preview", routePreference, {
+        waypointHints: [{ routeId: lastWaypoint.routeId }, {}],
+        knownRouteGeometries,
+      })
         .then((result) => {
           if (requestId !== hoverRequestIdRef.current || !result) {
             return;
@@ -473,7 +510,7 @@ export default function RouteBuilderPage() {
           // Silently ignore preview routing errors.
         });
     }, HOVER_PREVIEW_DEBOUNCE_MS);
-  }, [waypoints, routePreference]);
+  }, [knownRouteGeometries, waypoints, routePreference]);
 
   return (
     <div className="flex h-[calc(100vh-64px)] overflow-hidden">
@@ -533,14 +570,21 @@ export default function RouteBuilderPage() {
               {routingDiagnostics
                 ? routingDiagnostics.provider === "ors"
                   ? `OpenRouteService (${routingDiagnostics.profile})`
-                  : `OSRM (${routingDiagnostics.profile})`
+                  : routingDiagnostics.provider === "osrm"
+                    ? `OSRM (${routingDiagnostics.profile})`
+                    : routingDiagnostics.provider === "community"
+                      ? `Community path geometry (${routingDiagnostics.profile})`
+                      : `Hybrid community + network (${routingDiagnostics.profile})`
                 : "Waiting for route update…"}
             </p>
-            {isRoutingFallbackActive && (
+            {routingFallbackMessage && (
               <p className="text-amber-600 dark:text-amber-400">
-                Park-aware pedestrian routing is unavailable right now; using walking road-network fallback.
+                {routingFallbackMessage}
               </p>
             )}
+            <p className="text-muted-foreground">
+              <span className="font-medium">Pathway visibility:</span> {describePathwayDiagnostics(pathwayDiagnostics)}
+            </p>
             {waypoints.length > 0 && (
               <p className="text-muted-foreground">
                 Dashed green line is hover preview only; the orange line is your draft route.
@@ -721,6 +765,7 @@ export default function RouteBuilderPage() {
             routeVisualMode="builder"
             enableRouteSnapping={snapToRoutes}
             onMapStatusChange={setMapStatus}
+            onPathwayDiagnosticsChange={setPathwayDiagnostics}
             onMapHover={handleMapHover}
             onMapPointSelect={(coordinates) => {
               setHoverPreviewRoute(null);
@@ -775,4 +820,23 @@ function swapArrayItems<T>(input: T[], fromIndex: number, toIndex: number): T[] 
   const next = [...input];
   [next[fromIndex], next[toIndex]] = [next[toIndex], next[fromIndex]];
   return next;
+}
+
+function describePathwayDiagnostics(diagnostics: PathwayDiagnostics | null): string {
+  if (!diagnostics) {
+    return "Waiting for map diagnostics…";
+  }
+  if (diagnostics.status === "satellite_mode") {
+    return "Satellite view hides vector pathway overlays; switch to Vector or Walkable to inspect path data.";
+  }
+  if (diagnostics.status === "source_loading") {
+    return "Vector pathway data is still loading for this viewport.";
+  }
+  if (diagnostics.status === "layer_missing") {
+    return "Pathway layer is unavailable in the current style.";
+  }
+  if (diagnostics.status === "no_visible_paths") {
+    return "No pedestrian vector pathways are visible in this area or at this zoom level.";
+  }
+  return `${diagnostics.visiblePathFeatureCount} pedestrian vector pathway segments are visible in the current viewport.`;
 }

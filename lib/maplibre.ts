@@ -1,4 +1,4 @@
-import type { GeoJSONSource, LngLatLike, Map, StyleSpecification } from "maplibre-gl";
+import type { FilterSpecification, GeoJSONSource, LngLatLike, Map, StyleSpecification } from "maplibre-gl";
 
 export type { GeoJSONSource, LngLatLike, Map };
 
@@ -86,6 +86,22 @@ const NON_PATH_TRANSPORT_SUBCLASSES: string[] = [
 ];
 
 const PATHWAY_DASHARRAY = [2, 1.25];
+
+export function createWalkablePathFilter(): FilterSpecification {
+  return [
+    "all",
+    ["==", ["geometry-type"], "LineString"],
+    [
+      "any",
+      ["match", ["get", "class"], PATHWAY_TRANSPORT_CLASSES, true, false],
+      ["match", ["get", "subclass"], PATHWAY_TRANSPORT_SUBCLASSES, true, false],
+    ],
+    ["!", ["match", ["get", "class"], ROAD_TRANSPORT_CLASSES, true, false]],
+    ["!", ["match", ["get", "subclass"], ROAD_TRANSPORT_CLASSES, true, false]],
+    ["!", ["match", ["get", "class"], NON_PATH_TRANSPORT_CLASSES, true, false]],
+    ["!", ["match", ["get", "subclass"], NON_PATH_TRANSPORT_SUBCLASSES, true, false]],
+  ] as FilterSpecification;
+}
 
 export function createSatelliteStyle(): StyleSpecification {
   return {
@@ -302,19 +318,7 @@ export function createVectorStyle(): StyleSpecification {
         type: "line",
         source: "openmaptiles",
         "source-layer": "transportation",
-        filter: [
-          "all",
-          ["==", ["geometry-type"], "LineString"],
-          [
-            "any",
-            ["match", ["get", "class"], PATHWAY_TRANSPORT_CLASSES, true, false],
-            ["match", ["get", "subclass"], PATHWAY_TRANSPORT_SUBCLASSES, true, false],
-          ],
-          ["!", ["match", ["get", "class"], ROAD_TRANSPORT_CLASSES, true, false]],
-          ["!", ["match", ["get", "subclass"], ROAD_TRANSPORT_CLASSES, true, false]],
-          ["!", ["match", ["get", "class"], NON_PATH_TRANSPORT_CLASSES, true, false]],
-          ["!", ["match", ["get", "subclass"], NON_PATH_TRANSPORT_SUBCLASSES, true, false]],
-        ],
+        filter: createWalkablePathFilter(),
         layout: { "line-cap": "round", "line-join": "round" },
         paint: {
           "line-color": VECTOR_FOOTPATH_COLOR,
@@ -442,13 +446,7 @@ export function createWalkableStyle(): StyleSpecification {
         type: "line",
         source: "openmaptiles",
         "source-layer": "transportation",
-        filter: [
-          "match",
-          ["get", "class"],
-          ["path", "pedestrian", "footway", "cycleway", "steps", "track", "bridleway"],
-          true,
-          false,
-        ],
+        filter: createWalkablePathFilter(),
         layout: { "line-cap": "round", "line-join": "round" },
         paint: {
           "line-color": "#f5f0e8",
