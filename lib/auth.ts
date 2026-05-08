@@ -6,10 +6,28 @@ import GitHubProvider from "next-auth/providers/github";
 import { db } from "@/lib/db";
 import { logServerEvent } from "@/lib/server/logger";
 
+const DEFAULT_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30; // 30 days
+const DEFAULT_SESSION_UPDATE_AGE_SECONDS = 60 * 60 * 24; // 1 day
+
 const hasGoogleOAuth = Boolean(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET);
 const hasGithubOAuth = Boolean(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_SECRET);
 const hasNextAuthConfig = Boolean(process.env.NEXTAUTH_SECRET && process.env.NEXTAUTH_URL);
 const nextAuthUrlValue = process.env.NEXTAUTH_URL;
+const sessionMaxAge = Number.parseInt(
+  process.env.NEXTAUTH_SESSION_MAX_AGE_SECONDS ?? `${DEFAULT_SESSION_MAX_AGE_SECONDS}`,
+  10,
+);
+const sessionUpdateAge = Number.parseInt(
+  process.env.NEXTAUTH_SESSION_UPDATE_AGE_SECONDS ?? `${DEFAULT_SESSION_UPDATE_AGE_SECONDS}`,
+  10,
+);
+
+const normalizedSessionMaxAge = Number.isFinite(sessionMaxAge) && sessionMaxAge > 0
+  ? sessionMaxAge
+  : DEFAULT_SESSION_MAX_AGE_SECONDS;
+const normalizedSessionUpdateAge = Number.isFinite(sessionUpdateAge) && sessionUpdateAge >= 0
+  ? sessionUpdateAge
+  : DEFAULT_SESSION_UPDATE_AGE_SECONDS;
 
 if (!hasGoogleOAuth && !hasGithubOAuth) {
   logServerEvent("warn", "auth.providers_missing", {
@@ -55,7 +73,14 @@ export const authOptions: NextAuthOptions = {
       clientSecret: process.env.GITHUB_CLIENT_SECRET ?? "",
     }),
   ],
-  session: { strategy: "jwt" },
+  session: {
+    strategy: "jwt",
+    maxAge: normalizedSessionMaxAge,
+    updateAge: normalizedSessionUpdateAge,
+  },
+  jwt: {
+    maxAge: normalizedSessionMaxAge,
+  },
   callbacks: {
     async session({ session, token }) {
       if (session.user && token.sub) {
