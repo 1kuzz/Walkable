@@ -15,13 +15,13 @@ import { parseRouteGeometry, type RouteFeature, type SponsoredStopMapItem } from
 import { createHoverPreviewResetKey } from "@/lib/routes/hover-preview";
 import type { PathwayDiagnostics } from "@/components/map/MapContainer";
 import {
-  getRoute,
   getRoutingFallbackMessage,
   ROUTE_PREFERENCES,
   type GetRouteOptions,
   type RoutePreference,
   type RoutingDiagnostics,
 } from "@/lib/routing";
+import { getRouteFromApi } from "@/lib/routing-client";
 import {
   WALKABLE_FOOTPATH_COLOR,
   WALKABLE_ROAD_CASING_COLOR,
@@ -200,7 +200,7 @@ export default function RouteBuilderPage() {
         setDraftStatus("loading");
       }
     });
-    getRoute(
+    getRouteFromApi(
       routingWaypoints.map((item) => item.position),
       routeName || DEFAULT_DRAFT_ROUTE_NAME,
       routePreference,
@@ -493,7 +493,7 @@ export default function RouteBuilderPage() {
     const requestId = ++hoverRequestIdRef.current;
     hoverDebounceTimerRef.current = setTimeout(() => {
       hoverDebounceTimerRef.current = null;
-      getRoute([from, coordinates], "Preview", routePreference, {
+      getRouteFromApi([from, coordinates], "Preview", routePreference, {
         waypointHints: [{ routeId: lastWaypoint.routeId }, {}],
         knownRouteGeometries,
       })
