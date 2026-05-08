@@ -30,8 +30,16 @@ export async function getRouteFromApi(
   });
 
   if (!response.ok) {
-    const details = await response.text().catch(() => "");
-    throw new Error(`Failed to fetch directions (${response.status})${details ? `: ${details}` : ""}`);
+    let details = "";
+    let detailReadFailed = false;
+    try {
+      details = await response.text();
+    } catch {
+      detailReadFailed = true;
+    }
+    throw new Error(
+      `Failed to fetch directions (${response.status})${details ? `: ${details}` : ""}${detailReadFailed ? " [response body unavailable]" : ""}`,
+    );
   }
 
   return response.json() as Promise<RoutedPath | null>;

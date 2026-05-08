@@ -1,16 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getRoute } from "@/lib/routing";
-import type { GetRouteOptions } from "@/lib/routing";
+import type { GetRouteOptions, RoutePreference } from "@/lib/routing";
 import { DEFAULT_ROUTE_NAME } from "@/lib/routing-defaults";
+import { isValidRoutePosition } from "@/lib/routing-coordinates";
 import { logServerEvent, toErrorMessage } from "@/lib/server/logger";
 
 function isPosition(value: unknown): value is [number, number] {
   return Array.isArray(value)
     && value.length >= 2
     && typeof value[0] === "number"
-    && Number.isFinite(value[0])
     && typeof value[1] === "number"
-    && Number.isFinite(value[1]);
+    && isValidRoutePosition([value[0], value[1]]);
 }
 
 function parseWaypoints(value: unknown): Array<[number, number]> | null {
@@ -59,7 +59,7 @@ function parseRouteOptions(value: unknown): GetRouteOptions | undefined {
 export async function POST(req: NextRequest) {
   let waypointCount: number | undefined;
   let routeName: string | undefined;
-  let routePreference: "foot" | "park" | "walkable" | undefined;
+  let routePreference: RoutePreference | undefined;
 
   try {
     const payload = await req.json() as {
