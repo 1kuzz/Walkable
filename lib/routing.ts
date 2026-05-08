@@ -7,6 +7,15 @@ export interface RoutedPath {
   durationMin: number;
 }
 
+/** How the router should prefer the path. */
+export type RoutePreference = "foot" | "park";
+
+/** Options shown in the route-builder preference selector. */
+export const ROUTE_PREFERENCES: Array<{ value: RoutePreference; label: string }> = [
+  { value: "foot", label: "Standard walking" },
+  { value: "park", label: "Park & paths (avoid large roads)" },
+];
+
 interface CachedRoutedPath {
   coordinates: Position[];
   distanceKm: number;
@@ -24,12 +33,23 @@ interface OsrmResponse {
   }>;
 }
 
+interface OrsGeoJsonResponse {
+  features?: Array<{
+    geometry?: { coordinates?: unknown };
+    properties?: { summary?: { distance?: number; duration?: number } };
+  }>;
+}
+
 const ROUTE_CACHE_TTL_MS = 5 * 60 * 1000;
 const ROUTE_CACHE_MAX_ENTRIES = 50;
 const routeCache = new Map<string, { value: CachedRoutedPath | null; expiresAt: number }>();
 const inFlightRouteRequests = new Map<string, Promise<CachedRoutedPath | null>>();
 
-export async function getRoute(waypoints: Position[], name = "Updated route"): Promise<RoutedPath | null> {
+export async function getRoute(
+  waypoints: Position[],
+  name = "Updated route",
+  preference: RoutePreference = "foot",
+): Promise<RoutedPath | null> {
   if (waypoints.length < 2) {
     return null;
   }
@@ -38,7 +58,7 @@ export async function getRoute(waypoints: Position[], name = "Updated route"): P
   const coordinates = waypoints
     .map(([lng, lat]) => `${lng},${lat}`)
     .join(";");
-  const cacheKey = `${osrmBaseUrl}|${coordinates}`;
+  const cacheKey = `${preference}|${osrmBaseUrl}|${coordinates}`;
 
   evictExpiredRouteCacheEntries();
 
@@ -54,7 +74,7 @@ export async function getRoute(waypoints: Position[], name = "Updated route"): P
     return buildRoutedPath(result, name, waypoints.length);
   }
 
-  const request = fetchRouteFromOsrm(osrmBaseUrl, coordinates);
+  const request = fetchRoute(osrmBaseUrl, coordinates, waypoints, preference);
   inFlightRouteRequests.set(cacheKey, request);
 
   try {
@@ -75,11 +95,36 @@ export function clearRouteCache() {
   inFlightRouteRequests.clear();
 }
 
+/**
+ * Dispatches routing to ORS (park preference, when API key is available) or OSRM.
+ * Falls back to OSRM if ORS is unavailable or fails.
+ */
+async function fetchRoute(
+  osrmBaseUrl: string,
+  coordinates: string,
+  waypoints: Position[],
+  preference: RoutePreference,
+): Promise<CachedRoutedPath | null> {
+  if (preference === "park") {
+    const orsApiKey = process.env.NEXT_PUBLIC_ORS_API_KEY;
+    if (orsApiKey) {
+      try {
+        return await fetchRouteFromOrs(orsApiKey, waypoints);
+      } catch {
+        // Fall through to OSRM
+      }
+    }
+  }
+  return fetchRouteFromOsrm(osrmBaseUrl, coordinates);
+}
+
 async function fetchRouteFromOsrm(osrmBaseUrl: string, coordinates: string): Promise<CachedRoutedPath | null> {
 
   const url = new URL(`${osrmBaseUrl}/route/v1/foot/${coordinates}`);
   url.searchParams.set("overview", "full");
   url.searchParams.set("geometries", "geojson");
+  url.searchParams.set("annotations", "true");
+  url.searchParams.set("steps", "true");
 
   const response = await fetch(url, {
     headers: {
@@ -104,6 +149,48 @@ async function fetchRouteFromOsrm(osrmBaseUrl: string, coordinates: string): Pro
 
   const distanceMeters = typeof route?.distance === "number" ? route.distance : 0;
   const durationSeconds = typeof route?.duration === "number" ? route.duration : 0;
+
+  return {
+    coordinates: routeCoordinates,
+    distanceKm: distanceMeters / 1000,
+    durationMin: Math.round(durationSeconds / 60),
+  };
+}
+
+async function fetchRouteFromOrs(apiKey: string, waypoints: Position[]): Promise<CachedRoutedPath | null> {
+  const response = await fetch(
+    "https://api.openrouteservice.org/v2/directions/foot-walking/geojson",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: apiKey,
+      },
+      body: JSON.stringify({
+        coordinates: waypoints,
+        preference: "recommended",
+        options: { avoid_features: ["highways", "tollways"] },
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error("ORS request failed");
+  }
+
+  const payload = await response.json() as OrsGeoJsonResponse;
+  const feature = payload.features?.[0];
+  const routeCoordinates = normalizeCoordinates(feature?.geometry?.coordinates);
+  if (routeCoordinates.length < 2) {
+    return null;
+  }
+
+  const distanceMeters = typeof feature?.properties?.summary?.distance === "number"
+    ? feature.properties.summary.distance
+    : 0;
+  const durationSeconds = typeof feature?.properties?.summary?.duration === "number"
+    ? feature.properties.summary.duration
+    : 0;
 
   return {
     coordinates: routeCoordinates,
