@@ -102,16 +102,6 @@ export default function RouteBuilderPage() {
   }, []);
 
   useEffect(() => {
-    if (hoverDebounceTimerRef.current !== null) {
-      clearTimeout(hoverDebounceTimerRef.current);
-      hoverDebounceTimerRef.current = null;
-    }
-    hoverRequestIdRef.current += 1;
-    setHoverPreviewRoute(null);
-    setHoverRoutingDiagnostics(null);
-  }, [hoverPreviewResetKey]);
-
-  useEffect(() => {
     const controller = new AbortController();
 
     fetch("/api/routes?sort=popular", {
@@ -141,6 +131,18 @@ export default function RouteBuilderPage() {
     [routePreference],
   );
 
+  useEffect(() => {
+    if (hoverDebounceTimerRef.current !== null) {
+      clearTimeout(hoverDebounceTimerRef.current);
+      hoverDebounceTimerRef.current = null;
+    }
+    hoverRequestIdRef.current += 1;
+    queueMicrotask(() => {
+      setHoverPreviewRoute(null);
+      setHoverRoutingDiagnostics(null);
+    });
+  }, [hoverPreviewResetKey]);
+
   const effectiveSponsoredStops = includeFoodStops ? sponsoredStops : [];
   const effectiveSelectedSponsoredStopId = includeFoodStops ? selectedSponsoredStopId : null;
   const visibleDraftRoute = waypointPositions.length >= 2 ? draftRouteState.feature : null;
@@ -149,7 +151,6 @@ export default function RouteBuilderPage() {
 
   useEffect(() => {
     if (waypointPositions.length < 2) {
-      setDraftRoutingDiagnostics(null);
       return;
     }
 
@@ -262,7 +263,7 @@ export default function RouteBuilderPage() {
     && draftStatus === "ready"
     && !publishing;
   const visibleDraftStatus = waypointPositions.length < 2 ? "idle" : draftStatus;
-  const routingDiagnostics = draftRoutingDiagnostics ?? hoverRoutingDiagnostics;
+  const routingDiagnostics = waypointPositions.length < 2 ? null : (draftRoutingDiagnostics ?? hoverRoutingDiagnostics);
   const isRoutingFallbackActive = routePreference === "park" && routingDiagnostics?.provider === "osrm";
   const waypointMarkers = useMemo(
     () =>
