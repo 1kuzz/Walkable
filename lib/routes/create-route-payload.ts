@@ -253,13 +253,17 @@ function parseBoundedInteger(value: unknown, bounds: { min: number; max: number 
 function hasDuplicateWaypoints(waypoints: CreateWaypointInput[]): boolean {
   const seen = new Set<string>();
   for (const waypoint of waypoints) {
-    const key = `${waypoint.lat.toFixed(DUPLICATE_COORDINATE_PRECISION)},${waypoint.lng.toFixed(DUPLICATE_COORDINATE_PRECISION)}`;
+    const key = formatCoordinateKey(waypoint.lat, waypoint.lng);
     if (seen.has(key)) {
       return true;
     }
     seen.add(key);
   }
   return false;
+}
+
+function formatCoordinateKey(lat: number, lng: number): string {
+  return `${lat.toFixed(DUPLICATE_COORDINATE_PRECISION)},${lng.toFixed(DUPLICATE_COORDINATE_PRECISION)}`;
 }
 
 function parseJsonValue(value: unknown): unknown {

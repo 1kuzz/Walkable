@@ -46,7 +46,7 @@ const DEFAULT_PUBLISHED_SURFACE_TYPE = "mixed";
 const DEFAULT_PUBLISHED_ELEVATION_GAIN = 0;
 const DEFAULT_PUBLISHED_DESCRIPTION_SUFFIX = "community trail created in Walkable route builder.";
 const MAX_WAYPOINTS = 50;
-const WAYPOINT_DUPLICATE_EPSILON = 0.000001;
+const WAYPOINT_DUPLICATE_PRECISION = 6;
 
 const emptyDraftRouteState: DraftRouteState = {
   feature: null,
@@ -317,7 +317,8 @@ export default function RouteBuilderPage() {
       if (current.length >= MAX_WAYPOINTS) {
         return current;
       }
-      if (current.some((item) => areCoordinatesNear(item, waypoint))) {
+      const incomingKey = formatWaypointKey(waypoint.lat, waypoint.lng);
+      if (current.some((item) => formatWaypointKey(item.lat, item.lng) === incomingKey)) {
         return current;
       }
       return [
@@ -552,22 +553,18 @@ export default function RouteBuilderPage() {
   );
 }
 
-function areCoordinatesNear(
-  a: { lat: number; lng: number },
-  b: { lat: number; lng: number },
-): boolean {
-  return Math.abs(a.lat - b.lat) < WAYPOINT_DUPLICATE_EPSILON
-    && Math.abs(a.lng - b.lng) < WAYPOINT_DUPLICATE_EPSILON;
-}
-
 function hasDuplicateWaypoints(waypoints: Array<{ lat: number; lng: number }>): boolean {
   const seen = new Set<string>();
   for (const waypoint of waypoints) {
-    const key = `${waypoint.lat.toFixed(6)},${waypoint.lng.toFixed(6)}`;
+    const key = formatWaypointKey(waypoint.lat, waypoint.lng);
     if (seen.has(key)) {
       return true;
     }
     seen.add(key);
   }
   return false;
+}
+
+function formatWaypointKey(lat: number, lng: number): string {
+  return `${lat.toFixed(WAYPOINT_DUPLICATE_PRECISION)},${lng.toFixed(WAYPOINT_DUPLICATE_PRECISION)}`;
 }
