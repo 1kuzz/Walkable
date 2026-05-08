@@ -185,8 +185,13 @@ export default function RouteBuilderPage() {
 
     return visibleDraftRoute ? [...existingRoutes, visibleDraftRoute] : existingRoutes;
   }, [baseRoutes, visibleDraftRoute]);
+  const hasValidDraftGeometry = Boolean(
+    visibleDraftRoute
+      && visibleDraftRoute.geometry.type === "LineString"
+      && visibleDraftRoute.geometry.coordinates.length >= 2,
+  );
   const canPublishRoute = waypoints.length >= 2
-    && Boolean(visibleDraftRoute)
+    && hasValidDraftGeometry
     && draftStatus === "ready"
     && !publishing;
   const visibleDraftStatus = waypointPositions.length < 2 ? "idle" : draftStatus;
@@ -235,7 +240,7 @@ export default function RouteBuilderPage() {
       setPublishError("Waypoint list contains duplicate points. Remove duplicates before publishing.");
       return;
     }
-    if (visibleDraftRoute.geometry.type !== "LineString" || visibleDraftRoute.geometry.coordinates.length < 2) {
+    if (!hasValidDraftGeometry) {
       setPublishError("Draft route geometry is invalid. Adjust waypoints and try again.");
       return;
     }
@@ -251,7 +256,9 @@ export default function RouteBuilderPage() {
           .filter((parkId): parkId is string => Boolean(parkId)),
       ),
     );
-    const resolvedParkId = selectedParks.length === 1 ? selectedParks[0] : selectedParkId || null;
+    const resolvedParkId = selectedParks.length === 1
+      ? selectedParks[0]
+      : (selectedParkId || null);
     if (!resolvedParkId) {
       setPublishError("Choose a park before publishing.");
       return;
@@ -538,7 +545,7 @@ export default function RouteBuilderPage() {
             }}
           />
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-background/90 backdrop-blur rounded-lg px-4 py-2 text-sm text-muted-foreground shadow">
-          Tap/click a route to snap a waypoint, or tap/click anywhere on the map to place one manually.
+          Tap or click a route to snap a waypoint, or tap or click anywhere on the map to place one manually.
         </div>
       </div>
     </div>

@@ -7,7 +7,7 @@ const MAX_NAME_LENGTH = 120;
 const MAX_DESCRIPTION_LENGTH = 2000;
 const MIN_WAYPOINTS = 2;
 const MAX_WAYPOINTS = 50;
-const COORDINATE_PRECISION = 6;
+const DUPLICATE_COORDINATE_PRECISION = 6;
 
 interface CreateWaypointInput {
   lat: number;
@@ -131,8 +131,8 @@ function parseWaypoint(value: unknown): CreateWaypointInput | null {
     return null;
   }
 
-  const lat = parseBoundedNumber(value.lat, { min: -90, max: 90 });
-  const lng = parseBoundedNumber(value.lng, { min: -180, max: 180 });
+  const lat = parseBoundedCoordinate(value.lat, { min: -90, max: 90 });
+  const lng = parseBoundedCoordinate(value.lng, { min: -180, max: 180 });
   if (lat == null || lng == null) {
     return null;
   }
@@ -168,8 +168,8 @@ function parseCoordinate(value: unknown): [number, number] | null {
     return null;
   }
 
-  const lng = parseBoundedNumber(value[0], { min: -180, max: 180 });
-  const lat = parseBoundedNumber(value[1], { min: -90, max: 90 });
+  const lng = parseBoundedCoordinate(value[0], { min: -180, max: 180 });
+  const lat = parseBoundedCoordinate(value[1], { min: -90, max: 90 });
   if (lng == null || lat == null) {
     return null;
   }
@@ -231,7 +231,15 @@ function parseBoundedNumber(value: unknown, bounds: { min: number; max: number }
   if (!Number.isFinite(numericValue) || numericValue < bounds.min || numericValue > bounds.max) {
     return null;
   }
-  return Number(numericValue.toFixed(COORDINATE_PRECISION));
+  return numericValue;
+}
+
+function parseBoundedCoordinate(value: unknown, bounds: { min: number; max: number }): number | null {
+  const numericValue = parseBoundedNumber(value, bounds);
+  if (numericValue == null) {
+    return null;
+  }
+  return Number(numericValue.toFixed(DUPLICATE_COORDINATE_PRECISION));
 }
 
 function parseBoundedInteger(value: unknown, bounds: { min: number; max: number }): number | null {
@@ -245,7 +253,7 @@ function parseBoundedInteger(value: unknown, bounds: { min: number; max: number 
 function hasDuplicateWaypoints(waypoints: CreateWaypointInput[]): boolean {
   const seen = new Set<string>();
   for (const waypoint of waypoints) {
-    const key = `${waypoint.lat.toFixed(COORDINATE_PRECISION)},${waypoint.lng.toFixed(COORDINATE_PRECISION)}`;
+    const key = `${waypoint.lat.toFixed(DUPLICATE_COORDINATE_PRECISION)},${waypoint.lng.toFixed(DUPLICATE_COORDINATE_PRECISION)}`;
     if (seen.has(key)) {
       return true;
     }
