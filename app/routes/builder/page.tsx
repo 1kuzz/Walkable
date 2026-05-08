@@ -514,7 +514,7 @@ export default function RouteBuilderPage() {
         )}
         {mapStatus === "error" && (
           <div className="absolute left-4 right-4 top-4 z-20 rounded-lg border border-destructive/40 bg-background/95 p-3 text-sm text-destructive shadow">
-            Map is unavailable. Verify your Yandex Maps API key and network connection.
+            Map is unavailable. Verify your network connection and external tile/routing availability.
           </div>
         )}
           <MapContainer

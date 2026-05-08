@@ -1,6 +1,5 @@
 import type { Position } from "geojson";
 import type { RouteFeature } from "@/lib/geo";
-import { loadYandexMapsApi, toGeoJsonCoordinates, toYandexCoordinates } from "@/lib/yandex-maps";
 
 export interface RoutedPath {
   feature: RouteFeature;
@@ -8,83 +7,61 @@ export interface RoutedPath {
   durationMin: number;
 }
 
+interface OsrmResponse {
+  code?: string;
+  routes?: Array<{
+    distance?: number;
+    duration?: number;
+    geometry?: {
+      coordinates?: unknown;
+    };
+  }>;
+}
+
 export async function getRoute(waypoints: Position[], name = "Updated route"): Promise<RoutedPath | null> {
   if (waypoints.length < 2) {
     return null;
   }
 
-  const ymaps = await loadYandexMapsApi();
-  if (!ymaps) {
-    return null;
-  }
+  const coordinates = waypoints
+    .map(([lng, lat]) => `${lng},${lat}`)
+    .join(";");
 
-  const route = await new Promise<{
-    coordinates: Position[];
-    distanceMeters: number;
-    durationSeconds: number;
-  }>((resolve, reject) => {
-    const multiRoute = new ymaps.multiRouter.MultiRoute({
-      referencePoints: waypoints.map(toYandexCoordinates),
-      params: {
-        routingMode: "pedestrian",
-      },
-    });
-    let settled = false;
+  const url = new URL(`https://router.project-osrm.org/route/v1/foot/${coordinates}`);
+  url.searchParams.set("overview", "full");
+  url.searchParams.set("geometries", "geojson");
 
-    const cleanup = () => {
-      multiRoute.model.events.remove("requestsuccess", handleSuccess);
-      multiRoute.model.events.remove("requestfail", handleFailure);
-    };
-
-    const handleSuccess = () => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-
-      cleanup();
-
-      const activeRoute = multiRoute.getActiveRoute();
-      if (!activeRoute) {
-        resolve({ coordinates: [], distanceMeters: 0, durationSeconds: 0 });
-        return;
-      }
-
-      const coordinates = readCollection<{ getCoordinates(): number[][] }>(activeRoute.getPaths())
-        .flatMap((path, index) => {
-          const segment = path.getCoordinates().map(toGeoJsonCoordinates);
-          return index === 0 ? segment : segment.slice(1);
-        });
-      const distanceMeters = readMetricValue(activeRoute.properties.get("distance"));
-      const durationSeconds = readMetricValue(activeRoute.properties.get("duration"));
-
-      resolve({ coordinates, distanceMeters, durationSeconds });
-    };
-
-    const handleFailure = () => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-
-      cleanup();
-      reject(new Error("Failed to fetch directions"));
-    };
-
-    multiRoute.model.events.add("requestsuccess", handleSuccess);
-    multiRoute.model.events.add("requestfail", handleFailure);
+  const response = await fetch(url, {
+    headers: {
+      Accept: "application/json",
+    },
+    cache: "no-store",
   });
 
-  if (route.coordinates.length === 0) {
+  if (!response.ok) {
+    throw new Error("Failed to fetch directions");
+  }
+
+  const payload = await response.json() as OsrmResponse;
+  if (payload.code !== "Ok") {
+    throw new Error("Failed to fetch directions");
+  }
+
+  const route = payload.routes?.[0];
+  const routeCoordinates = normalizeCoordinates(route?.geometry?.coordinates);
+  if (routeCoordinates.length < 2) {
     return null;
   }
+
+  const distanceMeters = typeof route?.distance === "number" ? route.distance : 0;
+  const durationSeconds = typeof route?.duration === "number" ? route.duration : 0;
 
   return {
     feature: {
       type: "Feature",
       geometry: {
         type: "LineString",
-        coordinates: route.coordinates,
+        coordinates: routeCoordinates,
       },
       properties: {
         id: `rerouted-${waypoints.length}`,
@@ -93,50 +70,27 @@ export async function getRoute(waypoints: Position[], name = "Updated route"): P
         source: "reroute",
       },
     },
-    distanceKm: route.distanceMeters / 1000,
-    durationMin: Math.round(route.durationSeconds / 60),
+    distanceKm: distanceMeters / 1000,
+    durationMin: Math.round(durationSeconds / 60),
   };
 }
 
-function readCollection<T>(collection: unknown): T[] {
-  if (!collection) {
+function normalizeCoordinates(value: unknown): Position[] {
+  if (!Array.isArray(value)) {
     return [];
   }
 
-  if (Array.isArray(collection)) {
-    return collection as T[];
-  }
-
-  const maybeCollection = collection as {
-    toArray?: () => T[];
-    getLength?: () => number;
-    get?: (index: number) => T;
-  };
-
-  if (typeof maybeCollection.toArray === "function") {
-    return maybeCollection.toArray();
-  }
-
-  if (typeof maybeCollection.getLength === "function" && typeof maybeCollection.get === "function") {
-    return Array.from({ length: maybeCollection.getLength() }, (_, index) => maybeCollection.get?.(index)).filter(
-      (item): item is T => Boolean(item),
-    );
-  }
-
-  return [];
-}
-
-function readMetricValue(metric: unknown): number {
-  if (typeof metric === "number") {
-    return metric;
-  }
-
-  if (metric && typeof metric === "object") {
-    const value = (metric as { value?: unknown }).value;
-    if (typeof value === "number") {
-      return value;
-    }
-  }
-
-  return 0;
+  return value
+    .map((point) => {
+      if (!Array.isArray(point) || point.length < 2) {
+        return null;
+      }
+      const lng = point[0];
+      const lat = point[1];
+      if (typeof lng !== "number" || typeof lat !== "number") {
+        return null;
+      }
+      return [lng, lat] as Position;
+    })
+    .filter((point): point is Position => Boolean(point));
 }

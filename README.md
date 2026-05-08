@@ -22,7 +22,7 @@ A release is considered **ready** when all of these are true:
 | Framework | Next.js 16 (App Router) |
 | Database | PostgreSQL + Prisma ORM |
 | Auth | NextAuth v4 (Google & GitHub OAuth) |
-| Maps | Yandex Maps JS API |
+| Maps | Maplibre GL JS + Esri World Imagery + OSRM (foot) |
 | Photos | Server-side file storage |
 | Weather | Yandex Weather API |
 | Styling | Tailwind CSS v4 + shadcn/ui |
@@ -61,7 +61,6 @@ The only externally required services for basic local work are:
 |---|---|
 | PostgreSQL | All pages (data layer) |
 | Google or GitHub OAuth app | Sign-in flow |
-| Yandex Maps API key | Map pages and rerouting |
 | Yandex Weather API key | Weather widgets |
 
 Photo uploads are stored by the app on the server filesystem under `storage/photos`.
@@ -161,7 +160,6 @@ The repo is configured for zero-config Vercel deployments via `vercel.json`.
    | `google-client-secret` | Google OAuth client secret |
    | `github-client-id` | GitHub OAuth app client ID |
    | `github-client-secret` | GitHub OAuth app client secret |
-   | `yandex-maps-api-key` | Yandex Maps JS API key |
    | `yandex-weather-api-key` | Yandex Weather API key |
 
 3. Add your Vercel domain to the **Authorised redirect URIs** of both OAuth apps:
@@ -259,7 +257,7 @@ app/
   routes/builder/          – route builder (protected)
   profile/                 – user profile (protected)
 components/
-  map/                     – MapContainer (Yandex Maps)
+  map/                     – MapContainer (Maplibre GL JS)
   routes/                  – RouteCard, FilterSidebar, …
   weather/                 – WeatherWidget
   ui/                      – shared shadcn components
@@ -305,7 +303,7 @@ After changing either the Google OAuth settings or the `NEXTAUTH_URL` Vercel sec
 
 ### Map not loading
 
-Confirm `NEXT_PUBLIC_YANDEX_MAPS_API_KEY` is set and enabled for the Yandex Maps JS API.
+Map tiles and pedestrian routing use public providers (Esri World Imagery + OSRM), so no map API key is required.
 
 ### Photo upload fails
 
