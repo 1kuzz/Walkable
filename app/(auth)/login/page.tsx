@@ -14,10 +14,18 @@ export default function LoginPage() {
       return "/profile";
     }
     const incoming = new URLSearchParams(window.location.search).get("callbackUrl");
-    if (incoming && incoming.startsWith("/") && !incoming.startsWith("//")) {
-      return incoming;
+    if (!incoming) {
+      return "/profile";
     }
-    return "/profile";
+    try {
+      const parsed = new URL(incoming, window.location.origin);
+      if (parsed.origin !== window.location.origin) {
+        return "/profile";
+      }
+      return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    } catch {
+      return "/profile";
+    }
   }, []);
 
   useEffect(() => {
