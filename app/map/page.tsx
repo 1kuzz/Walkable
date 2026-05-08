@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import dynamic from "next/dynamic";
 import FilterSidebar, { FilterState } from "@/components/routes/FilterSidebar";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -22,12 +22,24 @@ function isDesktop() {
   return typeof window !== "undefined" && window.matchMedia(MD_BREAKPOINT).matches;
 }
 
+function subscribeToDesktopMediaQuery(onStoreChange: () => void) {
+  if (typeof window === "undefined") {
+    return () => undefined;
+  }
+
+  const mediaQuery = window.matchMedia(MD_BREAKPOINT);
+  mediaQuery.addEventListener("change", onStoreChange);
+  return () => mediaQuery.removeEventListener("change", onStoreChange);
+}
+
 export default function MapPage() {
   const [filters, setFilters] = useState<FilterState>(defaultFilters);
-  // Lazy initializer avoids setState-in-effect lint and handles SSR (returns false when window is undefined).
-  const [sidebarOpen, setSidebarOpen] = useState<boolean>(() => isDesktop());
+  const isDesktopViewport = useSyncExternalStore(subscribeToDesktopMediaQuery, isDesktop, () => false);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+  const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true);
   const [routes, setRoutes] = useState<ApiRoute[]>([]);
   const [nextDestination, setNextDestination] = useState<{ routeName: string; coordinates: [number, number] } | null>(null);
+  const sidebarOpen = isDesktopViewport ? desktopSidebarOpen : mobileSidebarOpen;
 
   useEffect(() => {
     fetch(`/api/routes?sort=${filters.sort}`)
@@ -48,7 +60,7 @@ export default function MapPage() {
       {sidebarOpen && (
         <div
           className="absolute inset-0 bg-black/40 z-10 md:hidden"
-          onClick={() => setSidebarOpen(false)}
+          onClick={() => setMobileSidebarOpen(false)}
           aria-hidden="true"
         />
       )}
@@ -57,7 +69,7 @@ export default function MapPage() {
         <div className="p-4">
           <FilterSidebar filters={filters} onChange={(f) => {
             setFilters(f);
-            if (!isDesktop()) setSidebarOpen(false);
+            if (!isDesktopViewport) setMobileSidebarOpen(false);
           }} />
         </div>
       </div>
@@ -69,7 +81,13 @@ export default function MapPage() {
           onRoutePointSelect={({ routeName, coordinates }) => setNextDestination({ routeName, coordinates: [coordinates[0], coordinates[1]] })}
         />
         <button
-          onClick={() => setSidebarOpen(!sidebarOpen)}
+          onClick={() => {
+            if (isDesktopViewport) {
+              setDesktopSidebarOpen((open) => !open);
+              return;
+            }
+            setMobileSidebarOpen((open) => !open);
+          }}
           className="absolute top-4 left-4 z-20 bg-background border rounded-lg p-2.5 shadow-md hover:bg-muted active:scale-95 transition-all min-w-[44px] min-h-[44px] flex items-center justify-center"
           aria-label="Toggle filters"
         >

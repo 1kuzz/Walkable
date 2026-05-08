@@ -105,6 +105,9 @@ export default function MapContainer({
       center: [initialView.lng, initialView.lat],
       zoom: initialView.zoom,
     });
+    const resizeObserver = new ResizeObserver(() => {
+      map.resize();
+    });
 
     let cancelled = false;
 
@@ -132,6 +135,7 @@ export default function MapContainer({
       updatePointMarker(selectedPointRef.current, null);
 
       setMapReady(true);
+      map.resize();
       onMapStatusChange?.("ready");
       onMapLoad?.(map);
     };
@@ -144,10 +148,12 @@ export default function MapContainer({
 
     map.on("load", handleLoad);
     map.on("error", handleError);
+    resizeObserver.observe(containerRef.current);
 
     return () => {
       cancelled = true;
       setMapReady(false);
+      resizeObserver.disconnect();
       cleanupRoutes(map, routeLayersRef.current);
       routeLayersRef.current = [];
       waypointMarkers.clear();
@@ -502,7 +508,7 @@ export default function MapContainer({
 
   return (
     <div className={cn(className, "relative isolate")}>
-      <div ref={containerRef} className="absolute inset-0" />
+      <div ref={containerRef} className="h-full w-full" />
     </div>
   );
 }
