@@ -582,10 +582,9 @@ export default function RouteBuilderPage() {
                 {routingFallbackMessage}
               </p>
             )}
-            <dl className="text-muted-foreground">
-              <dt className="font-medium inline">Pathway visibility:</dt>{" "}
-              <dd className="inline">{describePathwayDiagnostics(pathwayDiagnostics)}</dd>
-            </dl>
+            <p className="text-muted-foreground">
+              <span className="font-medium">Pathway visibility:</span> {describePathwayDiagnostics(pathwayDiagnostics)}
+            </p>
             {waypoints.length > 0 && (
               <p className="text-muted-foreground">
                 Dashed green line is hover preview only; the orange line is your draft route.

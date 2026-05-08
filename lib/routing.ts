@@ -69,6 +69,7 @@ interface OrsGeoJsonResponse {
 
 const ROUTE_CACHE_TTL_MS = 5 * 60 * 1000;
 const ROUTE_CACHE_MAX_ENTRIES = 50;
+const MIN_ROUTE_DURATION_MINUTES = 1;
 const WALKING_SPEED_KMH = 5;
 const WALKING_OSRM_PROFILES = new Set(["foot", "walking", "pedestrian", "hiking"]);
 const routeCache = new Map<string, { value: CachedRoutedPath | null; expiresAt: number }>();
@@ -109,7 +110,9 @@ export async function getRoute(
   const coordinates = waypoints
     .map(([lng, lat]) => `${lng},${lat}`)
     .join(";");
-  const hintsKey = options?.waypointHints?.map((hint) => hint.routeId ?? "").join(">");
+  const hintsKey = options?.waypointHints
+    ?.map((hint, index) => `${index}:${hint.routeId ?? "-"}`)
+    .join("|");
   const cacheKey = `${preference}|${osrmBaseUrl}|${osrmProfile}|${coordinates}|${hintsKey ?? ""}`;
 
   evictExpiredRouteCacheEntries();
@@ -394,7 +397,7 @@ function buildCommunityLeg(
   }
 
   const distanceKm = computePathDistanceKm(slicedCoordinates);
-  const durationMin = Math.max(1, Math.round((distanceKm / WALKING_SPEED_KMH) * 60));
+  const durationMin = Math.max(MIN_ROUTE_DURATION_MINUTES, Math.round((distanceKm / WALKING_SPEED_KMH) * 60));
   return {
     coordinates: slicedCoordinates,
     distanceKm,
@@ -465,7 +468,7 @@ function combineLegResults(legs: CachedRoutedPath[], preference: RoutePreference
   return {
     coordinates,
     distanceKm,
-    durationMin: Math.max(1, Math.round(durationMin)),
+    durationMin: Math.max(MIN_ROUTE_DURATION_MINUTES, Math.round(durationMin)),
     routing: {
       provider,
       profile,
