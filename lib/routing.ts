@@ -69,16 +69,19 @@ export function getRoutingFallbackMessage(diagnostics: RoutingDiagnostics | null
     return null;
   }
 
-  if (diagnostics.fallbackReason === "ors_missing_key") {
-    return "Park-aware routing provider is not configured; using standard walking network.";
+  if (!diagnostics.fallbackReason) {
+    // Defensive guard for partially-populated diagnostics payloads.
+    return "Park-aware routing is unavailable; using standard walking network.";
   }
-  if (diagnostics.fallbackReason === "ors_error") {
-    return "Park-aware routing provider is temporarily unavailable; using standard walking network.";
+
+  switch (diagnostics.fallbackReason) {
+    case "ors_missing_key":
+      return "Park-aware routing provider is not configured; using standard walking network.";
+    case "ors_error":
+      return "Park-aware routing provider is temporarily unavailable; using standard walking network.";
+    case "ors_no_geometry":
+      return "Park-aware routing returned no usable park-path geometry; using standard walking network.";
   }
-  if (diagnostics.fallbackReason === "ors_no_geometry") {
-    return "Park-aware routing returned no usable park-path geometry; using standard walking network.";
-  }
-  return "Park-aware routing is unavailable; using standard walking network.";
 }
 
 export async function getRoute(

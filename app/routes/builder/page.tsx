@@ -272,7 +272,6 @@ export default function RouteBuilderPage() {
     && !publishing;
   const visibleDraftStatus = waypointPositions.length < 2 ? "idle" : draftStatus;
   const routingDiagnostics = waypointPositions.length < 2 ? null : (draftRoutingDiagnostics ?? hoverRoutingDiagnostics);
-  const isRoutingFallbackActive = routePreference === "park" && routingDiagnostics?.provider === "osrm";
   const routingFallbackMessage = getRoutingFallbackMessage(routingDiagnostics);
   const waypointMarkers = useMemo(
     () =>
@@ -545,14 +544,15 @@ export default function RouteBuilderPage() {
                   : `OSRM (${routingDiagnostics.profile})`
                 : "Waiting for route update…"}
             </p>
-            {isRoutingFallbackActive && (
+            {routingFallbackMessage && (
               <p className="text-amber-600 dark:text-amber-400">
-                {routingFallbackMessage ?? "Park-aware routing is unavailable; using standard walking network."}
+                {routingFallbackMessage}
               </p>
             )}
-            <p className="text-muted-foreground">
-              <span className="font-medium">Map pathways:</span> {describePathwayDiagnostics(pathwayDiagnostics)}
-            </p>
+            <dl className="text-muted-foreground">
+              <dt className="font-medium inline">Pathway visibility:</dt>{" "}
+              <dd className="inline">{describePathwayDiagnostics(pathwayDiagnostics)}</dd>
+            </dl>
             {waypoints.length > 0 && (
               <p className="text-muted-foreground">
                 Dashed green line is hover preview only; the orange line is your draft route.
@@ -795,7 +795,7 @@ function describePathwayDiagnostics(diagnostics: PathwayDiagnostics | null): str
     return "Waiting for map diagnostics…";
   }
   if (diagnostics.status === "satellite_mode") {
-    return "Satellite mode hides vector pathways; switch to Vector or Walkable to inspect path data.";
+    return "Satellite view hides vector pathway overlays; switch to Vector or Walkable to inspect path data.";
   }
   if (diagnostics.status === "source_loading") {
     return "Vector pathway data is still loading for this viewport.";

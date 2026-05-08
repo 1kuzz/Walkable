@@ -872,10 +872,15 @@ export default function MapContainer({
           )}
         </div>
       )}
-      {pathwayDiagnostics && styleMode !== "satellite" && pathwayDiagnostics.status !== "paths_visible" && (
-        <div className="absolute bottom-16 left-2 z-10 max-w-sm rounded-md border bg-background/90 px-3 py-1.5 text-xs text-muted-foreground shadow backdrop-blur">
+      {pathwayDiagnostics && pathwayDiagnostics.status !== "paths_visible" && (
+        <aside
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className="absolute bottom-16 left-2 z-10 max-w-sm rounded-md border bg-background/90 px-3 py-1.5 text-xs text-muted-foreground shadow backdrop-blur"
+        >
           {describePathwayDiagnostics(pathwayDiagnostics)}
-        </div>
+        </aside>
       )}
     </div>
   );
