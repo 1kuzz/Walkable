@@ -46,6 +46,8 @@ const ACTIVE_ROUTE_STYLE = {
 };
 const HOVER_POINT_COLOR = "#facc15";
 const SELECTED_POINT_COLOR = "#f97316";
+const FLY_TO_DURATION_MS = 400;
+const FIT_BOUNDS_DURATION_MS = 600;
 const DUPLICATE_EVENT_WINDOW_MS = 400;
 const POSITION_PROXIMITY_EPSILON_DEGREES = 0.000001;
 
@@ -169,7 +171,7 @@ export default function MapContainer({
       return;
     }
 
-    map.flyTo({ center: [lng, lat], zoom, duration: 400 });
+    map.flyTo({ center: [lng, lat], zoom, duration: FLY_TO_DURATION_MS });
   }, [lat, lng, zoom, mapReady, waypoints.length]);
 
   useEffect(() => {
@@ -385,7 +387,7 @@ export default function MapContainer({
       map.flyTo({
         center: [waypoints[0].lng, waypoints[0].lat],
         zoom: Math.max(zoom, 14),
-        duration: 400,
+        duration: FLY_TO_DURATION_MS,
       });
       return;
     }
@@ -400,7 +402,7 @@ export default function MapContainer({
       }
       map.fitBounds(bounds, {
         padding: 60,
-        duration: 600,
+        duration: FIT_BOUNDS_DURATION_MS,
         maxZoom: 15,
       });
     }

@@ -23,11 +23,12 @@ export async function getRoute(waypoints: Position[], name = "Updated route"): P
     return null;
   }
 
+  const osrmBaseUrl = (process.env.NEXT_PUBLIC_OSRM_BASE_URL ?? "https://router.project-osrm.org").replace(/\/+$/, "");
   const coordinates = waypoints
     .map(([lng, lat]) => `${lng},${lat}`)
     .join(";");
 
-  const url = new URL(`https://router.project-osrm.org/route/v1/foot/${coordinates}`);
+  const url = new URL(`${osrmBaseUrl}/route/v1/foot/${coordinates}`);
   url.searchParams.set("overview", "full");
   url.searchParams.set("geometries", "geojson");
 
@@ -35,7 +36,6 @@ export async function getRoute(waypoints: Position[], name = "Updated route"): P
     headers: {
       Accept: "application/json",
     },
-    cache: "no-store",
   });
 
   if (!response.ok) {

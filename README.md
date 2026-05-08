@@ -304,6 +304,7 @@ After changing either the Google OAuth settings or the `NEXTAUTH_URL` Vercel sec
 ### Map not loading
 
 Map tiles and pedestrian routing use public providers (Esri World Imagery + OSRM), so no map API key is required.
+For production traffic, set `NEXT_PUBLIC_OSRM_BASE_URL` to a dedicated/self-hosted routing endpoint.
 
 ### Photo upload fails
 

@@ -73,4 +73,22 @@ describe("getRoute", () => {
 
     expect(result).toBeNull();
   });
+
+  it("returns null when OSRM response coordinates are malformed", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        code: "Ok",
+        routes: [{
+          geometry: {
+            coordinates: [[37.61], ["bad", 55.75], [37.62, "bad"], [37.62, 55.76]],
+          },
+        }],
+      }),
+    }));
+
+    const result = await getRoute([[37.61, 55.75], [37.62, 55.76]]);
+
+    expect(result).toBeNull();
+  });
 });
