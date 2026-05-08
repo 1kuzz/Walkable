@@ -10,7 +10,6 @@ interface MapContainerProps {
   lat?: number;
   lng?: number;
   zoom?: number;
-  style?: "streets" | "satellite" | "terrain";
   className?: string;
   routes?: RouteFeature[];
   sponsoredStops?: SponsoredStopMapItem[];
@@ -41,7 +40,6 @@ export default function MapContainer({
   lat = 55.7558,
   lng = 37.6173,
   zoom = 11,
-  style = "streets",
   className = "w-full h-full",
   routes = [],
   sponsoredStops = [],
@@ -52,7 +50,7 @@ export default function MapContainer({
   onRoutePointSelect,
   onSponsoredStopSelect,
 }: MapContainerProps) {
-  const initialViewRef = useRef({ lat, lng, zoom, style });
+  const initialViewRef = useRef({ lat, lng, zoom });
   const mapRef = useRef<YandexMap | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [mapReady, setMapReady] = useState(false);
@@ -87,7 +85,7 @@ export default function MapContainer({
         const map = new ymaps.Map(containerRef.current, {
           center: [initialView.lat, initialView.lng],
           zoom: initialView.zoom,
-          type: getYandexMapType(initialView.style),
+          type: getYandexMapType(),
         });
 
         map.controls.add("zoomControl");
@@ -142,8 +140,7 @@ export default function MapContainer({
     }
 
     map.setCenter([lat, lng], zoom);
-    map.setType(getYandexMapType(style));
-  }, [lat, lng, zoom, style, mapReady]);
+  }, [lat, lng, zoom, mapReady]);
 
   useEffect(() => {
     const map = mapRef.current;

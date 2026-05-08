@@ -133,15 +133,8 @@ export function loadYandexMapsApi(): Promise<YandexMapsApi | null> {
   return yandexMapsPromise;
 }
 
-export function getYandexMapType(style: "streets" | "satellite" | "terrain"): string {
-  switch (style) {
-    case "satellite":
-      return "yandex#satellite";
-    case "terrain":
-      return "yandex#hybrid";
-    default:
-      return "yandex#map";
-  }
+export function getYandexMapType(): string {
+  return "yandex#hybrid";
 }
 
 export function toYandexCoordinates([lng, lat]: Position): number[] {
