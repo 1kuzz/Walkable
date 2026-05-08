@@ -31,6 +31,8 @@ const ACTIVE_ROUTE_STYLE = {
 };
 const HOVER_POINT_COLOR = "#facc15";
 const SELECTED_POINT_COLOR = "#f97316";
+const DUPLICATE_SELECTION_WINDOW_MS = 700;
+const DUPLICATE_SELECTION_EPSILON = 0.000001;
 
 export default function MapContainer({
   lat = 55.7558,
@@ -244,8 +246,8 @@ function createRouteLine(
 
     const [lng, lat] = position;
     const [lastLng, lastLat] = lastSelection.position;
-    const isSamePoint = Math.abs(lng - lastLng) < 0.000001 && Math.abs(lat - lastLat) < 0.000001;
-    return isSamePoint && Date.now() - lastSelection.timestamp < 700;
+    const isSamePoint = Math.abs(lng - lastLng) < DUPLICATE_SELECTION_EPSILON && Math.abs(lat - lastLat) < DUPLICATE_SELECTION_EPSILON;
+    return isSamePoint && Date.now() - lastSelection.timestamp < DUPLICATE_SELECTION_WINDOW_MS;
   };
   const handleSelect = (coords: unknown) => {
     updateSelection(coords, (position) => {
