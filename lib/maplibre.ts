@@ -14,6 +14,71 @@ export const WALKABLE_ROAD_COLOR = "#6baed6";
 export const WALKABLE_PARK_COLOR = "#22c55e";
 export const WALKWAY_COLOR = "#d7e8c7";
 
+const ROAD_TRANSPORT_CLASSES = [
+  "motorway",
+  "trunk",
+  "primary",
+  "secondary",
+  "tertiary",
+  "minor",
+  "service",
+  "residential",
+  "unclassified",
+  "living_street",
+  "motorway_link",
+  "trunk_link",
+  "primary_link",
+  "secondary_link",
+  "tertiary_link",
+] as const;
+
+const PATHWAY_TRANSPORT_CLASSES = [
+  "path",
+  "pedestrian",
+  "footway",
+  "cycleway",
+  "steps",
+  "track",
+  "bridleway",
+  "corridor",
+] as const;
+
+const PATHWAY_TRANSPORT_SUBCLASSES = [
+  "path",
+  "pedestrian",
+  "footway",
+  "sidewalk",
+  "crossing",
+  "steps",
+  "cycleway",
+  "track",
+  "bridleway",
+  "corridor",
+] as const;
+
+const NON_PATH_TRANSPORT_CLASSES = [
+  "rail",
+  "transit",
+  "aerialway",
+  "ferry",
+  "runway",
+  "taxiway",
+] as const;
+
+const NON_PATH_TRANSPORT_SUBCLASSES = [
+  "rail",
+  "railway",
+  "tram",
+  "subway",
+  "light_rail",
+  "monorail",
+  "ferry",
+  "aerialway",
+  "funicular",
+  "gondola",
+  "chair_lift",
+] as const;
+
 export function createSatelliteStyle(): StyleSpecification {
   return {
     version: 8,
@@ -230,17 +295,24 @@ export function createVectorStyle(): StyleSpecification {
         source: "openmaptiles",
         "source-layer": "transportation",
         filter: [
-          "match",
-          ["get", "class"],
-          ["path", "pedestrian", "footway", "cycleway", "steps", "track", "bridleway"],
-          true,
-          false,
+          "all",
+          ["==", ["geometry-type"], "LineString"],
+          [
+            "any",
+            ["match", ["get", "class"], PATHWAY_TRANSPORT_CLASSES, true, false],
+            ["match", ["get", "subclass"], PATHWAY_TRANSPORT_SUBCLASSES, true, false],
+          ],
+          ["!", ["match", ["get", "class"], ROAD_TRANSPORT_CLASSES, true, false]],
+          ["!", ["match", ["get", "subclass"], ROAD_TRANSPORT_CLASSES, true, false]],
+          ["!", ["match", ["get", "class"], NON_PATH_TRANSPORT_CLASSES, true, false]],
+          ["!", ["match", ["get", "subclass"], NON_PATH_TRANSPORT_SUBCLASSES, true, false]],
         ],
         layout: { "line-cap": "round", "line-join": "round" },
         paint: {
-          "line-color": "#3da64a",
-          "line-width": ["interpolate", ["linear"], ["zoom"], 12, 1, 16, 3],
-          "line-dasharray": [2, 1.5],
+          "line-color": VECTOR_FOOTPATH_COLOR,
+          "line-opacity": 0.95,
+          "line-width": ["interpolate", ["linear"], ["zoom"], 10, 1.2, 13, 2.2, 16, 4],
+          "line-dasharray": [2, 1.25],
         },
       },
     ],
