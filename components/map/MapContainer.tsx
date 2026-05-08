@@ -13,6 +13,11 @@ import { nearestPointOnRoute, type RouteFeature, type SponsoredStopMapItem } fro
 import { createSatelliteStyle, createVectorStyle, createWalkableStyle, type Map as MapLibreMap, type MapStyleMode, VECTOR_FOOTPATH_COLOR, VECTOR_ROAD_COLOR, VECTOR_PARK_COLOR, WALKABLE_FOOTPATH_COLOR, WALKABLE_ROAD_COLOR, WALKABLE_PARK_COLOR } from "@/lib/maplibre";
 import { cn } from "@/lib/utils";
 
+const PREVIEW_SOURCE_ID = "hover-preview-source";
+const PREVIEW_CASING_LAYER_ID = "hover-preview-casing";
+const PREVIEW_LAYER_ID = "hover-preview-layer";
+const PREVIEW_COLOR = "#22c55e";
+
 interface MapContainerProps {
   lat?: number;
   lng?: number;
@@ -21,11 +26,15 @@ interface MapContainerProps {
   routes?: RouteFeature[];
   sponsoredStops?: SponsoredStopMapItem[];
   waypoints?: Array<{ id: string; lat: number; lng: number; label?: string }>;
+  /** Non-interactive preview route shown on hover (e.g. from last waypoint to cursor). */
+  previewRoute?: RouteFeature | null;
   onMapLoad?: (map: MapLibreMap) => void;
   onMapStatusChange?: (status: "loading" | "ready" | "error") => void;
   onMapPointSelect?: (coordinates: Position) => void;
   onRoutePointSelect?: (selection: { routeId: string; routeName: string; coordinates: Position }) => void;
   onSponsoredStopSelect?: (stop: SponsoredStopMapItem) => void;
+  /** Fires on every mousemove over the map canvas (desktop only). */
+  onMapHover?: (coordinates: Position) => void;
 }
 
 const BASE_ROUTE_STYLE = {
@@ -74,18 +83,20 @@ export default function MapContainer({
   routes = [],
   sponsoredStops = [],
   waypoints = [],
+  previewRoute = null,
   onMapLoad,
   onMapStatusChange,
   onMapPointSelect,
   onRoutePointSelect,
   onSponsoredStopSelect,
+  onMapHover,
 }: MapContainerProps) {
   const initialViewRef = useRef({ lat, lng, zoom });
   const mapRef = useRef<MapLibreMap | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [mapReady, setMapReady] = useState(false);
-  const [styleMode, setStyleMode] = useState<MapStyleMode>("vector");
-  const styleModeRef = useRef<MapStyleMode>("vector");
+  const [styleMode, setStyleMode] = useState<MapStyleMode>("walkable");
+  const styleModeRef = useRef<MapStyleMode>("walkable");
   const routeLayersRef = useRef<RouteLayerState[]>([]);
   const waypointMarkersRef = useRef<Map<string, { marker: Marker; label: HTMLSpanElement }>>(new Map());
   const sponsoredStopMarkersRef = useRef<Marker[]>([]);
@@ -107,7 +118,7 @@ export default function MapContainer({
     const waypointMarkers = waypointMarkersRef.current;
     const map = new maplibregl.Map({
       container: containerElement,
-      style: createVectorStyle(),
+      style: createWalkableStyle(),
       center: [initialView.lng, initialView.lat],
       zoom: initialView.zoom,
     });
@@ -562,6 +573,78 @@ export default function MapContainer({
       map.off("click", handleMapSelect);
     };
   }, [mapReady, onMapPointSelect]);
+
+  // Hover effect: fires onMapHover on every mousemove (desktop pointer devices).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || !onMapHover) {
+      return;
+    }
+
+    const handleMouseMove = (event: MapMouseEvent) => {
+      onMapHover([event.lngLat.lng, event.lngLat.lat]);
+    };
+
+    map.on("mousemove", handleMouseMove);
+
+    return () => {
+      map.off("mousemove", handleMouseMove);
+    };
+  }, [mapReady, onMapHover]);
+
+  // Preview route effect: renders a non-interactive dashed route layer for hover sneak peek.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) {
+      return;
+    }
+
+    const removePreview = () => {
+      if (map.getLayer(PREVIEW_LAYER_ID)) {
+        map.removeLayer(PREVIEW_LAYER_ID);
+      }
+      if (map.getLayer(PREVIEW_CASING_LAYER_ID)) {
+        map.removeLayer(PREVIEW_CASING_LAYER_ID);
+      }
+      if (map.getSource(PREVIEW_SOURCE_ID)) {
+        map.removeSource(PREVIEW_SOURCE_ID);
+      }
+    };
+
+    if (!previewRoute) {
+      removePreview();
+      return;
+    }
+
+    removePreview();
+    map.addSource(PREVIEW_SOURCE_ID, { type: "geojson", data: previewRoute });
+    map.addLayer({
+      id: PREVIEW_CASING_LAYER_ID,
+      type: "line",
+      source: PREVIEW_SOURCE_ID,
+      paint: {
+        "line-color": PREVIEW_COLOR,
+        "line-opacity": 0.18,
+        "line-width": 14,
+        "line-blur": 6,
+      },
+      layout: { "line-cap": "round", "line-join": "round" },
+    });
+    map.addLayer({
+      id: PREVIEW_LAYER_ID,
+      type: "line",
+      source: PREVIEW_SOURCE_ID,
+      paint: {
+        "line-color": PREVIEW_COLOR,
+        "line-opacity": 0.8,
+        "line-width": 3,
+        "line-dasharray": [4, 2],
+      },
+      layout: { "line-cap": "round", "line-join": "round" },
+    });
+
+    return removePreview;
+  }, [previewRoute, mapReady]);
 
   return (
     <div className={cn(className, "relative isolate")}>
