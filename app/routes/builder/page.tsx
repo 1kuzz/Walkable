@@ -12,7 +12,8 @@ import RouteOptions from "@/components/routes/RouteOptions";
 import ParkWaypointPicker from "@/components/routes/ParkWaypointPicker";
 import { estimateCalories } from "@/lib/calories";
 import { parseRouteGeometry, type RouteFeature, type SponsoredStopMapItem } from "@/lib/geo";
-import { getRoute, ROUTE_PREFERENCES, type RoutePreference } from "@/lib/routing";
+import { createHoverPreviewResetKey } from "@/lib/routes/hover-preview";
+import { getRoute, ROUTE_PREFERENCES, type RoutePreference, type RoutingDiagnostics } from "@/lib/routing";
 
 const MapContainer = dynamic(() => import("@/components/map/MapContainer"), {
   ssr: false,
@@ -83,6 +84,9 @@ export default function RouteBuilderPage() {
   const [draftStatus, setDraftStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [selectedParkId, setSelectedParkId] = useState<string>("");
   const [routePreference, setRoutePreference] = useState<RoutePreference>("park");
+  const [snapToRoutes, setSnapToRoutes] = useState(false);
+  const [draftRoutingDiagnostics, setDraftRoutingDiagnostics] = useState<RoutingDiagnostics | null>(null);
+  const [hoverRoutingDiagnostics, setHoverRoutingDiagnostics] = useState<RoutingDiagnostics | null>(null);
   const draftRequestIdRef = useRef(0);
   const [hoverPreviewRoute, setHoverPreviewRoute] = useState<RouteFeature | null>(null);
   const hoverDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -118,6 +122,26 @@ export default function RouteBuilderPage() {
   }, []);
 
   const waypointPositions = useMemo<Position[]>(() => waypoints.map((waypoint) => [waypoint.lng, waypoint.lat]), [waypoints]);
+  const hoverPreviewResetKey = useMemo(
+    () => createHoverPreviewResetKey(waypointPositions, routePreference),
+    [waypointPositions, routePreference],
+  );
+  const selectedRoutePreferenceLabel = useMemo(
+    () => ROUTE_PREFERENCES.find((item) => item.value === routePreference)?.label ?? routePreference,
+    [routePreference],
+  );
+
+  useEffect(() => {
+    if (hoverDebounceTimerRef.current !== null) {
+      clearTimeout(hoverDebounceTimerRef.current);
+      hoverDebounceTimerRef.current = null;
+    }
+    hoverRequestIdRef.current += 1;
+    queueMicrotask(() => {
+      setHoverPreviewRoute(null);
+      setHoverRoutingDiagnostics(null);
+    });
+  }, [hoverPreviewResetKey]);
 
   const effectiveSponsoredStops = includeFoodStops ? sponsoredStops : [];
   const effectiveSelectedSponsoredStopId = includeFoodStops ? selectedSponsoredStopId : null;
@@ -165,12 +189,14 @@ export default function RouteBuilderPage() {
                 }
               : emptyDraftRouteState,
           );
+          setDraftRoutingDiagnostics(result?.routing ?? null);
           setDraftStatus(result ? "ready" : "error");
         }
       })
       .catch(() => {
         if (!cancelled && requestId === draftRequestIdRef.current) {
           setDraftRouteState(emptyDraftRouteState);
+          setDraftRoutingDiagnostics(null);
           setDraftStatus("error");
         }
       });
@@ -237,6 +263,8 @@ export default function RouteBuilderPage() {
     && draftStatus === "ready"
     && !publishing;
   const visibleDraftStatus = waypointPositions.length < 2 ? "idle" : draftStatus;
+  const routingDiagnostics = waypointPositions.length < 2 ? null : (draftRoutingDiagnostics ?? hoverRoutingDiagnostics);
+  const isRoutingFallbackActive = routePreference === "park" && routingDiagnostics?.provider === "osrm";
   const waypointMarkers = useMemo(
     () =>
       waypoints.map((waypoint, index) => ({
@@ -403,6 +431,7 @@ export default function RouteBuilderPage() {
    */
   const handleMapHover = useCallback((coordinates: Position) => {
     if (waypoints.length === 0) {
+      setHoverRoutingDiagnostics(null);
       return;
     }
 
@@ -412,6 +441,7 @@ export default function RouteBuilderPage() {
     // Skip if cursor is very close to the last waypoint (no meaningful preview).
     if (Math.abs(from[0] - coordinates[0]) < HOVER_PREVIEW_MIN_DISTANCE_DEGREES && Math.abs(from[1] - coordinates[1]) < HOVER_PREVIEW_MIN_DISTANCE_DEGREES) {
       setHoverPreviewRoute(null);
+      setHoverRoutingDiagnostics(null);
       return;
     }
 
@@ -427,6 +457,7 @@ export default function RouteBuilderPage() {
           if (requestId !== hoverRequestIdRef.current || !result) {
             return;
           }
+          setHoverRoutingDiagnostics(result.routing);
           setHoverPreviewRoute({
             ...result.feature,
             properties: {
@@ -438,6 +469,7 @@ export default function RouteBuilderPage() {
           });
         })
         .catch(() => {
+          setHoverRoutingDiagnostics(null);
           // Silently ignore preview routing errors.
         });
     }, HOVER_PREVIEW_DEBOUNCE_MS);
@@ -480,6 +512,62 @@ export default function RouteBuilderPage() {
             ))}
           </select>
         </div>
+        <label className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
+          <input
+            type="checkbox"
+            checked={snapToRoutes}
+            onChange={(event) => setSnapToRoutes(event.target.checked)}
+            className="h-4 w-4"
+          />
+          Snap to community routes
+        </label>
+
+        <Card>
+          <CardHeader className="py-2">
+            <CardTitle className="text-sm">Routing status</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1 text-xs">
+            <p><span className="font-medium">Mode:</span> {selectedRoutePreferenceLabel}</p>
+            <p>
+              <span className="font-medium">Provider:</span>{" "}
+              {routingDiagnostics
+                ? routingDiagnostics.provider === "ors"
+                  ? `OpenRouteService (${routingDiagnostics.profile})`
+                  : `OSRM (${routingDiagnostics.profile})`
+                : "Waiting for route update…"}
+            </p>
+            {isRoutingFallbackActive && (
+              <p className="text-amber-600 dark:text-amber-400">
+                Park-aware pedestrian routing is unavailable right now; using walking road-network fallback.
+              </p>
+            )}
+            {waypoints.length > 0 && (
+              <p className="text-muted-foreground">
+                Dashed green line is hover preview only; the orange line is your draft route.
+              </p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="py-2">
+            <CardTitle className="text-sm">Line guide</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-1 text-xs">
+            <p className="flex items-center gap-2">
+              <span className="inline-block h-0.5 w-6 rounded" style={{ background: "#f97316" }} />
+              Draft walking route
+            </p>
+            <p className="flex items-center gap-2">
+              <span className="inline-block h-0.5 w-6 border-t-2 border-dashed" style={{ borderColor: "#22c55e" }} />
+              Hover preview (next segment)
+            </p>
+            <p className="flex items-center gap-2">
+              <span className="inline-block h-0.5 w-6 rounded opacity-60" style={{ background: "#60a5fa" }} />
+              Community route reference
+            </p>
+          </CardContent>
+        </Card>
 
         <div>
           <label className="text-sm font-medium mb-1 block">Park for publication</label>
@@ -630,6 +718,8 @@ export default function RouteBuilderPage() {
             sponsoredStops={effectiveSponsoredStops}
             waypoints={waypointMarkers}
             previewRoute={waypoints.length > 0 ? hoverPreviewRoute : null}
+            routeVisualMode="builder"
+            enableRouteSnapping={snapToRoutes}
             onMapStatusChange={setMapStatus}
             onMapHover={handleMapHover}
             onMapPointSelect={(coordinates) => {
@@ -652,7 +742,9 @@ export default function RouteBuilderPage() {
             }}
           />
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-background/90 backdrop-blur rounded-lg px-4 py-2 text-sm text-muted-foreground shadow">
-          Tap or click a route to snap a waypoint, or tap or click anywhere on the map to place one manually.
+          {snapToRoutes
+            ? "Tap or click a community route to snap a waypoint, or tap/click the map for manual placement."
+            : "Tap or click the map to place waypoints. Enable “Snap to community routes” to snap onto existing routes."}
         </div>
       </div>
     </div>

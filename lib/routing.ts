@@ -5,6 +5,7 @@ export interface RoutedPath {
   feature: RouteFeature;
   distanceKm: number;
   durationMin: number;
+  routing: RoutingDiagnostics;
 }
 
 /** How the router should prefer the path. */
@@ -20,6 +21,21 @@ interface CachedRoutedPath {
   coordinates: Position[];
   distanceKm: number;
   durationMin: number;
+  routing: RoutingDiagnostics;
+}
+
+export interface RoutingDiagnostics {
+  provider: "ors" | "osrm";
+  profile: string;
+  preference: RoutePreference;
+  quality: "preferred" | "fallback";
+  /**
+   * ORS fallback reasons for park preference:
+   * - ors_missing_key: no ORS API key configured
+   * - ors_error: ORS request failed
+   * - ors_no_geometry: ORS succeeded but returned unusable geometry
+   */
+  fallbackReason?: "ors_missing_key" | "ors_error" | "ors_no_geometry";
 }
 
 interface OsrmResponse {
@@ -112,16 +128,45 @@ async function fetchRoute(
     const orsApiKey = process.env.NEXT_PUBLIC_ORS_API_KEY;
     if (orsApiKey) {
       try {
-        return await fetchRouteFromOrs(orsApiKey, waypoints);
+        const orsResult = await fetchRouteFromOrs(orsApiKey, waypoints, preference);
+        if (orsResult) {
+          return orsResult;
+        }
+        return fetchRouteFromOsrm(osrmBaseUrl, osrmProfile, coordinates, {
+          preference,
+          quality: "fallback",
+          fallbackReason: "ors_no_geometry",
+        });
       } catch {
-        // Fall through to OSRM
+        return fetchRouteFromOsrm(osrmBaseUrl, osrmProfile, coordinates, {
+          preference,
+          quality: "fallback",
+          fallbackReason: "ors_error",
+        });
       }
     }
+    return fetchRouteFromOsrm(osrmBaseUrl, osrmProfile, coordinates, {
+      preference,
+      quality: "fallback",
+      fallbackReason: "ors_missing_key",
+    });
   }
-  return fetchRouteFromOsrm(osrmBaseUrl, osrmProfile, coordinates);
+  return fetchRouteFromOsrm(osrmBaseUrl, osrmProfile, coordinates, {
+    preference,
+    quality: "preferred",
+  });
 }
 
-async function fetchRouteFromOsrm(osrmBaseUrl: string, osrmProfile: string, coordinates: string): Promise<CachedRoutedPath | null> {
+async function fetchRouteFromOsrm(
+  osrmBaseUrl: string,
+  osrmProfile: string,
+  coordinates: string,
+  routingContext: {
+    preference: RoutePreference;
+    quality: "preferred" | "fallback";
+    fallbackReason?: "ors_missing_key" | "ors_error" | "ors_no_geometry";
+  },
+): Promise<CachedRoutedPath | null> {
 
   const url = new URL(`${osrmBaseUrl}/route/v1/${osrmProfile}/${coordinates}`);
   url.searchParams.set("overview", "full");
@@ -155,10 +200,17 @@ async function fetchRouteFromOsrm(osrmBaseUrl: string, osrmProfile: string, coor
     coordinates: routeCoordinates,
     distanceKm: distanceMeters / 1000,
     durationMin: Math.round(durationSeconds / 60),
+    routing: {
+      provider: "osrm",
+      profile: osrmProfile,
+      preference: routingContext.preference,
+      quality: routingContext.quality,
+      fallbackReason: routingContext.fallbackReason,
+    },
   };
 }
 
-async function fetchRouteFromOrs(apiKey: string, waypoints: Position[]): Promise<CachedRoutedPath | null> {
+async function fetchRouteFromOrs(apiKey: string, waypoints: Position[], preference: RoutePreference): Promise<CachedRoutedPath | null> {
   // ORS v2 accepts the API key in the Authorization header as a bare token (no "Bearer" prefix).
   const response = await fetch(
     "https://api.openrouteservice.org/v2/directions/foot-walking/geojson",
@@ -200,6 +252,12 @@ async function fetchRouteFromOrs(apiKey: string, waypoints: Position[]): Promise
     coordinates: routeCoordinates,
     distanceKm: distanceMeters / 1000,
     durationMin: Math.round(durationSeconds / 60),
+    routing: {
+      provider: "ors",
+      profile: "foot-walking",
+      preference,
+      quality: "preferred",
+    },
   };
 }
 
@@ -224,6 +282,7 @@ function buildRoutedPath(result: CachedRoutedPath | null, name: string, waypoint
     },
     distanceKm: result.distanceKm,
     durationMin: result.durationMin,
+    routing: result.routing,
   };
 }
 
