@@ -91,7 +91,8 @@ export default function MapContainer({
   const lastMapSelectionRef = useRef<{ position: Position; timestamp: number } | null>(null);
 
   useEffect(() => {
-    if (!containerRef.current) {
+    const containerElement = containerRef.current;
+    if (!containerElement) {
       return;
     }
 
@@ -100,13 +101,20 @@ export default function MapContainer({
     const initialView = initialViewRef.current;
     const waypointMarkers = waypointMarkersRef.current;
     const map = new maplibregl.Map({
-      container: containerRef.current,
+      container: containerElement,
       style: createSatelliteStyle(),
       center: [initialView.lng, initialView.lat],
       zoom: initialView.zoom,
     });
+    let resizeFrameId: number | null = null;
     const resizeObserver = new ResizeObserver(() => {
-      map.resize();
+      if (resizeFrameId !== null) {
+        cancelAnimationFrame(resizeFrameId);
+      }
+      resizeFrameId = requestAnimationFrame(() => {
+        resizeFrameId = null;
+        map.resize();
+      });
     });
 
     let cancelled = false;
@@ -148,12 +156,15 @@ export default function MapContainer({
 
     map.on("load", handleLoad);
     map.on("error", handleError);
-    resizeObserver.observe(containerRef.current);
+    resizeObserver.observe(containerElement);
 
     return () => {
       cancelled = true;
       setMapReady(false);
       resizeObserver.disconnect();
+      if (resizeFrameId !== null) {
+        cancelAnimationFrame(resizeFrameId);
+      }
       cleanupRoutes(map, routeLayersRef.current);
       routeLayersRef.current = [];
       waypointMarkers.clear();
