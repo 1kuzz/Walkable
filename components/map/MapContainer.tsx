@@ -943,19 +943,18 @@ function safelyCountRenderedPathFeatures(map: MapLibreMap): number {
 }
 
 function describePathwayDiagnostics(diagnostics: PathwayDiagnostics): string {
-  if (diagnostics.status === "source_loading") {
-    return "Loading pedestrian vector data for this map view.";
+  switch (diagnostics.status) {
+    case "source_loading":
+      return "Loading pedestrian vector data for this map view.";
+    case "layer_missing":
+      return "Pedestrian pathway layer is unavailable in the current style.";
+    case "no_visible_paths":
+      return "No pedestrian vector pathways are visible in this area or zoom level.";
+    case "satellite_mode":
+      return "Satellite view hides vector pathway overlays.";
+    case "paths_visible":
+      return `Pedestrian pathways visible: ${diagnostics.visiblePathFeatureCount}.`;
   }
-  if (diagnostics.status === "layer_missing") {
-    return "Pedestrian pathway layer is unavailable in the current style.";
-  }
-  if (diagnostics.status === "no_visible_paths") {
-    return "No pedestrian vector pathways are visible in this area or zoom level.";
-  }
-  if (diagnostics.status === "satellite_mode") {
-    return "Satellite view hides vector pathway overlays.";
-  }
-  return `Pedestrian pathways visible: ${diagnostics.visiblePathFeatureCount}.`;
 }
 
 function sanitizeLayerId(value: string): string {
