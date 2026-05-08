@@ -53,6 +53,8 @@ cp .env.example .env.local
 # then fill in every variable — see comments in .env.example
 ```
 
+For persistent sign-in behavior, keep `NEXTAUTH_SECRET` stable across deploys and set session policy with `NEXTAUTH_SESSION_MAX_AGE_SECONDS` / `NEXTAUTH_SESSION_UPDATE_AGE_SECONDS` when needed.
+
 The only externally required services for basic local work are:
 
 | Service | Required for |
