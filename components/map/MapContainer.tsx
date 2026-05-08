@@ -236,10 +236,36 @@ function createRouteLine(
     callback(snapped.coordinates);
   };
 
+  let lastSelection: { position: Position; timestamp: number } | null = null;
+  const isDuplicateSelection = (position: Position) => {
+    if (!lastSelection) {
+      return false;
+    }
+
+    const [lng, lat] = position;
+    const [lastLng, lastLat] = lastSelection.position;
+    const isSamePoint = Math.abs(lng - lastLng) < 0.000001 && Math.abs(lat - lastLat) < 0.000001;
+    return isSamePoint && Date.now() - lastSelection.timestamp < 700;
+  };
+  const handleSelect = (coords: unknown) => {
+    updateSelection(coords, (position) => {
+      if (isDuplicateSelection(position)) {
+        return;
+      }
+
+      lastSelection = {
+        position,
+        timestamp: Date.now(),
+      };
+      handlers.onSelect(position);
+    });
+  };
+
   line.events.add("mouseenter", (event) => updateSelection(event.get("coords"), handlers.onHover));
   line.events.add("mousemove", (event) => updateSelection(event.get("coords"), handlers.onHover));
   line.events.add("mouseleave", () => handlers.onLeave());
-  line.events.add("click", (event) => updateSelection(event.get("coords"), handlers.onSelect));
+  line.events.add("click", (event) => handleSelect(event.get("coords")));
+  line.events.add("tap", (event) => handleSelect(event.get("coords")));
 
   return line;
 }
