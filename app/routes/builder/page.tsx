@@ -323,7 +323,15 @@ export default function RouteBuilderPage() {
         <Button
           className="w-full"
           disabled={!canPublishRoute}
-          title={!canPublishRoute ? "Add at least two points to publish this trail." : undefined}
+          title={
+            !canPublishRoute
+              ? waypoints.length < 2
+                ? "Add at least two points to publish this trail."
+                : !visibleDraftRoute
+                  ? "Waiting for the route to be calculated…"
+                  : undefined
+              : undefined
+          }
           onClick={handlePublishRoute}
         >
           {publishing ? "Publishing..." : "Publish Route"}

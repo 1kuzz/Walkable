@@ -26,6 +26,26 @@ export async function POST(req: NextRequest) {
       },
     });
 
+    // Increment photosCount and grant the "photographer" achievement on first photo upload.
+    try {
+      const updatedUser = await db.user.update({
+        where: { id: session.user.id },
+        data: { photosCount: { increment: 1 } },
+        select: { photosCount: true, achievements: { select: { type: true } } },
+      });
+
+      if (
+        updatedUser.photosCount === 1 &&
+        !updatedUser.achievements.some((a) => a.type === "photographer")
+      ) {
+        await db.achievement
+          .create({ data: { userId: session.user.id, type: "photographer" } })
+          .catch(() => {});
+      }
+    } catch {
+      // Stats update is best-effort; photo upload already succeeded.
+    }
+
     return NextResponse.json(photo, { status: 201 });
   } catch (error) {
     logServerEvent("error", "photos.upload_failed", {

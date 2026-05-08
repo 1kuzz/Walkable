@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useSession, signOut } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { MoonIcon, SunIcon, MapIcon } from "lucide-react";
+import { MoonIcon, SunIcon, MapIcon, RouteIcon } from "lucide-react";
 import { useTheme } from "next-themes";
 
 export default function Navbar() {
@@ -24,6 +24,13 @@ export default function Navbar() {
             <Button variant="ghost" size="sm" className="gap-1.5">
               <MapIcon className="h-4 w-4" />
               <span className="hidden sm:block">Map</span>
+            </Button>
+          </Link>
+
+          <Link href="/routes/builder">
+            <Button variant="ghost" size="sm" className="gap-1.5">
+              <RouteIcon className="h-4 w-4" />
+              <span className="hidden sm:block">Build Route</span>
             </Button>
           </Link>
 
