@@ -10,11 +10,13 @@ interface MapContainerProps {
   lat?: number;
   lng?: number;
   zoom?: number;
-  style?: "streets" | "satellite" | "terrain";
   className?: string;
   routes?: RouteFeature[];
   sponsoredStops?: SponsoredStopMapItem[];
+  waypoints?: Array<{ id: string; lat: number; lng: number; label?: string }>;
   onMapLoad?: (map: YandexMap) => void;
+  onMapStatusChange?: (status: "loading" | "ready" | "error") => void;
+  onMapPointSelect?: (coordinates: Position) => void;
   onRoutePointSelect?: (selection: { routeId: string; routeName: string; coordinates: Position }) => void;
   onSponsoredStopSelect?: (stop: SponsoredStopMapItem) => void;
 }
@@ -38,15 +40,17 @@ export default function MapContainer({
   lat = 55.7558,
   lng = 37.6173,
   zoom = 11,
-  style = "streets",
   className = "w-full h-full",
   routes = [],
   sponsoredStops = [],
+  waypoints = [],
   onMapLoad,
+  onMapStatusChange,
+  onMapPointSelect,
   onRoutePointSelect,
   onSponsoredStopSelect,
 }: MapContainerProps) {
-  const initialViewRef = useRef({ lat, lng, zoom, style });
+  const initialViewRef = useRef({ lat, lng, zoom });
   const mapRef = useRef<YandexMap | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [mapReady, setMapReady] = useState(false);
@@ -54,18 +58,26 @@ export default function MapContainer({
   const selectedPointRef = useRef<YandexGeoObject | null>(null);
   const routeObjectsRef = useRef<Array<{ feature: RouteFeature; line: YandexGeoObject }>>([]);
   const sponsoredStopObjectsRef = useRef<YandexGeoObject[]>([]);
+  const waypointObjectsRef = useRef<YandexGeoObject[]>([]);
   const selectedRouteIdRef = useRef<string | null>(null);
   const lastRouteSelectionRef = useRef<{ position: Position; timestamp: number } | null>(null);
+  const lastMapSelectionRef = useRef<{ position: Position; timestamp: number } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     if (!containerRef.current) {
       return;
     }
+    onMapStatusChange?.("loading");
 
     loadYandexMapsApi()
       .then((ymaps) => {
-        if (cancelled || !ymaps || !containerRef.current) {
+        if (cancelled || !containerRef.current) {
+          return;
+        }
+        if (!ymaps) {
+          setMapReady(false);
+          onMapStatusChange?.("error");
           return;
         }
 
@@ -73,7 +85,7 @@ export default function MapContainer({
         const map = new ymaps.Map(containerRef.current, {
           center: [initialView.lat, initialView.lng],
           zoom: initialView.zoom,
-          type: getYandexMapType(initialView.style),
+          type: getYandexMapType(),
         });
 
         map.controls.add("zoomControl");
@@ -97,11 +109,13 @@ export default function MapContainer({
         hoverPointRef.current = hoverPoint;
         selectedPointRef.current = selectedPoint;
         setMapReady(true);
+        onMapStatusChange?.("ready");
         onMapLoad?.(map);
       })
       .catch(() => {
         mapRef.current = null;
         setMapReady(false);
+        onMapStatusChange?.("error");
       });
 
     return () => {
@@ -111,11 +125,13 @@ export default function MapContainer({
       selectedRouteIdRef.current = null;
       hoverPointRef.current = null;
       selectedPointRef.current = null;
+      waypointObjectsRef.current = [];
+      lastMapSelectionRef.current = null;
       setMapReady(false);
       mapRef.current?.destroy();
       mapRef.current = null;
     };
-  }, [onMapLoad]);
+  }, [onMapLoad, onMapStatusChange]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -124,8 +140,7 @@ export default function MapContainer({
     }
 
     map.setCenter([lat, lng], zoom);
-    map.setType(getYandexMapType(style));
-  }, [lat, lng, zoom, style, mapReady]);
+  }, [lat, lng, zoom, mapReady]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -205,6 +220,58 @@ export default function MapContainer({
       sponsoredStopObjectsRef.current = [];
     };
   }, [sponsoredStops, onSponsoredStopSelect, mapReady]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) {
+      return;
+    }
+
+    waypointObjectsRef.current.forEach((marker) => map.geoObjects.remove(marker));
+    waypointObjectsRef.current = waypoints.map((waypoint, index) => {
+      const marker = createWaypointMarker(waypoint, index);
+      map.geoObjects.add(marker);
+      return marker;
+    });
+
+    return () => {
+      waypointObjectsRef.current.forEach((marker) => map.geoObjects.remove(marker));
+      waypointObjectsRef.current = [];
+    };
+  }, [waypoints, mapReady]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || !onMapPointSelect) {
+      return;
+    }
+
+    const handleMapSelect = (event: { get(name: string): unknown }) => {
+      const coords = event.get("coords");
+      if (!Array.isArray(coords) || coords.length !== 2) {
+        return;
+      }
+
+      const selection = toGeoJsonCoordinates(coords as number[]);
+      if (isDuplicateSelection(lastMapSelectionRef.current, selection)) {
+        return;
+      }
+
+      lastMapSelectionRef.current = {
+        position: selection,
+        timestamp: Date.now(),
+      };
+      onMapPointSelect(selection);
+    };
+
+    map.events.add("click", handleMapSelect);
+    map.events.add("tap", handleMapSelect);
+
+    return () => {
+      map.events.remove("click", handleMapSelect);
+      map.events.remove("tap", handleMapSelect);
+    };
+  }, [mapReady, onMapPointSelect]);
 
   return (
     <div className={cn(className, "relative isolate")}>
@@ -335,6 +402,28 @@ function createSponsoredStopMarker(stop: SponsoredStopMapItem, buttonId: string)
   });
 }
 
+function createWaypointMarker(
+  waypoint: { lat: number; lng: number; label?: string },
+  index: number,
+): YandexGeoObject {
+  const ymaps = window.ymaps;
+  if (!ymaps) {
+    throw new Error("Yandex Maps is not loaded");
+  }
+
+  return new ymaps.Placemark(
+    [waypoint.lat, waypoint.lng],
+    {
+      iconCaption: waypoint.label ?? `${index + 1}`,
+      hintContent: waypoint.label ?? `Waypoint ${index + 1}`,
+    },
+    {
+      preset: "islands#orangeCircleDotIconWithCaption",
+      iconCaptionMaxWidth: "40",
+    },
+  );
+}
+
 function escapeHtml(value: string): string {
   return value
     .replaceAll("&", "&amp;")
@@ -346,4 +435,20 @@ function escapeHtml(value: string): string {
 
 function arePositionsNear(a: Position, b: Position, epsilon: number): boolean {
   return Math.abs(a[0] - b[0]) < epsilon && Math.abs(a[1] - b[1]) < epsilon;
+}
+
+function isDuplicateSelection(
+  previousSelection: { position: Position; timestamp: number } | null,
+  position: Position,
+): boolean {
+  if (!previousSelection) {
+    return false;
+  }
+
+  const selectionAgeMs = Date.now() - previousSelection.timestamp;
+  if (selectionAgeMs >= DUPLICATE_EVENT_WINDOW_MS) {
+    return false;
+  }
+
+  return arePositionsNear(position, previousSelection.position, POSITION_PROXIMITY_EPSILON_DEGREES);
 }

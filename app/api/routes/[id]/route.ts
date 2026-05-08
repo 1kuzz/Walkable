@@ -12,7 +12,7 @@ export async function GET(_: NextRequest, { params }: { params: Promise<{ id: st
       where: { id },
       include: {
         park: true,
-        waypoints: true,
+        waypoints: { orderBy: { createdAt: "asc" } },
         reviews: { include: { user: { select: { name: true, image: true } } }, orderBy: { createdAt: "desc" } },
         photos: { include: { user: { select: { name: true } } } },
         createdBy: { select: { name: true, image: true } },

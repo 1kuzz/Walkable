@@ -120,6 +120,13 @@ npm run build
 >
 > `npm run start` is a separate production-runtime smoke check step (run manually before release, not on every local pre-push cycle).
 
+## Route builder behavior
+
+- Open `/routes/builder` (authenticated users only).
+- Add waypoints by clicking/tapping existing route lines (snapped) or anywhere on the map (manual point).
+- Reorder, rename, remove, or clear waypoints from the sidebar before publishing.
+- A route can be published only when draft geometry is ready and waypoint/park validation passes.
+
 ---
 
 ## CI pipeline
