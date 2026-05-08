@@ -96,12 +96,12 @@ export default function MapContainer({
     onMapStatusChange?.("loading");
 
     const initialView = initialViewRef.current;
+    const waypointMarkers = waypointMarkersRef.current;
     const map = new maplibregl.Map({
       container: containerRef.current,
       style: createSatelliteStyle(),
       center: [initialView.lng, initialView.lat],
       zoom: initialView.zoom,
-      attributionControl: true,
     });
 
     let cancelled = false;
@@ -116,7 +116,6 @@ export default function MapContainer({
       map.addControl(
         new maplibregl.GeolocateControl({
           trackUserLocation: false,
-          showUserHeading: false,
         }),
         "top-right",
       );
@@ -149,9 +148,7 @@ export default function MapContainer({
       setMapReady(false);
       cleanupRoutes(map, routeLayersRef.current);
       routeLayersRef.current = [];
-      waypointMarkersRef.current.forEach(({ marker }) => marker.remove());
-      waypointMarkersRef.current.clear();
-      sponsoredStopMarkersRef.current.forEach((marker) => marker.remove());
+      waypointMarkers.clear();
       sponsoredStopMarkersRef.current = [];
       hoverPointRef.current?.marker.remove();
       selectedPointRef.current?.marker.remove();
@@ -566,7 +563,7 @@ function updatePointMarker(markerState: { marker: Marker; element: HTMLDivElemen
   }
 
   if (coordinates) {
-    markerState.marker.setLngLat(coordinates);
+    markerState.marker.setLngLat([coordinates[0], coordinates[1]]);
     markerState.element.style.display = "block";
     return;
   }
