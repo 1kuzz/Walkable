@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { signIn, useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
@@ -9,13 +9,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 export default function LoginPage() {
   const router = useRouter();
   const { status } = useSession();
-  const [callbackUrl, setCallbackUrl] = useState("/profile");
-
-  useEffect(() => {
+  const callbackUrl = useMemo(() => {
+    if (typeof window === "undefined") {
+      return "/profile";
+    }
     const incoming = new URLSearchParams(window.location.search).get("callbackUrl");
     if (incoming && incoming.startsWith("/") && !incoming.startsWith("//")) {
-      setCallbackUrl(incoming);
+      return incoming;
     }
+    return "/profile";
   }, []);
 
   useEffect(() => {
