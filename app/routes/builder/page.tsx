@@ -51,6 +51,12 @@ const emptyDraftRouteState: DraftRouteState = {
   durationMin: 0,
 };
 
+function publishButtonTitle(waypointCount: number, draftRoute: RouteFeature | null): string | undefined {
+  if (waypointCount < 2) return "Add at least two points to publish this trail.";
+  if (!draftRoute) return "Waiting for the route to be calculated…";
+  return undefined;
+}
+
 export default function RouteBuilderPage() {
   const [routeName, setRouteName] = useState("");
   const [baseRoutes, setBaseRoutes] = useState<ApiRoute[]>([]);
@@ -323,7 +329,7 @@ export default function RouteBuilderPage() {
         <Button
           className="w-full"
           disabled={!canPublishRoute}
-          title={!canPublishRoute ? "Add at least two points to publish this trail." : undefined}
+          title={publishButtonTitle(waypoints.length, visibleDraftRoute)}
           onClick={handlePublishRoute}
         >
           {publishing ? "Publishing..." : "Publish Route"}
