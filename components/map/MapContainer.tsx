@@ -10,7 +10,7 @@ import maplibregl, {
   type Marker,
 } from "maplibre-gl";
 import { nearestPointOnRoute, type RouteFeature, type SponsoredStopMapItem } from "@/lib/geo";
-import { createSatelliteStyle, createWalkableStyle, type Map as MapLibreMap, type MapStyleMode } from "@/lib/maplibre";
+import { createSatelliteStyle, createVectorStyle, createWalkableStyle, type Map as MapLibreMap, type MapStyleMode } from "@/lib/maplibre";
 import { cn } from "@/lib/utils";
 
 interface MapContainerProps {
@@ -84,8 +84,8 @@ export default function MapContainer({
   const mapRef = useRef<MapLibreMap | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [mapReady, setMapReady] = useState(false);
-  const [styleMode, setStyleMode] = useState<MapStyleMode>("walkable");
-  const styleModeRef = useRef<MapStyleMode>("walkable");
+  const [styleMode, setStyleMode] = useState<MapStyleMode>("vector");
+  const styleModeRef = useRef<MapStyleMode>("vector");
   const routeLayersRef = useRef<RouteLayerState[]>([]);
   const waypointMarkersRef = useRef<Map<string, { marker: Marker; label: HTMLSpanElement }>>(new Map());
   const sponsoredStopMarkersRef = useRef<Marker[]>([]);
@@ -107,7 +107,7 @@ export default function MapContainer({
     const waypointMarkers = waypointMarkersRef.current;
     const map = new maplibregl.Map({
       container: containerElement,
-      style: createWalkableStyle(),
+      style: createVectorStyle(),
       center: [initialView.lng, initialView.lat],
       zoom: initialView.zoom,
     });
@@ -208,7 +208,13 @@ export default function MapContainer({
     }
     styleModeRef.current = styleMode;
     setMapReady(false);
-    map.setStyle(styleMode === "walkable" ? createWalkableStyle() : createSatelliteStyle());
+    map.setStyle(
+      styleMode === "vector"
+        ? createVectorStyle()
+        : styleMode === "walkable"
+        ? createWalkableStyle()
+        : createSatelliteStyle(),
+    );
     map.once("styledata", () => {
       if (mapRef.current) {
         setMapReady(true);
@@ -561,30 +567,74 @@ export default function MapContainer({
     <div className={cn(className, "relative isolate")}>
       <div ref={containerRef} className="h-full w-full" />
 
-      {/* Style toggle button */}
-      <button
-        type="button"
-        onClick={() => setStyleMode((mode) => mode === "walkable" ? "satellite" : "walkable")}
-        className="absolute bottom-8 right-2 z-10 rounded-lg border bg-background/90 px-3 py-1.5 text-xs font-medium shadow backdrop-blur hover:bg-muted active:scale-95 transition-all"
-        aria-label={styleMode === "walkable" ? "Switch to satellite view" : "Switch to walkable paths view"}
-        aria-pressed={styleMode === "walkable"}
-      >
-        {styleMode === "walkable" ? "🛰 Satellite" : "🥾 Walkable"}
-      </button>
+      {/* Style toggle buttons */}
+      <div className="absolute bottom-8 right-2 z-10 flex flex-col gap-1">
+        <button
+          type="button"
+          onClick={() => setStyleMode("vector")}
+          className={cn(
+            "rounded-lg border px-3 py-1.5 text-xs font-medium shadow transition-all",
+            styleMode === "vector"
+              ? "bg-primary text-primary-foreground"
+              : "bg-background/90 backdrop-blur hover:bg-muted active:scale-95",
+          )}
+          aria-label="Switch to vector map view"
+          aria-pressed={styleMode === "vector"}
+        >
+          🗺 Vector
+        </button>
+        <button
+          type="button"
+          onClick={() => setStyleMode("walkable")}
+          className={cn(
+            "rounded-lg border px-3 py-1.5 text-xs font-medium shadow transition-all",
+            styleMode === "walkable"
+              ? "bg-primary text-primary-foreground"
+              : "bg-background/90 backdrop-blur hover:bg-muted active:scale-95",
+          )}
+          aria-label="Switch to walkable paths view"
+          aria-pressed={styleMode === "walkable"}
+        >
+          🥾 Walkable
+        </button>
+        <button
+          type="button"
+          onClick={() => setStyleMode("satellite")}
+          className={cn(
+            "rounded-lg border px-3 py-1.5 text-xs font-medium shadow transition-all",
+            styleMode === "satellite"
+              ? "bg-primary text-primary-foreground"
+              : "bg-background/90 backdrop-blur hover:bg-muted active:scale-95",
+          )}
+          aria-label="Switch to satellite view"
+          aria-pressed={styleMode === "satellite"}
+        >
+          🛰 Satellite
+        </button>
+      </div>
 
-      {/* Legend — only visible in walkable mode */}
-      {styleMode === "walkable" && (
+      {/* Legend — only visible in vector or walkable mode */}
+      {styleMode !== "satellite" && (
         <div className="absolute bottom-8 left-2 z-10 flex items-center gap-3 rounded-full border bg-background/85 px-3 py-1.5 text-xs shadow backdrop-blur">
           <span className="flex items-center gap-1">
-            <span className="inline-block h-0.5 w-5 border-t-2 border-dashed border-[#f5f0e8] bg-transparent" />
+            <span
+              className="inline-block h-0.5 w-5 border-t-2 border-dashed"
+              style={{ borderColor: styleMode === "vector" ? "#3da64a" : "#f5f0e8" }}
+            />
             Footpath
           </span>
           <span className="flex items-center gap-1">
-            <span className="inline-block h-0.5 w-5 bg-[#6baed6] opacity-60" />
+            <span
+              className="inline-block h-0.5 w-5"
+              style={{ background: styleMode === "vector" ? "#e06c00" : "#6baed6", opacity: 0.8 }}
+            />
             Road
           </span>
           <span className="flex items-center gap-1">
-            <span className="inline-block h-2 w-5 rounded bg-[#22c55e] opacity-50" />
+            <span
+              className="inline-block h-2 w-5 rounded opacity-70"
+              style={{ background: styleMode === "vector" ? "#cde8c3" : "#22c55e" }}
+            />
             Park
           </span>
         </div>

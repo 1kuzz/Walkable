@@ -2,7 +2,7 @@ import type { GeoJSONSource, LngLatLike, Map, StyleSpecification } from "maplibr
 
 export type { GeoJSONSource, LngLatLike, Map };
 
-export type MapStyleMode = "satellite" | "walkable";
+export type MapStyleMode = "satellite" | "walkable" | "vector";
 
 export function createSatelliteStyle(): StyleSpecification {
   return {
@@ -22,6 +22,212 @@ export function createSatelliteStyle(): StyleSpecification {
         id: "satellite",
         type: "raster",
         source: "satellite",
+      },
+    ],
+  };
+}
+
+/**
+ * Pure-vector "roads as rivers" style.
+ * No raster base — every layer is fully customisable.
+ * Road widths scale with road class (motorway = wide river, footpath = thin thread).
+ */
+export function createVectorStyle(): StyleSpecification {
+  return {
+    version: 8,
+    glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
+    sources: {
+      openmaptiles: {
+        type: "vector",
+        tiles: ["https://tiles.openfreemap.org/planet/{z}/{x}/{y}"],
+        maxzoom: 14,
+        attribution: "© OpenFreeMap © OpenStreetMap contributors",
+      },
+    },
+    layers: [
+      // ── Background ────────────────────────────────────────────────────
+      {
+        id: "background",
+        type: "background",
+        paint: { "background-color": "#f8f4f0" },
+      },
+
+      // ── Water ─────────────────────────────────────────────────────────
+      {
+        id: "water-fill",
+        type: "fill",
+        source: "openmaptiles",
+        "source-layer": "water",
+        paint: { "fill-color": "#a8d8ea" },
+      },
+      {
+        id: "water-stroke",
+        type: "line",
+        source: "openmaptiles",
+        "source-layer": "water",
+        paint: { "line-color": "#6bb8d4", "line-width": 1 },
+      },
+
+      // ── Landuse fills ─────────────────────────────────────────────────
+      {
+        id: "landuse-park",
+        type: "fill",
+        source: "openmaptiles",
+        "source-layer": "landuse",
+        filter: [
+          "match",
+          ["get", "class"],
+          ["park", "grass", "recreation_ground", "garden", "forest", "village_green"],
+          true,
+          false,
+        ],
+        paint: { "fill-color": "#cde8c3" },
+      },
+      {
+        id: "landuse-residential",
+        type: "fill",
+        source: "openmaptiles",
+        "source-layer": "landuse",
+        filter: ["match", ["get", "class"], ["residential", "commercial", "retail"], true, false],
+        paint: { "fill-color": "#ede9e4" },
+      },
+      {
+        id: "leisure-park",
+        type: "fill",
+        source: "openmaptiles",
+        "source-layer": "park",
+        paint: { "fill-color": "#d6edcc" },
+      },
+
+      // ── Buildings ─────────────────────────────────────────────────────
+      {
+        id: "building-fill",
+        type: "fill",
+        source: "openmaptiles",
+        "source-layer": "building",
+        minzoom: 14,
+        paint: { "fill-color": "#ddd6cd", "fill-outline-color": "#c7bdb4" },
+      },
+
+      // ── Road casings (outlines) ───────────────────────────────────────
+      {
+        id: "road-casing-motorway",
+        type: "line",
+        source: "openmaptiles",
+        "source-layer": "transportation",
+        filter: ["match", ["get", "class"], ["motorway", "trunk"], true, false],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": "#b85000",
+          "line-width": ["interpolate", ["linear"], ["zoom"], 6, 4, 12, 14, 16, 26],
+        },
+      },
+      {
+        id: "road-casing-primary",
+        type: "line",
+        source: "openmaptiles",
+        "source-layer": "transportation",
+        filter: ["match", ["get", "class"], ["primary"], true, false],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": "#c97a00",
+          "line-width": ["interpolate", ["linear"], ["zoom"], 8, 3, 12, 10, 16, 20],
+        },
+      },
+      {
+        id: "road-casing-secondary",
+        type: "line",
+        source: "openmaptiles",
+        "source-layer": "transportation",
+        filter: ["match", ["get", "class"], ["secondary"], true, false],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": "#b8a000",
+          "line-width": ["interpolate", ["linear"], ["zoom"], 9, 2.5, 12, 7, 16, 16],
+        },
+      },
+      {
+        id: "road-casing-minor",
+        type: "line",
+        source: "openmaptiles",
+        "source-layer": "transportation",
+        filter: ["match", ["get", "class"], ["tertiary", "minor", "service"], true, false],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": "#b0a090",
+          "line-width": ["interpolate", ["linear"], ["zoom"], 12, 2, 16, 8],
+        },
+      },
+
+      // ── Road fills ────────────────────────────────────────────────────
+      {
+        id: "road-motorway",
+        type: "line",
+        source: "openmaptiles",
+        "source-layer": "transportation",
+        filter: ["match", ["get", "class"], ["motorway", "trunk"], true, false],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": "#e06c00",
+          "line-width": ["interpolate", ["linear"], ["zoom"], 6, 2, 12, 8, 16, 18],
+        },
+      },
+      {
+        id: "road-primary",
+        type: "line",
+        source: "openmaptiles",
+        "source-layer": "transportation",
+        filter: ["match", ["get", "class"], ["primary"], true, false],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": "#f0a500",
+          "line-width": ["interpolate", ["linear"], ["zoom"], 8, 1.5, 12, 6, 16, 14],
+        },
+      },
+      {
+        id: "road-secondary",
+        type: "line",
+        source: "openmaptiles",
+        "source-layer": "transportation",
+        filter: ["match", ["get", "class"], ["secondary"], true, false],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": "#f5d000",
+          "line-width": ["interpolate", ["linear"], ["zoom"], 9, 1, 12, 4.5, 16, 12],
+        },
+      },
+      {
+        id: "road-minor",
+        type: "line",
+        source: "openmaptiles",
+        "source-layer": "transportation",
+        filter: ["match", ["get", "class"], ["tertiary", "minor", "service"], true, false],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": "#ffffff",
+          "line-width": ["interpolate", ["linear"], ["zoom"], 12, 1, 16, 6],
+        },
+      },
+
+      // ── Walkable paths ────────────────────────────────────────────────
+      {
+        id: "walkable-paths",
+        type: "line",
+        source: "openmaptiles",
+        "source-layer": "transportation",
+        filter: [
+          "match",
+          ["get", "class"],
+          ["path", "pedestrian", "footway", "cycleway", "steps", "track", "bridleway"],
+          true,
+          false,
+        ],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": "#3da64a",
+          "line-width": ["interpolate", ["linear"], ["zoom"], 12, 1, 16, 3],
+          "line-dasharray": [2, 1.5],
+        },
       },
     ],
   };
