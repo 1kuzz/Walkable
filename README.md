@@ -2,6 +2,33 @@
 
 Discover, build, and share walking routes in parks. Check weather and trail conditions, browse community photos, and track your walking history.
 
+## Our vision
+
+Walkable exists to make outdoor movement simple, social, and motivating.  
+On **https://1kuzz.org**, the goal is to help people:
+
+- find enjoyable walks faster
+- feel confident before they go (route + weather context)
+- turn everyday walking into a habit they want to keep
+
+## Enjoy Walkable on 1kuzz.org (user perspective)
+
+If you are visiting **1kuzz.org**, this is the easiest flow:
+
+1. Open the map and explore available park routes.
+2. Pick a route and review distance, expected duration, and context.
+3. Use interactive route tools to preview and personalize your walk.
+4. Add optional sponsored stop points if you want a break on the way.
+5. Complete your walk and track progress in your profile.
+
+## What you can do
+
+- **Explore routes visually** on satellite-style maps with clear route overlays.
+- **Build your own route** by adding/reordering waypoints in the route builder.
+- **Check weather and trail status** before heading out.
+- **Save and share progress** through your account history and route pages.
+- **Upload and view photos** to make routes more useful for the community.
+
 ## Runtime target and release acceptance
 
 - **Primary deployment target:** Vercel (configured by `vercel.json`)
@@ -201,7 +228,7 @@ This is safe to run repeatedly — Prisma only applies unapplied migrations.
 - `/api/health` — process-level liveness check
 - `/api/ready` — readiness check
   - `?checkDb=1` enables database connectivity check
-  - `?checkExternal=1` validates weather/maps API key presence
+  - `?checkExternal=1` validates external weather/maps integration configuration
 
 The server emits structured JSON logs for key failures:
 
