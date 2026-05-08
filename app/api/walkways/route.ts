@@ -15,7 +15,7 @@ function parseBbox(value: string | null) {
   }
 
   const [south, west, north, east] = parts;
-  if (south > north || west > east) {
+  if (south > north) {
     return undefined;
   }
 
@@ -37,14 +37,29 @@ export async function GET(req: NextRequest) {
   }
 
   try {
+    const bboxWhere = bbox
+      ? bbox.west <= bbox.east
+        ? {
+            lat: { gte: bbox.south, lte: bbox.north },
+            lng: { gte: bbox.west, lte: bbox.east },
+          }
+        : {
+            AND: [
+              { lat: { gte: bbox.south, lte: bbox.north } },
+              {
+                OR: [
+                  { lng: { gte: bbox.west } },
+                  { lng: { lte: bbox.east } },
+                ],
+              },
+            ],
+          }
+      : undefined;
     const walkways = await db.walkway.findMany({
       where: {
         ...(parkId ? { parkId } : {}),
         ...(type ? { type: type as (typeof WALKWAY_TYPES)[number] } : {}),
-        ...(bbox ? {
-          lat: { gte: bbox.south, lte: bbox.north },
-          lng: { gte: bbox.west, lte: bbox.east },
-        } : {}),
+        ...(bboxWhere ?? {}),
       },
       select: {
         id: true,
@@ -53,6 +68,7 @@ export async function GET(req: NextRequest) {
         type: true,
         geometryGeoJson: true,
       },
+      // Keep the payload bounded for map rendering and client-side parsing.
       orderBy: [
         { parkId: "asc" },
         { name: "asc" },

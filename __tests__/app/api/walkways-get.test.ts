@@ -81,4 +81,41 @@ describe("GET /api/walkways", () => {
       }),
     ]);
   });
+
+  it("supports antimeridian-spanning bbox filters", async () => {
+    findManyWalkwaysMock.mockResolvedValueOnce([]);
+    const { GET } = await import("@/app/api/walkways/route");
+
+    const response = await GET(
+      new NextRequest("http://localhost:3000/api/walkways?bbox=-10,170,10,-170"),
+    );
+
+    expect(response.status).toBe(200);
+    expect(findManyWalkwaysMock).toHaveBeenCalledWith({
+      where: {
+        AND: [
+          { lat: { gte: -10, lte: 10 } },
+          {
+            OR: [
+              { lng: { gte: 170 } },
+              { lng: { lte: -170 } },
+            ],
+          },
+        ],
+      },
+      select: {
+        id: true,
+        osmId: true,
+        name: true,
+        type: true,
+        geometryGeoJson: true,
+      },
+      orderBy: [
+        { parkId: "asc" },
+        { name: "asc" },
+        { createdAt: "desc" },
+      ],
+      take: 2000,
+    });
+  });
 });

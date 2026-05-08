@@ -74,7 +74,7 @@ export default function MapPage() {
     const controller = new AbortController();
 
     fetch("/api/walkways", {
-      cache: "force-cache",
+      cache: "default",
       signal: controller.signal,
     })
       .then(async (response) => response.json())

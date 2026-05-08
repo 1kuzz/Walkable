@@ -40,7 +40,7 @@ export default function ParkMapSection({ parkId, lat, lng, routes }: ParkMapSect
     const controller = new AbortController();
 
     fetch(`/api/walkways?parkId=${encodeURIComponent(parkId)}`, {
-      cache: "force-cache",
+      cache: "default",
       signal: controller.signal,
     })
       .then(async (response) => response.json())
