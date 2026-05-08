@@ -79,7 +79,7 @@ export default function RouteBuilderPage() {
   const [mapStatus, setMapStatus] = useState<"loading" | "ready" | "error">("loading");
   const [draftStatus, setDraftStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [selectedParkId, setSelectedParkId] = useState<string>("");
-  const [routePreference, setRoutePreference] = useState<RoutePreference>("foot");
+  const [routePreference, setRoutePreference] = useState<RoutePreference>("park");
   const draftRequestIdRef = useRef(0);
 
   useEffect(() => {

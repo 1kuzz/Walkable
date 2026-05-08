@@ -6,6 +6,7 @@ describe("getRoute", () => {
     clearRouteCache();
     vi.unstubAllGlobals();
     delete process.env.NEXT_PUBLIC_OSRM_PROFILE;
+    delete process.env.NEXT_PUBLIC_ORS_API_KEY;
   });
 
   it("returns null when there are fewer than two waypoints", async () => {
@@ -100,6 +101,32 @@ describe("getRoute", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/route/v1/foot/");
+  });
+
+  it("defaults to park preference and uses ORS when key is configured", async () => {
+    process.env.NEXT_PUBLIC_ORS_API_KEY = "test-ors-key";
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        features: [{
+          geometry: {
+            coordinates: [[37.61, 55.75], [37.62, 55.76]],
+          },
+          properties: {
+            summary: {
+              distance: 1200,
+              duration: 900,
+            },
+          },
+        }],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getRoute([[37.61, 55.75], [37.62, 55.76]]);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("openrouteservice.org/v2/directions/foot-walking/geojson");
   });
 
   it("throws when OSRM request fails", async () => {

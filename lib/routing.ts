@@ -49,7 +49,7 @@ const inFlightRouteRequests = new Map<string, Promise<CachedRoutedPath | null>>(
 export async function getRoute(
   waypoints: Position[],
   name = "Updated route",
-  preference: RoutePreference = "foot",
+  preference: RoutePreference = "park",
 ): Promise<RoutedPath | null> {
   if (waypoints.length < 2) {
     return null;
