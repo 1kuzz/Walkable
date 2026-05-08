@@ -14,7 +14,7 @@ export const WALKABLE_ROAD_COLOR = "#6baed6";
 export const WALKABLE_PARK_COLOR = "#22c55e";
 export const WALKWAY_COLOR = "#d7e8c7";
 
-const ROAD_TRANSPORT_CLASSES = [
+const ROAD_TRANSPORT_CLASSES: string[] = [
   "motorway",
   "trunk",
   "primary",
@@ -30,9 +30,9 @@ const ROAD_TRANSPORT_CLASSES = [
   "primary_link",
   "secondary_link",
   "tertiary_link",
-] as const;
+];
 
-const PATHWAY_TRANSPORT_CLASSES = [
+const PATHWAY_TRANSPORT_CLASSES: string[] = [
   "path",
   "pedestrian",
   "footway",
@@ -41,9 +41,9 @@ const PATHWAY_TRANSPORT_CLASSES = [
   "track",
   "bridleway",
   "corridor",
-] as const;
+];
 
-const PATHWAY_TRANSPORT_SUBCLASSES = [
+const PATHWAY_TRANSPORT_SUBCLASSES: string[] = [
   "path",
   "pedestrian",
   "footway",
@@ -54,18 +54,18 @@ const PATHWAY_TRANSPORT_SUBCLASSES = [
   "track",
   "bridleway",
   "corridor",
-] as const;
+];
 
-const NON_PATH_TRANSPORT_CLASSES = [
+const NON_PATH_TRANSPORT_CLASSES: string[] = [
   "rail",
   "transit",
   "aerialway",
   "ferry",
   "runway",
   "taxiway",
-] as const;
+];
 
-const NON_PATH_TRANSPORT_SUBCLASSES = [
+const NON_PATH_TRANSPORT_SUBCLASSES: string[] = [
   "rail",
   "railway",
   "tram",
@@ -77,7 +77,7 @@ const NON_PATH_TRANSPORT_SUBCLASSES = [
   "funicular",
   "gondola",
   "chair_lift",
-] as const;
+];
 
 export function createSatelliteStyle(): StyleSpecification {
   return {
