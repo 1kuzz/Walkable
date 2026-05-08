@@ -111,8 +111,8 @@ export function getRoutingFallbackMessage(diagnostics: RoutingDiagnostics | null
       return "Park-aware routing provider is temporarily unavailable; using standard walking network.";
     case "ors_no_geometry":
       return "Park-aware routing returned no usable park-path geometry; using standard walking network.";
-    default:
-      // Defensive fallback in case new reasons are introduced in the future.
+    case "walkable_fallback_to_park":
+      // This value is expected for walkable preference; keep a safe message if it appears here.
       return "Park-aware routing is unavailable; using standard walking network.";
   }
 }
@@ -270,6 +270,8 @@ async function fetchRouteFromOrs(apiKey: string, waypoints: Position[], preferen
     ? ["highways", "tollways", "ferries", "fords", "roads"]
     : ["highways", "tollways", "ferries", "fords"];
   // Green + steepness weighting nudges ORS toward easier, greener walking legs.
+  // `green.factor = 1` keeps a neutral-positive bias for greener segments.
+  // `steepness_difficulty = 1` biases against steep gradients for walk comfort.
   const profileParams = {
     weightings: {
       green: { factor: 1 },
