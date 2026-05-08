@@ -4,6 +4,15 @@ export type { GeoJSONSource, LngLatLike, Map };
 
 export type MapStyleMode = "satellite" | "walkable" | "vector";
 
+// Legend colours used both in style layers and in the UI legend swatch.
+// Exporting them avoids duplication and keeps the UI in sync with the map.
+export const VECTOR_FOOTPATH_COLOR = "#3da64a";
+export const VECTOR_ROAD_COLOR = "#e06c00";
+export const VECTOR_PARK_COLOR = "#cde8c3";
+export const WALKABLE_FOOTPATH_COLOR = "#f5f0e8";
+export const WALKABLE_ROAD_COLOR = "#6baed6";
+export const WALKABLE_PARK_COLOR = "#22c55e";
+
 export function createSatelliteStyle(): StyleSpecification {
   return {
     version: 8,
@@ -40,6 +49,10 @@ export function createVectorStyle(): StyleSpecification {
       openmaptiles: {
         type: "vector",
         tiles: ["https://tiles.openfreemap.org/planet/{z}/{x}/{y}"],
+        // OpenFreeMap serves tiles up to zoom 14; at higher zoom levels
+        // MapLibre over-scales the z14 tiles so detail stays visible.
+        // Line-width expressions can still target z16 — they operate on the
+        // rendered zoom level, not the tile zoom level.
         maxzoom: 14,
         attribution: "© OpenFreeMap © OpenStreetMap contributors",
       },

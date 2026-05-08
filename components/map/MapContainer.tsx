@@ -10,7 +10,7 @@ import maplibregl, {
   type Marker,
 } from "maplibre-gl";
 import { nearestPointOnRoute, type RouteFeature, type SponsoredStopMapItem } from "@/lib/geo";
-import { createSatelliteStyle, createVectorStyle, createWalkableStyle, type Map as MapLibreMap, type MapStyleMode } from "@/lib/maplibre";
+import { createSatelliteStyle, createVectorStyle, createWalkableStyle, type Map as MapLibreMap, type MapStyleMode, VECTOR_FOOTPATH_COLOR, VECTOR_ROAD_COLOR, VECTOR_PARK_COLOR, WALKABLE_FOOTPATH_COLOR, WALKABLE_ROAD_COLOR, WALKABLE_PARK_COLOR } from "@/lib/maplibre";
 import { cn } from "@/lib/utils";
 
 interface MapContainerProps {
@@ -619,21 +619,21 @@ export default function MapContainer({
           <span className="flex items-center gap-1">
             <span
               className="inline-block h-0.5 w-5 border-t-2 border-dashed"
-              style={{ borderColor: styleMode === "vector" ? "#3da64a" : "#f5f0e8" }}
+              style={{ borderColor: styleMode === "vector" ? VECTOR_FOOTPATH_COLOR : WALKABLE_FOOTPATH_COLOR }}
             />
             Footpath
           </span>
           <span className="flex items-center gap-1">
             <span
               className="inline-block h-0.5 w-5"
-              style={{ background: styleMode === "vector" ? "#e06c00" : "#6baed6", opacity: 0.8 }}
+              style={{ background: styleMode === "vector" ? VECTOR_ROAD_COLOR : WALKABLE_ROAD_COLOR, opacity: 0.8 }}
             />
             Road
           </span>
           <span className="flex items-center gap-1">
             <span
               className="inline-block h-2 w-5 rounded opacity-70"
-              style={{ background: styleMode === "vector" ? "#cde8c3" : "#22c55e" }}
+              style={{ background: styleMode === "vector" ? VECTOR_PARK_COLOR : WALKABLE_PARK_COLOR }}
             />
             Park
           </span>
