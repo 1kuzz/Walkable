@@ -504,15 +504,15 @@ export default function RouteBuilderPage() {
           setHoverRoutingDiagnostics(result.routing);
           setHoverPreviewRoute({
             ...result.feature,
-              properties: {
-                ...result.feature.properties,
-                id: "hover-preview",
-                color: "#22c55e",
-                source: "hover-preview",
-                routingPreference: result.routing.preference,
-                routingQuality: result.routing.quality,
-              },
-            });
+            properties: {
+              ...result.feature.properties,
+              id: "hover-preview",
+              color: "#22c55e",
+              source: "hover-preview",
+              routingPreference: result.routing.preference,
+              routingQuality: result.routing.quality,
+            },
+          });
         })
         .catch(() => {
           setHoverRoutingDiagnostics(null);
@@ -558,7 +558,7 @@ export default function RouteBuilderPage() {
             ))}
           </select>
           <p className="mt-1 text-xs text-muted-foreground">
-            “Walkable streets only” uses specialized routing and can fall back automatically where strict path data is sparse.
+            “Walkable streets only” uses specialized routing and can automatically fall back to park-aware routing in areas with limited walkable infrastructure data.
           </p>
         </div>
         <label className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">

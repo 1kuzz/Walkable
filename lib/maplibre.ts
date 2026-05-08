@@ -339,10 +339,10 @@ export function createVectorStyle(): StyleSpecification {
         paint: {
           "line-color": VECTOR_FOOTPATH_COLOR,
           "line-opacity": 0.95,
-           "line-width": ["interpolate", ["linear"], ["zoom"], 10, 1.2, 13, 2.2, 16, 4],
-           "line-dasharray": VECTOR_PATHWAY_DASHARRAY,
-         },
-       },
+          "line-width": ["interpolate", ["linear"], ["zoom"], 10, 1.2, 13, 2.2, 16, 4],
+          "line-dasharray": VECTOR_PATHWAY_DASHARRAY,
+        },
+      },
     ],
   };
 }

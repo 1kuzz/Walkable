@@ -84,7 +84,7 @@ export function getRoutingFallbackMessage(diagnostics: RoutingDiagnostics | null
 
   if (diagnostics.preference === "walkable") {
     if (diagnostics.fallbackReason === "ors_missing_key") {
-      return "Walkable-only routing needs ORS configuration; using Park & paths fallback.";
+      return "Walkable-only routing needs the ORS API key; using Park & paths fallback.";
     }
     if (diagnostics.fallbackReason === "ors_error") {
       return "Walkable-only routing provider is temporarily unavailable; using Park & paths fallback.";
@@ -111,9 +111,8 @@ export function getRoutingFallbackMessage(diagnostics: RoutingDiagnostics | null
       return "Park-aware routing provider is temporarily unavailable; using standard walking network.";
     case "ors_no_geometry":
       return "Park-aware routing returned no usable park-path geometry; using standard walking network.";
-    case "walkable_fallback_to_park":
-      return "Park-aware routing is unavailable; using standard walking network.";
     default:
+      // Defensive fallback in case new reasons are introduced in the future.
       return "Park-aware routing is unavailable; using standard walking network.";
   }
 }
@@ -264,7 +263,13 @@ async function fetchRouteFromOsrm(
 }
 
 async function fetchRouteFromOrs(apiKey: string, waypoints: Position[], preference: RoutePreference): Promise<CachedRoutedPath | null> {
-  const avoidFeatures = ["highways", "tollways", "ferries", "fords", "roads"];
+  // Park mode adds "roads" to avoid_features to keep routes in greener areas.
+  // Walkable mode keeps base avoid_features for stricter ORS requests here;
+  // caller-level fallback handling is managed in fetchWalkableNetworkLeg.
+  const avoidFeatures = preference === "park"
+    ? ["highways", "tollways", "ferries", "fords", "roads"]
+    : ["highways", "tollways", "ferries", "fords"];
+  // Green + steepness weighting nudges ORS toward easier, greener walking legs.
   const profileParams = {
     weightings: {
       green: { factor: 1 },
