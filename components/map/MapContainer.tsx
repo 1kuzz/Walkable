@@ -91,7 +91,8 @@ export default function MapContainer({
   const lastMapSelectionRef = useRef<{ position: Position; timestamp: number } | null>(null);
 
   useEffect(() => {
-    if (!containerRef.current) {
+    const containerElement = containerRef.current;
+    if (!containerElement) {
       return;
     }
 
@@ -100,13 +101,30 @@ export default function MapContainer({
     const initialView = initialViewRef.current;
     const waypointMarkers = waypointMarkersRef.current;
     const map = new maplibregl.Map({
-      container: containerRef.current,
+      container: containerElement,
       style: createSatelliteStyle(),
       center: [initialView.lng, initialView.lat],
       zoom: initialView.zoom,
     });
-
     let cancelled = false;
+    let resizeFrameId: number | null = null;
+    const resizeObserver = typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(() => {
+        if (cancelled) {
+          return;
+        }
+        if (resizeFrameId !== null) {
+          cancelAnimationFrame(resizeFrameId);
+        }
+        resizeFrameId = requestAnimationFrame(() => {
+          if (cancelled) {
+            return;
+          }
+          resizeFrameId = null;
+          map.resize();
+        });
+      });
 
     const handleLoad = () => {
       if (cancelled) {
@@ -132,6 +150,7 @@ export default function MapContainer({
       updatePointMarker(selectedPointRef.current, null);
 
       setMapReady(true);
+      map.resize();
       onMapStatusChange?.("ready");
       onMapLoad?.(map);
     };
@@ -144,10 +163,15 @@ export default function MapContainer({
 
     map.on("load", handleLoad);
     map.on("error", handleError);
+    resizeObserver?.observe(containerElement);
 
     return () => {
       cancelled = true;
       setMapReady(false);
+      if (resizeFrameId !== null) {
+        cancelAnimationFrame(resizeFrameId);
+      }
+      resizeObserver?.disconnect();
       cleanupRoutes(map, routeLayersRef.current);
       routeLayersRef.current = [];
       waypointMarkers.clear();
@@ -502,7 +526,7 @@ export default function MapContainer({
 
   return (
     <div className={cn(className, "relative isolate")}>
-      <div ref={containerRef} className="absolute inset-0" />
+      <div ref={containerRef} className="h-full w-full" />
     </div>
   );
 }

@@ -7,6 +7,12 @@ export interface RoutedPath {
   durationMin: number;
 }
 
+interface CachedRoutedPath {
+  coordinates: Position[];
+  distanceKm: number;
+  durationMin: number;
+}
+
 interface OsrmResponse {
   code?: string;
   routes?: Array<{
@@ -18,6 +24,11 @@ interface OsrmResponse {
   }>;
 }
 
+const ROUTE_CACHE_TTL_MS = 5 * 60 * 1000;
+const ROUTE_CACHE_MAX_ENTRIES = 50;
+const routeCache = new Map<string, { value: CachedRoutedPath | null; expiresAt: number }>();
+const inFlightRouteRequests = new Map<string, Promise<CachedRoutedPath | null>>();
+
 export async function getRoute(waypoints: Position[], name = "Updated route"): Promise<RoutedPath | null> {
   if (waypoints.length < 2) {
     return null;
@@ -27,6 +38,44 @@ export async function getRoute(waypoints: Position[], name = "Updated route"): P
   const coordinates = waypoints
     .map(([lng, lat]) => `${lng},${lat}`)
     .join(";");
+  const cacheKey = `${osrmBaseUrl}|${coordinates}`;
+
+  evictExpiredRouteCacheEntries();
+
+  const cached = routeCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    touchRouteCacheEntry(cacheKey, cached);
+    return buildRoutedPath(cached.value, name, waypoints.length);
+  }
+
+  const existingRequest = inFlightRouteRequests.get(cacheKey);
+  if (existingRequest) {
+    const result = await existingRequest;
+    return buildRoutedPath(result, name, waypoints.length);
+  }
+
+  const request = fetchRouteFromOsrm(osrmBaseUrl, coordinates);
+  inFlightRouteRequests.set(cacheKey, request);
+
+  try {
+    const result = await request;
+    touchRouteCacheEntry(cacheKey, {
+      value: result,
+      expiresAt: Date.now() + ROUTE_CACHE_TTL_MS,
+    });
+    trimRouteCache();
+    return buildRoutedPath(result, name, waypoints.length);
+  } finally {
+    inFlightRouteRequests.delete(cacheKey);
+  }
+}
+
+export function clearRouteCache() {
+  routeCache.clear();
+  inFlightRouteRequests.clear();
+}
+
+async function fetchRouteFromOsrm(osrmBaseUrl: string, coordinates: string): Promise<CachedRoutedPath | null> {
 
   const url = new URL(`${osrmBaseUrl}/route/v1/foot/${coordinates}`);
   url.searchParams.set("overview", "full");
@@ -57,22 +106,59 @@ export async function getRoute(waypoints: Position[], name = "Updated route"): P
   const durationSeconds = typeof route?.duration === "number" ? route.duration : 0;
 
   return {
+    coordinates: routeCoordinates,
+    distanceKm: distanceMeters / 1000,
+    durationMin: Math.round(durationSeconds / 60),
+  };
+}
+
+function buildRoutedPath(result: CachedRoutedPath | null, name: string, waypointCount: number): RoutedPath | null {
+  if (!result) {
+    return null;
+  }
+
+  return {
     feature: {
       type: "Feature",
       geometry: {
         type: "LineString",
-        coordinates: routeCoordinates,
+        coordinates: result.coordinates,
       },
       properties: {
-        id: `rerouted-${waypoints.length}`,
+        id: `rerouted-${waypointCount}`,
         name,
         color: "#f97316",
         source: "reroute",
       },
     },
-    distanceKm: distanceMeters / 1000,
-    durationMin: Math.round(durationSeconds / 60),
+    distanceKm: result.distanceKm,
+    durationMin: result.durationMin,
   };
+}
+
+function evictExpiredRouteCacheEntries() {
+  const now = Date.now();
+  routeCache.forEach((entry, key) => {
+    if (entry.expiresAt <= now) {
+      routeCache.delete(key);
+    }
+  });
+}
+
+function trimRouteCache() {
+  // Accessed entries are re-inserted via touchRouteCacheEntry, so insertion order reflects LRU order here.
+  while (routeCache.size > ROUTE_CACHE_MAX_ENTRIES) {
+    const oldestKey = routeCache.keys().next().value;
+    if (!oldestKey) {
+      return;
+    }
+    routeCache.delete(oldestKey);
+  }
+}
+
+function touchRouteCacheEntry(key: string, entry: { value: CachedRoutedPath | null; expiresAt: number }) {
+  routeCache.delete(key);
+  routeCache.set(key, entry);
 }
 
 function normalizeCoordinates(value: unknown): Position[] {

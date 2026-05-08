@@ -81,10 +81,23 @@ export default function RouteBuilderPage() {
   const draftRequestIdRef = useRef(0);
 
   useEffect(() => {
-    fetch("/api/routes?sort=popular")
+    const controller = new AbortController();
+
+    fetch("/api/routes?sort=popular", {
+      cache: "force-cache",
+      signal: controller.signal,
+    })
       .then(async (response) => response.json())
       .then((payload) => setBaseRoutes(Array.isArray(payload) ? payload : []))
-      .catch(() => setBaseRoutes([]));
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setBaseRoutes([]);
+        }
+      });
+
+    return () => {
+      controller.abort();
+    };
   }, []);
 
   const waypointPositions = useMemo<Position[]>(() => waypoints.map((waypoint) => [waypoint.lng, waypoint.lat]), [waypoints]);
@@ -155,8 +168,17 @@ export default function RouteBuilderPage() {
     }
 
     const center = waypoints.at(-1) ?? { lat: 55.7558, lng: 37.6173 };
+    const controller = new AbortController();
     let cancelled = false;
-    fetch(`/api/sponsored?lat=${center.lat}&lng=${center.lng}&radius=3`)
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setLoadingStops(true);
+      }
+    });
+    fetch(`/api/sponsored?lat=${center.lat}&lng=${center.lng}&radius=3`, {
+      cache: "force-cache",
+      signal: controller.signal,
+    })
       .then(async (response) => response.json())
       .then((payload) => {
         if (!cancelled) {
@@ -164,7 +186,7 @@ export default function RouteBuilderPage() {
         }
       })
       .catch(() => {
-        if (!cancelled) {
+        if (!cancelled && !controller.signal.aborted) {
           setSponsoredStops([]);
         }
       })
@@ -176,6 +198,7 @@ export default function RouteBuilderPage() {
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [includeFoodStops, waypoints]);
 
