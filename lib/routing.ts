@@ -44,7 +44,7 @@ export async function getRoute(waypoints: Position[], name = "Updated route"): P
 
   const payload = await response.json() as OsrmResponse;
   if (payload.code !== "Ok") {
-    throw new Error("Failed to fetch directions");
+    throw new Error("OSRM API returned an error");
   }
 
   const route = payload.routes?.[0];

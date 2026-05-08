@@ -164,7 +164,8 @@ export default function MapContainer({
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !mapReady || waypoints.length > 0) {
+    const hasWaypointFocus = waypoints.length > 0;
+    if (!map || !mapReady || hasWaypointFocus) {
       return;
     }
 
@@ -431,15 +432,23 @@ export default function MapContainer({
       });
 
       const element = document.createElement("div");
-      if (stop.logoUrl) {
+      const safeLogo = toSafeHttpUrl(stop.logoUrl);
+      if (safeLogo) {
         element.style.width = "40px";
         element.style.height = "40px";
         element.style.borderRadius = "9999px";
-        element.style.backgroundImage = `url('${stop.logoUrl}')`;
-        element.style.backgroundSize = "cover";
-        element.style.backgroundPosition = "center";
+        element.style.overflow = "hidden";
         element.style.border = "2px solid #fff";
         element.style.boxShadow = "0 2px 8px rgba(0,0,0,0.35)";
+
+        const image = document.createElement("img");
+        image.src = safeLogo;
+        image.alt = stop.name;
+        image.style.width = "100%";
+        image.style.height = "100%";
+        image.style.objectFit = "cover";
+        image.style.display = "block";
+        element.appendChild(image);
       } else {
         element.style.width = "18px";
         element.style.height = "18px";
@@ -578,6 +587,23 @@ function escapeHtml(value: string): string {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function toSafeHttpUrl(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      return parsed.toString();
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
 }
 
 function arePositionsNear(a: Position, b: Position, epsilon: number): boolean {
