@@ -42,6 +42,7 @@ export default async function ParkPage({ params }: { params: Promise<{ id: strin
       <div className="max-w-6xl mx-auto px-4 py-8 space-y-8">
         {/* Map panel — shows walkable paths and park routes */}
         <ParkMapSection
+          parkId={park.id}
           lat={park.lat}
           lng={park.lng}
           routes={park.routes.map((r) => ({ id: r.id, name: r.name, geometryGeoJson: r.geometryGeoJson }))}

@@ -9,6 +9,14 @@ export interface RouteFeatureProperties {
 }
 
 export type RouteFeature = Feature<LineString, RouteFeatureProperties>;
+export interface WalkwayFeatureProperties {
+  id: string;
+  osmId: string;
+  type: string;
+  name?: string;
+}
+
+export type WalkwayFeature = Feature<LineString, WalkwayFeatureProperties>;
 export type PointFeature = Feature<Point>;
 
 export interface SponsoredStopMapItem {
@@ -33,7 +41,9 @@ export function createPointFeature(coordinates: Position): PointFeature {
   };
 }
 
-export function createFeatureCollection(features: RouteFeature[]): FeatureCollection<LineString, RouteFeatureProperties> {
+export function createFeatureCollection<TProperties extends GeoJSON.GeoJsonProperties>(
+  features: Feature<LineString, TProperties>[],
+): FeatureCollection<LineString, TProperties> {
   return {
     type: "FeatureCollection",
     features,
@@ -64,6 +74,39 @@ export function parseRouteGeometry(
         name: properties?.name ?? "Route",
         color: properties?.color,
         source: properties?.source ?? "route",
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function parseWalkwayGeometry(
+  geometryGeoJson?: string | null,
+  properties?: Partial<WalkwayFeatureProperties>,
+): WalkwayFeature | null {
+  if (!geometryGeoJson) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(geometryGeoJson) as GeoJSON.Geometry | GeoJSON.Feature<LineString>;
+    const geometry = parsed.type === "Feature" ? parsed.geometry : parsed;
+
+    if (!geometry || geometry.type !== "LineString") {
+      return null;
+    }
+
+    const id = properties?.id ?? crypto.randomUUID();
+
+    return {
+      type: "Feature",
+      geometry,
+      properties: {
+        id,
+        osmId: properties?.osmId ?? id,
+        type: properties?.type ?? "path",
+        name: properties?.name,
       },
     };
   } catch {
