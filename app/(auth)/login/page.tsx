@@ -6,25 +6,27 @@ import { signIn, useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
+const DEFAULT_CALLBACK_URL = "/profile";
+
 export default function LoginPage() {
   const router = useRouter();
   const { status } = useSession();
   const callbackUrl = useMemo(() => {
     if (typeof window === "undefined") {
-      return "/profile";
+      return DEFAULT_CALLBACK_URL;
     }
     const incoming = new URLSearchParams(window.location.search).get("callbackUrl");
     if (!incoming) {
-      return "/profile";
+      return DEFAULT_CALLBACK_URL;
     }
     try {
       const parsed = new URL(incoming, window.location.origin);
       if (parsed.origin !== window.location.origin) {
-        return "/profile";
+        return DEFAULT_CALLBACK_URL;
       }
       return `${parsed.pathname}${parsed.search}${parsed.hash}`;
     } catch {
-      return "/profile";
+      return DEFAULT_CALLBACK_URL;
     }
   }, []);
 
