@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createVectorStyle, VECTOR_FOOTPATH_COLOR } from "@/lib/maplibre";
+import { createVectorStyle, createWalkableStyle, VECTOR_FOOTPATH_COLOR } from "@/lib/maplibre";
 
 function getWalkablePathsLayer() {
   const walkablePaths = createVectorStyle().layers.find((layer) => layer.id === "walkable-paths");
@@ -55,5 +55,17 @@ describe("createVectorStyle", () => {
     expect(filter).toContain("\"ferry\"");
     expect(filter).toContain("\"aerialway\"");
     expect(hasNegatedNonPathClassExclusion).toBe(true);
+  });
+});
+
+describe("createWalkableStyle", () => {
+  it("uses the same robust pathway filter as vector mode", () => {
+    const walkablePaths = createWalkableStyle().layers.find((layer) => layer.id === "walkable-paths");
+    const filter = JSON.stringify((walkablePaths as { filter?: unknown }).filter);
+
+    expect(filter).toContain("\"subclass\"");
+    expect(filter).toContain("\"sidewalk\"");
+    expect(filter).toContain("\"rail\"");
+    expect(filter).toContain("\"ferry\"");
   });
 });

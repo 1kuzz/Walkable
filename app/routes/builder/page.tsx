@@ -13,7 +13,14 @@ import ParkWaypointPicker from "@/components/routes/ParkWaypointPicker";
 import { estimateCalories } from "@/lib/calories";
 import { parseRouteGeometry, type RouteFeature, type SponsoredStopMapItem } from "@/lib/geo";
 import { createHoverPreviewResetKey } from "@/lib/routes/hover-preview";
-import { getRoute, ROUTE_PREFERENCES, type RoutePreference, type RoutingDiagnostics } from "@/lib/routing";
+import type { PathwayDiagnostics } from "@/components/map/MapContainer";
+import {
+  getRoute,
+  getRoutingFallbackMessage,
+  ROUTE_PREFERENCES,
+  type RoutePreference,
+  type RoutingDiagnostics,
+} from "@/lib/routing";
 
 const MapContainer = dynamic(() => import("@/components/map/MapContainer"), {
   ssr: false,
@@ -87,6 +94,7 @@ export default function RouteBuilderPage() {
   const [snapToRoutes, setSnapToRoutes] = useState(false);
   const [draftRoutingDiagnostics, setDraftRoutingDiagnostics] = useState<RoutingDiagnostics | null>(null);
   const [hoverRoutingDiagnostics, setHoverRoutingDiagnostics] = useState<RoutingDiagnostics | null>(null);
+  const [pathwayDiagnostics, setPathwayDiagnostics] = useState<PathwayDiagnostics | null>(null);
   const draftRequestIdRef = useRef(0);
   const [hoverPreviewRoute, setHoverPreviewRoute] = useState<RouteFeature | null>(null);
   const hoverDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -265,6 +273,7 @@ export default function RouteBuilderPage() {
   const visibleDraftStatus = waypointPositions.length < 2 ? "idle" : draftStatus;
   const routingDiagnostics = waypointPositions.length < 2 ? null : (draftRoutingDiagnostics ?? hoverRoutingDiagnostics);
   const isRoutingFallbackActive = routePreference === "park" && routingDiagnostics?.provider === "osrm";
+  const routingFallbackMessage = getRoutingFallbackMessage(routingDiagnostics);
   const waypointMarkers = useMemo(
     () =>
       waypoints.map((waypoint, index) => ({
@@ -538,9 +547,12 @@ export default function RouteBuilderPage() {
             </p>
             {isRoutingFallbackActive && (
               <p className="text-amber-600 dark:text-amber-400">
-                Park-aware pedestrian routing is unavailable right now; using walking road-network fallback.
+                {routingFallbackMessage ?? "Park-aware routing is unavailable; using standard walking network."}
               </p>
             )}
+            <p className="text-muted-foreground">
+              <span className="font-medium">Map pathways:</span> {describePathwayDiagnostics(pathwayDiagnostics)}
+            </p>
             {waypoints.length > 0 && (
               <p className="text-muted-foreground">
                 Dashed green line is hover preview only; the orange line is your draft route.
@@ -721,6 +733,7 @@ export default function RouteBuilderPage() {
             routeVisualMode="builder"
             enableRouteSnapping={snapToRoutes}
             onMapStatusChange={setMapStatus}
+            onPathwayDiagnosticsChange={setPathwayDiagnostics}
             onMapHover={handleMapHover}
             onMapPointSelect={(coordinates) => {
               setHoverPreviewRoute(null);
@@ -775,4 +788,23 @@ function swapArrayItems<T>(input: T[], fromIndex: number, toIndex: number): T[] 
   const next = [...input];
   [next[fromIndex], next[toIndex]] = [next[toIndex], next[fromIndex]];
   return next;
+}
+
+function describePathwayDiagnostics(diagnostics: PathwayDiagnostics | null): string {
+  if (!diagnostics) {
+    return "Waiting for map diagnostics…";
+  }
+  if (diagnostics.status === "satellite_mode") {
+    return "Satellite mode hides vector pathways; switch to Vector or Walkable to inspect path data.";
+  }
+  if (diagnostics.status === "source_loading") {
+    return "Vector pathway data is still loading for this viewport.";
+  }
+  if (diagnostics.status === "layer_missing") {
+    return "Pathway layer is unavailable in the current style.";
+  }
+  if (diagnostics.status === "no_visible_paths") {
+    return "No pedestrian vector pathways are visible in this area or at this zoom level.";
+  }
+  return `${diagnostics.visiblePathFeatureCount} pedestrian vector pathway segments are visible in the current viewport.`;
 }

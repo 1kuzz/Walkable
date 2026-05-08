@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { clearRouteCache, getRoute } from "@/lib/routing";
+import { clearRouteCache, getRoute, getRoutingFallbackMessage } from "@/lib/routing";
 
 describe("getRoute", () => {
   afterEach(() => {
@@ -338,5 +338,41 @@ describe("getRoute", () => {
     await getRoute([[37.61, 55.75], [37.62, 55.76]], "Third");
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns explicit fallback message for missing park-aware routing configuration", () => {
+    const message = getRoutingFallbackMessage({
+      provider: "osrm",
+      profile: "foot",
+      preference: "park",
+      quality: "fallback",
+      fallbackReason: "ors_missing_key",
+    });
+
+    expect(message).toContain("not configured");
+  });
+
+  it("returns explicit fallback message when park-aware routing provider errors", () => {
+    const message = getRoutingFallbackMessage({
+      provider: "osrm",
+      profile: "foot",
+      preference: "park",
+      quality: "fallback",
+      fallbackReason: "ors_error",
+    });
+
+    expect(message).toContain("temporarily unavailable");
+  });
+
+  it("returns explicit fallback message when park geometry is unavailable", () => {
+    const message = getRoutingFallbackMessage({
+      provider: "osrm",
+      profile: "foot",
+      preference: "park",
+      quality: "fallback",
+      fallbackReason: "ors_no_geometry",
+    });
+
+    expect(message).toContain("no usable park-path geometry");
   });
 });

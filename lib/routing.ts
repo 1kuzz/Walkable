@@ -35,8 +35,10 @@ export interface RoutingDiagnostics {
    * - ors_error: ORS request failed
    * - ors_no_geometry: ORS succeeded but returned unusable geometry
    */
-  fallbackReason?: "ors_missing_key" | "ors_error" | "ors_no_geometry";
+  fallbackReason?: RoutingFallbackReason;
 }
+
+export type RoutingFallbackReason = "ors_missing_key" | "ors_error" | "ors_no_geometry";
 
 interface OsrmResponse {
   code?: string;
@@ -61,6 +63,23 @@ const ROUTE_CACHE_MAX_ENTRIES = 50;
 const WALKING_OSRM_PROFILES = new Set(["foot", "walking", "pedestrian", "hiking"]);
 const routeCache = new Map<string, { value: CachedRoutedPath | null; expiresAt: number }>();
 const inFlightRouteRequests = new Map<string, Promise<CachedRoutedPath | null>>();
+
+export function getRoutingFallbackMessage(diagnostics: RoutingDiagnostics | null): string | null {
+  if (!diagnostics || diagnostics.provider !== "osrm" || diagnostics.preference !== "park") {
+    return null;
+  }
+
+  if (diagnostics.fallbackReason === "ors_missing_key") {
+    return "Park-aware routing provider is not configured; using standard walking network.";
+  }
+  if (diagnostics.fallbackReason === "ors_error") {
+    return "Park-aware routing provider is temporarily unavailable; using standard walking network.";
+  }
+  if (diagnostics.fallbackReason === "ors_no_geometry") {
+    return "Park-aware routing returned no usable park-path geometry; using standard walking network.";
+  }
+  return "Park-aware routing is unavailable; using standard walking network.";
+}
 
 export async function getRoute(
   waypoints: Position[],
