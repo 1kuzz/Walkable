@@ -131,13 +131,20 @@ export default function RouteBuilderPage() {
   }, []);
 
   const waypointPositions = useMemo<Position[]>(() => waypoints.map((waypoint) => [waypoint.lng, waypoint.lat]), [waypoints]);
-  const knownRouteGeometries: NonNullable<GetRouteOptions["knownRouteGeometries"]> = baseRoutes.reduce((acc, route) => {
-    const parsed = parseRouteGeometry(route.geometryGeoJson, { id: route.id, name: route.name });
-    if (parsed?.properties.id && parsed.geometry.coordinates.length >= 2) {
-      acc[parsed.properties.id] = parsed.geometry.coordinates;
-    }
-    return acc;
-  }, {} as NonNullable<GetRouteOptions["knownRouteGeometries"]>);
+  const knownRouteGeometries = useMemo<NonNullable<GetRouteOptions["knownRouteGeometries"]>>(
+    () => Object.fromEntries(
+      baseRoutes
+        .map((route) => parseRouteGeometry(route.geometryGeoJson, { id: route.id, name: route.name }))
+        .filter((feature): feature is RouteFeature => {
+          if (!feature) {
+            return false;
+          }
+          return feature.geometry.coordinates.length >= 2;
+        })
+        .map((feature) => [feature.properties.id, feature.geometry.coordinates] as const),
+    ),
+    [baseRoutes],
+  );
   const hoverPreviewResetKey = useMemo(
     () => createHoverPreviewResetKey(waypointPositions, routePreference),
     [waypointPositions, routePreference],
