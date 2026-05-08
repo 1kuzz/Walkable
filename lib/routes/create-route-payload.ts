@@ -45,12 +45,12 @@ export function validateCreateRoutePayload(payload: unknown): { data?: CreateRou
     return { error: "name is required" };
   }
 
-  const difficulty = parseDifficulty(payload.difficulty);
+  const difficulty = parseDifficulty(payload.difficulty ?? "easy");
   if (!difficulty) {
     return { error: "difficulty must be one of: easy, moderate, hard" };
   }
 
-  const surfaceType = parseSurfaceType(payload.surfaceType);
+  const surfaceType = parseSurfaceType(payload.surfaceType ?? "mixed");
   if (!surfaceType) {
     return { error: "surfaceType must be one of: paved, gravel, dirt, mixed" };
   }
@@ -179,14 +179,14 @@ function parseCoordinate(value: unknown): [number, number] | null {
 
 function parseDifficulty(value: unknown): Difficulty | null {
   if (typeof value !== "string") {
-    return "easy";
+    return null;
   }
   return DIFFICULTIES.has(value as Difficulty) ? (value as Difficulty) : null;
 }
 
 function parseSurfaceType(value: unknown): SurfaceType | null {
   if (typeof value !== "string") {
-    return "mixed";
+    return null;
   }
   return SURFACE_TYPES.has(value as SurfaceType) ? (value as SurfaceType) : null;
 }
