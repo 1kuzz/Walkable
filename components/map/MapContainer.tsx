@@ -9,15 +9,38 @@ import maplibregl, {
   type MapMouseEvent,
   type Marker,
 } from "maplibre-gl";
-import { nearestPointOnRoute, type RouteFeature, type SponsoredStopMapItem } from "@/lib/geo";
+import {
+  createFeatureCollection,
+  nearestPointOnRoute,
+  type RouteFeature,
+  type SponsoredStopMapItem,
+  type WalkwayFeature,
+} from "@/lib/geo";
 import { resolveRouteStyle, type RouteVisualMode } from "@/lib/map/route-visuals";
-import { createSatelliteStyle, createVectorStyle, createWalkableStyle, type Map as MapLibreMap, type MapStyleMode, VECTOR_FOOTPATH_COLOR, VECTOR_ROAD_COLOR, VECTOR_PARK_COLOR, WALKABLE_FOOTPATH_COLOR, WALKABLE_ROAD_COLOR, WALKABLE_PARK_COLOR } from "@/lib/maplibre";
+import {
+  createSatelliteStyle,
+  createVectorStyle,
+  createWalkableStyle,
+  type Map as MapLibreMap,
+  type MapStyleMode,
+  VECTOR_FOOTPATH_COLOR,
+  VECTOR_ROAD_COLOR,
+  VECTOR_PARK_COLOR,
+  WALKABLE_FOOTPATH_COLOR,
+  WALKABLE_ROAD_COLOR,
+  WALKABLE_PARK_COLOR,
+  WALKWAY_COLOR,
+} from "@/lib/maplibre";
 import { cn } from "@/lib/utils";
 
 const PREVIEW_SOURCE_ID = "hover-preview-source";
 const PREVIEW_CASING_LAYER_ID = "hover-preview-casing";
 const PREVIEW_LAYER_ID = "hover-preview-layer";
 const PREVIEW_COLOR = "#22c55e";
+const WALKWAYS_SOURCE_ID = "walkways-source";
+const WALKWAYS_CASING_LAYER_ID = "walkways-casing";
+const WALKWAYS_LAYER_ID = "walkways-layer";
+const WALKWAY_CASING_COLOR = "#8aa987";
 
 interface MapContainerProps {
   lat?: number;
@@ -25,6 +48,7 @@ interface MapContainerProps {
   zoom?: number;
   className?: string;
   routes?: RouteFeature[];
+  walkways?: WalkwayFeature[];
   sponsoredStops?: SponsoredStopMapItem[];
   waypoints?: Array<{ id: string; lat: number; lng: number; label?: string }>;
   /** Non-interactive preview route shown on hover (e.g. from last waypoint to cursor). */
@@ -67,6 +91,7 @@ export default function MapContainer({
   zoom = 11,
   className = "w-full h-full",
   routes = [],
+  walkways = [],
   sponsoredStops = [],
   waypoints = [],
   previewRoute = null,
@@ -230,6 +255,68 @@ export default function MapContainer({
 
     map.flyTo({ center: [lng, lat], zoom, duration: FLY_TO_DURATION_MS });
   }, [lat, lng, zoom, mapReady, waypoints.length]);
+
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) {
+      return;
+    }
+
+    const removeWalkways = () => {
+      if (map.getLayer(WALKWAYS_LAYER_ID)) {
+        map.removeLayer(WALKWAYS_LAYER_ID);
+      }
+      if (map.getLayer(WALKWAYS_CASING_LAYER_ID)) {
+        map.removeLayer(WALKWAYS_CASING_LAYER_ID);
+      }
+      if (map.getSource(WALKWAYS_SOURCE_ID)) {
+        map.removeSource(WALKWAYS_SOURCE_ID);
+      }
+    };
+
+    removeWalkways();
+
+    if (walkways.length === 0) {
+      return;
+    }
+
+    map.addSource(WALKWAYS_SOURCE_ID, {
+      type: "geojson",
+      data: createFeatureCollection(walkways),
+    });
+    const beforeLayerId = routeLayersRef.current[0]?.casingLayerId;
+    map.addLayer({
+      id: WALKWAYS_CASING_LAYER_ID,
+      type: "line",
+      source: WALKWAYS_SOURCE_ID,
+      paint: {
+        "line-color": WALKWAY_CASING_COLOR,
+        "line-opacity": 0.55,
+        "line-width": ["interpolate", ["linear"], ["zoom"], 11, 2, 16, 5],
+      },
+      layout: {
+        "line-cap": "round",
+        "line-join": "round",
+      },
+    }, beforeLayerId && map.getLayer(beforeLayerId) ? beforeLayerId : undefined);
+    map.addLayer({
+      id: WALKWAYS_LAYER_ID,
+      type: "line",
+      source: WALKWAYS_SOURCE_ID,
+      paint: {
+        "line-color": WALKWAY_COLOR,
+        "line-opacity": 0.95,
+        "line-width": ["interpolate", ["linear"], ["zoom"], 11, 1, 16, 2.5],
+        "line-dasharray": [2, 1.5],
+      },
+      layout: {
+        "line-cap": "round",
+        "line-join": "round",
+      },
+    }, beforeLayerId && map.getLayer(beforeLayerId) ? beforeLayerId : undefined);
+
+    return removeWalkways;
+  }, [walkways, mapReady]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -708,30 +795,43 @@ export default function MapContainer({
         </button>
       </div>
 
-      {/* Legend — only visible in vector or walkable mode */}
-      {styleMode !== "satellite" && (
+      {/* Legend */}
+      {(styleMode !== "satellite" || walkways.length > 0) && (
         <div className="absolute bottom-8 left-2 z-10 flex items-center gap-3 rounded-full border bg-background/85 px-3 py-1.5 text-xs shadow backdrop-blur">
-          <span className="flex items-center gap-1">
-            <span
-              className="inline-block h-0.5 w-5 border-t-2 border-dashed"
-              style={{ borderColor: styleMode === "vector" ? VECTOR_FOOTPATH_COLOR : WALKABLE_FOOTPATH_COLOR }}
-            />
-            Footpath
-          </span>
-          <span className="flex items-center gap-1">
-            <span
-              className="inline-block h-0.5 w-5"
-              style={{ background: styleMode === "vector" ? VECTOR_ROAD_COLOR : WALKABLE_ROAD_COLOR, opacity: 0.8 }}
-            />
-            Road
-          </span>
-          <span className="flex items-center gap-1">
-            <span
-              className="inline-block h-2 w-5 rounded opacity-70"
-              style={{ background: styleMode === "vector" ? VECTOR_PARK_COLOR : WALKABLE_PARK_COLOR }}
-            />
-            Park
-          </span>
+          {styleMode !== "satellite" && (
+            <>
+              <span className="flex items-center gap-1">
+                <span
+                  className="inline-block h-0.5 w-5 border-t-2 border-dashed"
+                  style={{ borderColor: styleMode === "vector" ? VECTOR_FOOTPATH_COLOR : WALKABLE_FOOTPATH_COLOR }}
+                />
+                Footpath
+              </span>
+              <span className="flex items-center gap-1">
+                <span
+                  className="inline-block h-0.5 w-5"
+                  style={{ background: styleMode === "vector" ? VECTOR_ROAD_COLOR : WALKABLE_ROAD_COLOR, opacity: 0.8 }}
+                />
+                Road
+              </span>
+              <span className="flex items-center gap-1">
+                <span
+                  className="inline-block h-2 w-5 rounded opacity-70"
+                  style={{ background: styleMode === "vector" ? VECTOR_PARK_COLOR : WALKABLE_PARK_COLOR }}
+                />
+                Park
+              </span>
+            </>
+          )}
+          {walkways.length > 0 && (
+            <span className="flex items-center gap-1">
+              <span
+                className="inline-block h-0.5 w-5 border-t-2 border-dashed"
+                style={{ borderColor: WALKWAY_COLOR }}
+              />
+              Walkway
+            </span>
+          )}
         </div>
       )}
     </div>

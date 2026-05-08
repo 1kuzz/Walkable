@@ -81,6 +81,7 @@ model Park {
   lng             Float
   geometryGeoJson String?  @db.Text
   routes          Route[]
+  walkways        Walkway[]
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }
@@ -96,6 +97,16 @@ enum SurfaceType {
   gravel
   dirt
   mixed
+}
+
+enum WalkwayType {
+  footway
+  path
+  cycleway
+  pedestrian
+  steps
+  track
+  bridleway
 }
 
 model Route {
@@ -142,6 +153,22 @@ model Waypoint {
   photos      Photo[]
   route       Route        @relation(fields: [routeId], references: [id], onDelete: Cascade)
   createdAt   DateTime     @default(now())
+}
+
+model Walkway {
+  id              String      @id @default(cuid())
+  osmId           String      @unique
+  parkId          String?
+  name            String?
+  type            WalkwayType
+  geometryGeoJson String      @db.Text
+  lat             Float
+  lng             Float
+  park            Park?       @relation(fields: [parkId], references: [id], onDelete: SetNull)
+  createdAt       DateTime    @default(now())
+
+  @@index([parkId])
+  @@index([type])
 }
 
 model Photo {

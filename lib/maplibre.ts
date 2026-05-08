@@ -12,6 +12,7 @@ export const VECTOR_PARK_COLOR = "#cde8c3";
 export const WALKABLE_FOOTPATH_COLOR = "#f5f0e8";
 export const WALKABLE_ROAD_COLOR = "#6baed6";
 export const WALKABLE_PARK_COLOR = "#22c55e";
+export const WALKWAY_COLOR = "#d7e8c7";
 
 export function createSatelliteStyle(): StyleSpecification {
   return {

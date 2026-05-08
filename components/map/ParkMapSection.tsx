@@ -1,9 +1,9 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { parseRouteGeometry, type RouteFeature } from "@/lib/geo";
+import { parseRouteGeometry, parseWalkwayGeometry, type RouteFeature, type WalkwayFeature } from "@/lib/geo";
 
 const MapContainer = dynamic(() => import("@/components/map/MapContainer"), {
   ssr: false,
@@ -17,20 +17,63 @@ interface ParkRouteItem {
 }
 
 interface ParkMapSectionProps {
+  parkId: string;
   lat: number;
   lng: number;
   routes: ParkRouteItem[];
 }
 
+interface ParkWalkwayItem {
+  id: string;
+  osmId: string;
+  name?: string | null;
+  type: string;
+  geometryGeoJson?: string | null;
+}
+
 const PARK_ROUTE_COLOR = "#22c55e";
 
-export default function ParkMapSection({ lat, lng, routes }: ParkMapSectionProps) {
+export default function ParkMapSection({ parkId, lat, lng, routes }: ParkMapSectionProps) {
+  const [walkways, setWalkways] = useState<ParkWalkwayItem[]>([]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    fetch(`/api/walkways?parkId=${encodeURIComponent(parkId)}`, {
+      cache: "default",
+      signal: controller.signal,
+    })
+      .then(async (response) => response.json())
+      .then((payload) => setWalkways(Array.isArray(payload) ? payload : []))
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setWalkways([]);
+        }
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, [parkId]);
+
   const routeFeatures = useMemo<RouteFeature[]>(
     () =>
       routes
         .map((r) => parseRouteGeometry(r.geometryGeoJson, { id: r.id, name: r.name, color: PARK_ROUTE_COLOR }))
         .filter((f): f is RouteFeature => Boolean(f)),
     [routes],
+  );
+  const walkwayFeatures = useMemo<WalkwayFeature[]>(
+    () =>
+      walkways
+        .map((walkway) => parseWalkwayGeometry(walkway.geometryGeoJson, {
+          id: walkway.id,
+          osmId: walkway.osmId,
+          name: walkway.name ?? undefined,
+          type: walkway.type,
+        }))
+        .filter((feature): feature is WalkwayFeature => Boolean(feature)),
+    [walkways],
   );
 
   const handleRouteSelect = ({ routeId }: { routeId: string }) => {
@@ -45,6 +88,7 @@ export default function ParkMapSection({ lat, lng, routes }: ParkMapSectionProps
         zoom={14}
         className="h-full w-full"
         routes={routeFeatures}
+        walkways={walkwayFeatures}
         onRoutePointSelect={handleRouteSelect}
       />
     </div>

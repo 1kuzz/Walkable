@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import dynamic from "next/dynamic";
 import FilterSidebar, { FilterState } from "@/components/routes/FilterSidebar";
 import { Skeleton } from "@/components/ui/skeleton";
-import { parseRouteGeometry, type RouteFeature } from "@/lib/geo";
+import { parseRouteGeometry, parseWalkwayGeometry, type RouteFeature, type WalkwayFeature } from "@/lib/geo";
 
 const MapContainer = dynamic(() => import("@/components/map/MapContainer"), { ssr: false, loading: () => <Skeleton className="w-full h-full" /> });
 
@@ -15,6 +15,14 @@ interface ApiRoute {
   id: string;
   name: string;
   difficulty: "easy" | "moderate" | "hard";
+  geometryGeoJson?: string | null;
+}
+
+interface ApiWalkway {
+  id: string;
+  osmId: string;
+  name?: string | null;
+  type: string;
   geometryGeoJson?: string | null;
 }
 
@@ -38,6 +46,7 @@ export default function MapPage() {
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [desktopSidebarOpen, setDesktopSidebarOpen] = useState(true);
   const [routes, setRoutes] = useState<ApiRoute[]>([]);
+  const [walkways, setWalkways] = useState<ApiWalkway[]>([]);
   const [nextDestination, setNextDestination] = useState<{ routeName: string; coordinates: [number, number] } | null>(null);
   const sidebarOpen = isDesktopViewport ? desktopSidebarOpen : mobileSidebarOpen;
 
@@ -61,11 +70,42 @@ export default function MapPage() {
     };
   }, [filters.sort]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+
+    fetch("/api/walkways", {
+      cache: "default",
+      signal: controller.signal,
+    })
+      .then(async (response) => response.json())
+      .then((payload) => setWalkways(Array.isArray(payload) ? payload : []))
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setWalkways([]);
+        }
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, []);
+
   const routeFeatures = useMemo<RouteFeature[]>(() => {
     return routes
       .map((route) => parseRouteGeometry(route.geometryGeoJson, { id: route.id, name: route.name, color: "#22c55e" }))
       .filter((feature): feature is RouteFeature => Boolean(feature));
   }, [routes]);
+
+  const walkwayFeatures = useMemo<WalkwayFeature[]>(() => {
+    return walkways
+      .map((walkway) => parseWalkwayGeometry(walkway.geometryGeoJson, {
+        id: walkway.id,
+        osmId: walkway.osmId,
+        name: walkway.name ?? undefined,
+        type: walkway.type,
+      }))
+      .filter((feature): feature is WalkwayFeature => Boolean(feature));
+  }, [walkways]);
 
   return (
     <div className="flex h-[calc(100vh-64px)] overflow-hidden relative">
@@ -91,6 +131,7 @@ export default function MapPage() {
         <MapContainer
           className="h-full w-full"
           routes={routeFeatures}
+          walkways={walkwayFeatures}
           onRoutePointSelect={({ routeName, coordinates }) => setNextDestination({ routeName, coordinates: [coordinates[0], coordinates[1]] })}
         />
         <button
