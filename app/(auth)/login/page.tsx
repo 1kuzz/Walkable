@@ -1,22 +1,22 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { signIn, useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 
 export default function LoginPage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const { status } = useSession();
-  const callbackUrl = useMemo(() => {
-    const incoming = searchParams.get("callbackUrl");
+  const [callbackUrl, setCallbackUrl] = useState("/profile");
+
+  useEffect(() => {
+    const incoming = new URLSearchParams(window.location.search).get("callbackUrl");
     if (incoming && incoming.startsWith("/") && !incoming.startsWith("//")) {
-      return incoming;
+      setCallbackUrl(incoming);
     }
-    return "/profile";
-  }, [searchParams]);
+  }, []);
 
   useEffect(() => {
     if (status === "authenticated") {
