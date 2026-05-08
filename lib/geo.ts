@@ -5,7 +5,7 @@ export interface RouteFeatureProperties {
   id: string;
   name: string;
   color?: string;
-  source?: "route" | "draft" | "reroute";
+  source?: "route" | "draft" | "reroute" | "hover-preview";
 }
 
 export type RouteFeature = Feature<LineString, RouteFeatureProperties>;

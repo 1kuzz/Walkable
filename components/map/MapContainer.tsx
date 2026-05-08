@@ -10,8 +10,13 @@ import maplibregl, {
   type Marker,
 } from "maplibre-gl";
 import { nearestPointOnRoute, type RouteFeature, type SponsoredStopMapItem } from "@/lib/geo";
-import { createSatelliteStyle, createWalkableStyle, type Map as MapLibreMap, type MapStyleMode } from "@/lib/maplibre";
+import { createSatelliteStyle, createVectorStyle, createWalkableStyle, type Map as MapLibreMap, type MapStyleMode, VECTOR_FOOTPATH_COLOR, VECTOR_ROAD_COLOR, VECTOR_PARK_COLOR, WALKABLE_FOOTPATH_COLOR, WALKABLE_ROAD_COLOR, WALKABLE_PARK_COLOR } from "@/lib/maplibre";
 import { cn } from "@/lib/utils";
+
+const PREVIEW_SOURCE_ID = "hover-preview-source";
+const PREVIEW_CASING_LAYER_ID = "hover-preview-casing";
+const PREVIEW_LAYER_ID = "hover-preview-layer";
+const PREVIEW_COLOR = "#22c55e";
 
 interface MapContainerProps {
   lat?: number;
@@ -21,11 +26,15 @@ interface MapContainerProps {
   routes?: RouteFeature[];
   sponsoredStops?: SponsoredStopMapItem[];
   waypoints?: Array<{ id: string; lat: number; lng: number; label?: string }>;
+  /** Non-interactive preview route shown on hover (e.g. from last waypoint to cursor). */
+  previewRoute?: RouteFeature | null;
   onMapLoad?: (map: MapLibreMap) => void;
   onMapStatusChange?: (status: "loading" | "ready" | "error") => void;
   onMapPointSelect?: (coordinates: Position) => void;
   onRoutePointSelect?: (selection: { routeId: string; routeName: string; coordinates: Position }) => void;
   onSponsoredStopSelect?: (stop: SponsoredStopMapItem) => void;
+  /** Fires on every mousemove over the map canvas (desktop only). */
+  onMapHover?: (coordinates: Position) => void;
 }
 
 const BASE_ROUTE_STYLE = {
@@ -74,11 +83,13 @@ export default function MapContainer({
   routes = [],
   sponsoredStops = [],
   waypoints = [],
+  previewRoute = null,
   onMapLoad,
   onMapStatusChange,
   onMapPointSelect,
   onRoutePointSelect,
   onSponsoredStopSelect,
+  onMapHover,
 }: MapContainerProps) {
   const initialViewRef = useRef({ lat, lng, zoom });
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -208,7 +219,13 @@ export default function MapContainer({
     }
     styleModeRef.current = styleMode;
     setMapReady(false);
-    map.setStyle(styleMode === "walkable" ? createWalkableStyle() : createSatelliteStyle());
+    map.setStyle(
+      styleMode === "vector"
+        ? createVectorStyle()
+        : styleMode === "walkable"
+        ? createWalkableStyle()
+        : createSatelliteStyle(),
+    );
     map.once("styledata", () => {
       if (mapRef.current) {
         setMapReady(true);
@@ -557,34 +574,150 @@ export default function MapContainer({
     };
   }, [mapReady, onMapPointSelect]);
 
+  // Hover effect: fires onMapHover on every mousemove (desktop pointer devices).
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady || !onMapHover) {
+      return;
+    }
+
+    const handleMouseMove = (event: MapMouseEvent) => {
+      onMapHover([event.lngLat.lng, event.lngLat.lat]);
+    };
+
+    map.on("mousemove", handleMouseMove);
+
+    return () => {
+      map.off("mousemove", handleMouseMove);
+    };
+  }, [mapReady, onMapHover]);
+
+  // Preview route effect: renders a non-interactive dashed route layer for hover sneak peek.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) {
+      return;
+    }
+
+    const removePreview = () => {
+      if (map.getLayer(PREVIEW_LAYER_ID)) {
+        map.removeLayer(PREVIEW_LAYER_ID);
+      }
+      if (map.getLayer(PREVIEW_CASING_LAYER_ID)) {
+        map.removeLayer(PREVIEW_CASING_LAYER_ID);
+      }
+      if (map.getSource(PREVIEW_SOURCE_ID)) {
+        map.removeSource(PREVIEW_SOURCE_ID);
+      }
+    };
+
+    if (!previewRoute) {
+      removePreview();
+      return;
+    }
+
+    removePreview();
+    map.addSource(PREVIEW_SOURCE_ID, { type: "geojson", data: previewRoute });
+    map.addLayer({
+      id: PREVIEW_CASING_LAYER_ID,
+      type: "line",
+      source: PREVIEW_SOURCE_ID,
+      paint: {
+        "line-color": PREVIEW_COLOR,
+        "line-opacity": 0.18,
+        "line-width": 14,
+        "line-blur": 6,
+      },
+      layout: { "line-cap": "round", "line-join": "round" },
+    });
+    map.addLayer({
+      id: PREVIEW_LAYER_ID,
+      type: "line",
+      source: PREVIEW_SOURCE_ID,
+      paint: {
+        "line-color": PREVIEW_COLOR,
+        "line-opacity": 0.8,
+        "line-width": 3,
+        "line-dasharray": [4, 2],
+      },
+      layout: { "line-cap": "round", "line-join": "round" },
+    });
+
+    return removePreview;
+  }, [previewRoute, mapReady]);
+
   return (
     <div className={cn(className, "relative isolate")}>
       <div ref={containerRef} className="h-full w-full" />
 
-      {/* Style toggle button */}
-      <button
-        type="button"
-        onClick={() => setStyleMode((mode) => mode === "walkable" ? "satellite" : "walkable")}
-        className="absolute bottom-8 right-2 z-10 rounded-lg border bg-background/90 px-3 py-1.5 text-xs font-medium shadow backdrop-blur hover:bg-muted active:scale-95 transition-all"
-        aria-label={styleMode === "walkable" ? "Switch to satellite view" : "Switch to walkable paths view"}
-        aria-pressed={styleMode === "walkable"}
-      >
-        {styleMode === "walkable" ? "🛰 Satellite" : "🥾 Walkable"}
-      </button>
+      {/* Style toggle buttons */}
+      <div className="absolute bottom-8 right-2 z-10 flex flex-col gap-1">
+        <button
+          type="button"
+          onClick={() => setStyleMode("vector")}
+          className={cn(
+            "rounded-lg border px-3 py-1.5 text-xs font-medium shadow transition-all",
+            styleMode === "vector"
+              ? "bg-primary text-primary-foreground"
+              : "bg-background/90 backdrop-blur hover:bg-muted active:scale-95",
+          )}
+          aria-label="Switch to vector map view"
+          aria-pressed={styleMode === "vector"}
+        >
+          🗺 Vector
+        </button>
+        <button
+          type="button"
+          onClick={() => setStyleMode("walkable")}
+          className={cn(
+            "rounded-lg border px-3 py-1.5 text-xs font-medium shadow transition-all",
+            styleMode === "walkable"
+              ? "bg-primary text-primary-foreground"
+              : "bg-background/90 backdrop-blur hover:bg-muted active:scale-95",
+          )}
+          aria-label="Switch to walkable paths view"
+          aria-pressed={styleMode === "walkable"}
+        >
+          🥾 Walkable
+        </button>
+        <button
+          type="button"
+          onClick={() => setStyleMode("satellite")}
+          className={cn(
+            "rounded-lg border px-3 py-1.5 text-xs font-medium shadow transition-all",
+            styleMode === "satellite"
+              ? "bg-primary text-primary-foreground"
+              : "bg-background/90 backdrop-blur hover:bg-muted active:scale-95",
+          )}
+          aria-label="Switch to satellite view"
+          aria-pressed={styleMode === "satellite"}
+        >
+          🛰 Satellite
+        </button>
+      </div>
 
-      {/* Legend — only visible in walkable mode */}
-      {styleMode === "walkable" && (
+      {/* Legend — only visible in vector or walkable mode */}
+      {styleMode !== "satellite" && (
         <div className="absolute bottom-8 left-2 z-10 flex items-center gap-3 rounded-full border bg-background/85 px-3 py-1.5 text-xs shadow backdrop-blur">
           <span className="flex items-center gap-1">
-            <span className="inline-block h-0.5 w-5 border-t-2 border-dashed border-[#f5f0e8] bg-transparent" />
+            <span
+              className="inline-block h-0.5 w-5 border-t-2 border-dashed"
+              style={{ borderColor: styleMode === "vector" ? VECTOR_FOOTPATH_COLOR : WALKABLE_FOOTPATH_COLOR }}
+            />
             Footpath
           </span>
           <span className="flex items-center gap-1">
-            <span className="inline-block h-0.5 w-5 bg-[#6baed6] opacity-60" />
+            <span
+              className="inline-block h-0.5 w-5"
+              style={{ background: styleMode === "vector" ? VECTOR_ROAD_COLOR : WALKABLE_ROAD_COLOR, opacity: 0.8 }}
+            />
             Road
           </span>
           <span className="flex items-center gap-1">
-            <span className="inline-block h-2 w-5 rounded bg-[#22c55e] opacity-50" />
+            <span
+              className="inline-block h-2 w-5 rounded opacity-70"
+              style={{ background: styleMode === "vector" ? VECTOR_PARK_COLOR : WALKABLE_PARK_COLOR }}
+            />
             Park
           </span>
         </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Position } from "geojson";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -49,6 +49,9 @@ const DEFAULT_PUBLISHED_DESCRIPTION_SUFFIX = "community trail created in Walkabl
 const MAX_WAYPOINTS = 50;
 const WAYPOINT_DUPLICATE_PRECISION = 6;
 const PARK_ID_PREFIX_LENGTH = 6;
+// ~55 m at mid-latitudes — skip preview when cursor is virtually on top of the waypoint.
+const HOVER_PREVIEW_MIN_DISTANCE_DEGREES = 0.0005;
+const HOVER_PREVIEW_DEBOUNCE_MS = 120;
 
 const emptyDraftRouteState: DraftRouteState = {
   feature: null,
@@ -79,8 +82,20 @@ export default function RouteBuilderPage() {
   const [mapStatus, setMapStatus] = useState<"loading" | "ready" | "error">("loading");
   const [draftStatus, setDraftStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [selectedParkId, setSelectedParkId] = useState<string>("");
-  const [routePreference, setRoutePreference] = useState<RoutePreference>("foot");
+  const [routePreference, setRoutePreference] = useState<RoutePreference>("park");
   const draftRequestIdRef = useRef(0);
+  const [hoverPreviewRoute, setHoverPreviewRoute] = useState<RouteFeature | null>(null);
+  const hoverDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hoverRequestIdRef = useRef(0);
+
+  // Cancel any pending hover debounce on unmount.
+  useEffect(() => {
+    return () => {
+      if (hoverDebounceTimerRef.current !== null) {
+        clearTimeout(hoverDebounceTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -103,6 +118,7 @@ export default function RouteBuilderPage() {
   }, []);
 
   const waypointPositions = useMemo<Position[]>(() => waypoints.map((waypoint) => [waypoint.lng, waypoint.lat]), [waypoints]);
+
   const effectiveSponsoredStops = includeFoodStops ? sponsoredStops : [];
   const effectiveSelectedSponsoredStopId = includeFoodStops ? selectedSponsoredStopId : null;
   const visibleDraftRoute = waypointPositions.length >= 2 ? draftRouteState.feature : null;
@@ -380,6 +396,53 @@ export default function RouteBuilderPage() {
     }
   };
 
+  /**
+   * Fires on every map mousemove (desktop).
+   * Debounces by 120 ms and fetches a walking preview from the last placed
+   * waypoint to the cursor position, rendered as a dashed green ghost line.
+   */
+  const handleMapHover = useCallback((coordinates: Position) => {
+    if (waypoints.length === 0) {
+      return;
+    }
+
+    const lastWaypoint = waypoints[waypoints.length - 1];
+    const from: Position = [lastWaypoint.lng, lastWaypoint.lat];
+
+    // Skip if cursor is very close to the last waypoint (no meaningful preview).
+    if (Math.abs(from[0] - coordinates[0]) < HOVER_PREVIEW_MIN_DISTANCE_DEGREES && Math.abs(from[1] - coordinates[1]) < HOVER_PREVIEW_MIN_DISTANCE_DEGREES) {
+      setHoverPreviewRoute(null);
+      return;
+    }
+
+    if (hoverDebounceTimerRef.current !== null) {
+      clearTimeout(hoverDebounceTimerRef.current);
+    }
+
+    const requestId = ++hoverRequestIdRef.current;
+    hoverDebounceTimerRef.current = setTimeout(() => {
+      hoverDebounceTimerRef.current = null;
+      getRoute([from, coordinates], "Preview", routePreference)
+        .then((result) => {
+          if (requestId !== hoverRequestIdRef.current || !result) {
+            return;
+          }
+          setHoverPreviewRoute({
+            ...result.feature,
+            properties: {
+              ...result.feature.properties,
+              id: "hover-preview",
+              color: "#22c55e",
+              source: "hover-preview",
+            },
+          });
+        })
+        .catch(() => {
+          // Silently ignore preview routing errors.
+        });
+    }, HOVER_PREVIEW_DEBOUNCE_MS);
+  }, [waypoints, routePreference]);
+
   return (
     <div className="flex h-[calc(100vh-64px)] overflow-hidden">
       <div className="w-80 shrink-0 overflow-y-auto border-r bg-background p-4 space-y-4">
@@ -566,8 +629,11 @@ export default function RouteBuilderPage() {
             routes={routeFeatures}
             sponsoredStops={effectiveSponsoredStops}
             waypoints={waypointMarkers}
+            previewRoute={waypoints.length > 0 ? hoverPreviewRoute : null}
             onMapStatusChange={setMapStatus}
+            onMapHover={handleMapHover}
             onMapPointSelect={(coordinates) => {
+              setHoverPreviewRoute(null);
               addWaypoint({
                 lat: coordinates[1],
                 lng: coordinates[0],
@@ -576,6 +642,7 @@ export default function RouteBuilderPage() {
             }}
             onSponsoredStopSelect={(stop) => setSelectedSponsoredStopId(stop.id)}
             onRoutePointSelect={({ routeId, routeName: selectedRouteName, coordinates }) => {
+              setHoverPreviewRoute(null);
               addWaypoint({
                 lat: coordinates[1],
                 lng: coordinates[0],
