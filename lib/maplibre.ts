@@ -10,7 +10,9 @@ export const VECTOR_FOOTPATH_COLOR = "#3da64a";
 export const VECTOR_ROAD_COLOR = "#e06c00";
 export const VECTOR_PARK_COLOR = "#cde8c3";
 export const WALKABLE_FOOTPATH_COLOR = "#f5f0e8";
-export const WALKABLE_ROAD_COLOR = "#6baed6";
+export const WALKABLE_ROAD_RIVER_COLOR = "#4f98cf";
+export const WALKABLE_ROAD_CASING_COLOR = "#2f516c";
+export const WALKABLE_ROAD_COLOR = WALKABLE_ROAD_RIVER_COLOR;
 export const WALKABLE_PARK_COLOR = "#22c55e";
 export const WALKWAY_COLOR = "#d7e8c7";
 
@@ -85,7 +87,21 @@ const NON_PATH_TRANSPORT_SUBCLASSES: string[] = [
   "chair_lift",
 ];
 
-const PATHWAY_DASHARRAY = [2, 1.25];
+const VECTOR_PATHWAY_DASHARRAY = [2, 1.25];
+const WALKABLE_PATHWAY_DASHARRAY = [3, 1.5];
+
+const WALKABLE_RIVER_MOTORWAY_CLASSES = ["motorway", "trunk", "motorway_link", "trunk_link"];
+const WALKABLE_RIVER_PRIMARY_CLASSES = ["primary", "primary_link"];
+const WALKABLE_RIVER_SECONDARY_CLASSES = ["secondary", "secondary_link"];
+const WALKABLE_RIVER_MINOR_CLASSES = [
+  "tertiary",
+  "tertiary_link",
+  "minor",
+  "service",
+  "residential",
+  "unclassified",
+  "living_street",
+];
 
 export function createWalkablePathFilter(): FilterSpecification {
   return [
@@ -323,10 +339,10 @@ export function createVectorStyle(): StyleSpecification {
         paint: {
           "line-color": VECTOR_FOOTPATH_COLOR,
           "line-opacity": 0.95,
-          "line-width": ["interpolate", ["linear"], ["zoom"], 10, 1.2, 13, 2.2, 16, 4],
-          "line-dasharray": PATHWAY_DASHARRAY,
-        },
-      },
+           "line-width": ["interpolate", ["linear"], ["zoom"], 10, 1.2, 13, 2.2, 16, 4],
+           "line-dasharray": VECTOR_PATHWAY_DASHARRAY,
+         },
+       },
     ],
   };
 }
@@ -381,7 +397,7 @@ export function createWalkableStyle(): StyleSpecification {
           false,
         ],
         paint: {
-          "fill-color": "rgba(34,197,94,0.18)",
+          "fill-color": "rgba(34,197,94,0.30)",
         },
       },
       {
@@ -390,57 +406,142 @@ export function createWalkableStyle(): StyleSpecification {
         source: "openmaptiles",
         "source-layer": "park",
         paint: {
-          "fill-color": "rgba(34,197,94,0.12)",
+          "fill-color": "rgba(34,197,94,0.22)",
         },
       },
 
-      // ── Roads: major (motorway / trunk / primary / secondary) ──────────
-      // Rendered as faint, blurred, blue river-channels
+      // ── Roads rendered as rivers: casings first ─────────────────────────
       {
-        id: "road-major",
+        id: "road-river-casing-motorway",
         type: "line",
         source: "openmaptiles",
         "source-layer": "transportation",
-        filter: [
-          "match",
-          ["get", "class"],
-          ["motorway", "trunk", "primary", "secondary"],
-          true,
-          false,
-        ],
+        filter: ["match", ["get", "class"], WALKABLE_RIVER_MOTORWAY_CLASSES, true, false],
         layout: { "line-cap": "round", "line-join": "round" },
         paint: {
-          "line-color": "#6baed6",
-          "line-opacity": 0.25,
-          "line-width": ["interpolate", ["linear"], ["zoom"], 10, 3, 15, 6],
-          "line-blur": 3,
+          "line-color": WALKABLE_ROAD_CASING_COLOR,
+          "line-opacity": 0.95,
+          "line-width": ["interpolate", ["linear"], ["zoom"], 10, 14, 16, 24],
+          "line-blur": 0.6,
+        },
+      },
+      {
+        id: "road-river-casing-primary",
+        type: "line",
+        source: "openmaptiles",
+        "source-layer": "transportation",
+        filter: ["match", ["get", "class"], WALKABLE_RIVER_PRIMARY_CLASSES, true, false],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": WALKABLE_ROAD_CASING_COLOR,
+          "line-opacity": 0.95,
+          "line-width": ["interpolate", ["linear"], ["zoom"], 10, 11, 16, 18],
+          "line-blur": 0.5,
+        },
+      },
+      {
+        id: "road-river-casing-secondary",
+        type: "line",
+        source: "openmaptiles",
+        "source-layer": "transportation",
+        filter: ["match", ["get", "class"], WALKABLE_RIVER_SECONDARY_CLASSES, true, false],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": WALKABLE_ROAD_CASING_COLOR,
+          "line-opacity": 0.95,
+          "line-width": ["interpolate", ["linear"], ["zoom"], 10, 8, 16, 14],
+          "line-blur": 0.45,
+        },
+      },
+      {
+        id: "road-river-casing-minor",
+        type: "line",
+        source: "openmaptiles",
+        "source-layer": "transportation",
+        filter: ["match", ["get", "class"], WALKABLE_RIVER_MINOR_CLASSES, true, false],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": WALKABLE_ROAD_CASING_COLOR,
+          "line-opacity": 0.95,
+          "line-width": ["interpolate", ["linear"], ["zoom"], 10, 6, 16, 10],
+          "line-blur": 0.4,
         },
       },
 
-      // ── Roads: minor (tertiary / residential / service) ───────────────
+      // ── Roads rendered as opaque rivers ────────────────────────────────
       {
-        id: "road-minor",
+        id: "road-river-motorway",
         type: "line",
         source: "openmaptiles",
         "source-layer": "transportation",
-        filter: [
-          "match",
-          ["get", "class"],
-          ["tertiary", "minor", "service"],
-          true,
-          false,
-        ],
+        filter: ["match", ["get", "class"], WALKABLE_RIVER_MOTORWAY_CLASSES, true, false],
         layout: { "line-cap": "round", "line-join": "round" },
         paint: {
-          "line-color": "#6baed6",
-          "line-opacity": 0.15,
-          "line-width": ["interpolate", ["linear"], ["zoom"], 10, 1.5, 15, 3],
-          "line-blur": 2,
+          "line-color": WALKABLE_ROAD_RIVER_COLOR,
+          "line-opacity": 1,
+          "line-width": ["interpolate", ["linear"], ["zoom"], 10, 12, 16, 22],
+          "line-blur": 1.2,
+        },
+      },
+      {
+        id: "road-river-primary",
+        type: "line",
+        source: "openmaptiles",
+        "source-layer": "transportation",
+        filter: ["match", ["get", "class"], WALKABLE_RIVER_PRIMARY_CLASSES, true, false],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": WALKABLE_ROAD_RIVER_COLOR,
+          "line-opacity": 1,
+          "line-width": ["interpolate", ["linear"], ["zoom"], 10, 9, 16, 16],
+          "line-blur": 1.1,
+        },
+      },
+      {
+        id: "road-river-secondary",
+        type: "line",
+        source: "openmaptiles",
+        "source-layer": "transportation",
+        filter: ["match", ["get", "class"], WALKABLE_RIVER_SECONDARY_CLASSES, true, false],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": WALKABLE_ROAD_RIVER_COLOR,
+          "line-opacity": 1,
+          "line-width": ["interpolate", ["linear"], ["zoom"], 10, 6, 16, 12],
+          "line-blur": 1,
+        },
+      },
+      {
+        id: "road-river-minor",
+        type: "line",
+        source: "openmaptiles",
+        "source-layer": "transportation",
+        filter: ["match", ["get", "class"], WALKABLE_RIVER_MINOR_CLASSES, true, false],
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": WALKABLE_ROAD_RIVER_COLOR,
+          "line-opacity": 1,
+          "line-width": ["interpolate", ["linear"], ["zoom"], 10, 4, 16, 8],
+          "line-blur": 0.9,
         },
       },
 
       // ── Walkable paths (footway / cycleway / path / pedestrian / steps / track) ──
-      // Bright dotted cream lines that stand out against the muted roads
+      // Bright dotted cream lines with subtle green casing.
+      {
+        id: "walkable-paths-casing",
+        type: "line",
+        source: "openmaptiles",
+        "source-layer": "transportation",
+        filter: createWalkablePathFilter(),
+        layout: { "line-cap": "round", "line-join": "round" },
+        paint: {
+          "line-color": "rgba(21,128,61,0.30)",
+          "line-opacity": 1,
+          "line-width": ["interpolate", ["linear"], ["zoom"], 10, 2.5, 16, 5],
+          "line-blur": 0.4,
+        },
+      },
       {
         id: "walkable-paths",
         type: "line",
@@ -449,10 +550,10 @@ export function createWalkableStyle(): StyleSpecification {
         filter: createWalkablePathFilter(),
         layout: { "line-cap": "round", "line-join": "round" },
         paint: {
-          "line-color": "#f5f0e8",
+          "line-color": WALKABLE_FOOTPATH_COLOR,
           "line-opacity": 1,
-          "line-width": 2,
-          "line-dasharray": [2, 1],
+          "line-width": ["interpolate", ["linear"], ["zoom"], 10, 1.5, 16, 4],
+          "line-dasharray": WALKABLE_PATHWAY_DASHARRAY,
         },
       },
     ],

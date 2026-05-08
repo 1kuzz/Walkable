@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { createVectorStyle, createWalkableStyle, VECTOR_FOOTPATH_COLOR } from "@/lib/maplibre";
+import {
+  createVectorStyle,
+  createWalkableStyle,
+  VECTOR_FOOTPATH_COLOR,
+  WALKABLE_ROAD_RIVER_COLOR,
+  WALKABLE_ROAD_CASING_COLOR,
+} from "@/lib/maplibre";
 
 function getWalkablePathsLayer() {
   const walkablePaths = createVectorStyle().layers.find((layer) => layer.id === "walkable-paths");
@@ -67,5 +73,33 @@ describe("createWalkableStyle", () => {
     expect(filter).toContain("\"sidewalk\"");
     expect(filter).toContain("\"rail\"");
     expect(filter).toContain("\"ferry\"");
+  });
+
+  it("renders all drivable classes as river roads with casing", () => {
+    const style = createWalkableStyle();
+    const riverMinor = style.layers.find((layer) => layer.id === "road-river-minor");
+    const casingMinor = style.layers.find((layer) => layer.id === "road-river-casing-minor");
+    const riverMinorFilter = JSON.stringify((riverMinor as { filter?: unknown }).filter);
+
+    expect(riverMinor).toBeDefined();
+    expect(casingMinor).toBeDefined();
+    expect(riverMinorFilter).toContain("\"residential\"");
+    expect(riverMinorFilter).toContain("\"unclassified\"");
+    expect(riverMinorFilter).toContain("\"living_street\"");
+    expect(riverMinorFilter).toContain("\"tertiary_link\"");
+
+    expect((riverMinor as { paint?: Record<string, unknown> }).paint?.["line-color"]).toBe(WALKABLE_ROAD_RIVER_COLOR);
+    expect((casingMinor as { paint?: Record<string, unknown> }).paint?.["line-color"]).toBe(WALKABLE_ROAD_CASING_COLOR);
+  });
+
+  it("uses a casing layer and stronger dashed styling for walkable paths", () => {
+    const style = createWalkableStyle();
+    const casing = style.layers.find((layer) => layer.id === "walkable-paths-casing");
+    const paths = style.layers.find((layer) => layer.id === "walkable-paths");
+
+    expect(casing).toBeDefined();
+    expect(paths).toBeDefined();
+    expect((paths as { paint?: Record<string, unknown> }).paint?.["line-dasharray"]).toEqual([3, 1.5]);
+    expect((paths as { paint?: Record<string, unknown> }).paint?.["line-width"]).not.toBe(2);
   });
 });

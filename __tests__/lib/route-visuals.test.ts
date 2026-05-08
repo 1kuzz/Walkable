@@ -50,4 +50,30 @@ describe("resolveRouteStyle", () => {
     expect(communityStyle.interactive).toBe(true);
     expect(draftStyle.interactive).toBe(false);
   });
+
+  it("renders walkable preferred draft routes in bright green", () => {
+    const style = resolveRouteStyle({
+      route: { source: "draft", routingPreference: "walkable", routingQuality: "preferred" },
+      visualMode: "builder",
+      routeColor: "#f97316",
+      isActive: false,
+      enableRouteSnapping: false,
+    });
+
+    expect(style.bodyColor).toBe("#22c55e");
+    expect(style.casingColor).toBe("#22c55e");
+  });
+
+  it("renders walkable fallback draft routes in amber", () => {
+    const style = resolveRouteStyle({
+      route: { source: "draft", routingPreference: "walkable", routingQuality: "fallback" },
+      visualMode: "builder",
+      routeColor: "#f97316",
+      isActive: false,
+      enableRouteSnapping: false,
+    });
+
+    expect(style.bodyColor).toBe("#f59e0b");
+    expect(style.casingColor).toBe("#f59e0b");
+  });
 });

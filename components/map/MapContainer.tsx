@@ -27,7 +27,8 @@ import {
   VECTOR_ROAD_COLOR,
   VECTOR_PARK_COLOR,
   WALKABLE_FOOTPATH_COLOR,
-  WALKABLE_ROAD_COLOR,
+  WALKABLE_ROAD_CASING_COLOR,
+  WALKABLE_ROAD_RIVER_COLOR,
   WALKABLE_PARK_COLOR,
   WALKWAY_COLOR,
 } from "@/lib/maplibre";
@@ -63,6 +64,7 @@ interface MapContainerProps {
   onPathwayDiagnosticsChange?: (diagnostics: PathwayDiagnostics) => void;
   routeVisualMode?: RouteVisualMode;
   enableRouteSnapping?: boolean;
+  styleModeOverride?: MapStyleMode;
 }
 
 export interface PathwayDiagnostics {
@@ -113,6 +115,7 @@ export default function MapContainer({
   onPathwayDiagnosticsChange,
   routeVisualMode = "default",
   enableRouteSnapping = true,
+  styleModeOverride,
 }: MapContainerProps) {
   const initialViewRef = useRef({ lat, lng, zoom });
   const mapRef = useRef<MapLibreMap | null>(null);
@@ -231,6 +234,13 @@ export default function MapContainer({
   // Style-toggle effect: runs when styleMode changes after initial mount.
   // Sets mapReady false → switches style → re-sets mapReady true so all
   // route/waypoint effects naturally re-run on the fresh style.
+  useEffect(() => {
+    if (!styleModeOverride) {
+      return;
+    }
+    setStyleMode((current) => (current === styleModeOverride ? current : styleModeOverride));
+  }, [styleModeOverride]);
+
   useEffect(() => {
     const map = mapRef.current;
     if (!map) {
@@ -848,9 +858,13 @@ export default function MapContainer({
               <span className="flex items-center gap-1">
                 <span
                   className="inline-block h-0.5 w-5"
-                  style={{ background: styleMode === "vector" ? VECTOR_ROAD_COLOR : WALKABLE_ROAD_COLOR, opacity: 0.8 }}
+                  style={{
+                    background: styleMode === "vector" ? VECTOR_ROAD_COLOR : WALKABLE_ROAD_RIVER_COLOR,
+                    boxShadow: styleMode === "vector" ? undefined : `0 0 0 1px ${WALKABLE_ROAD_CASING_COLOR}`,
+                    opacity: 0.95,
+                  }}
                 />
-                Road
+                {styleMode === "vector" ? "Road" : "Car-road river"}
               </span>
               <span className="flex items-center gap-1">
                 <span

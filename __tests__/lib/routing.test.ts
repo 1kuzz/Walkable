@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { clearRouteCache, getRoute, getRoutingFallbackMessage } from "@/lib/routing";
+import { clearRouteCache, getRoute, getRoutingFallbackMessage, ROUTE_PREFERENCES } from "@/lib/routing";
 
 describe("getRoute", () => {
   afterEach(() => {
@@ -17,6 +17,12 @@ describe("getRoute", () => {
 
     expect(result).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("exposes walkable preference option in selector metadata", () => {
+    expect(ROUTE_PREFERENCES).toEqual(expect.arrayContaining([
+      { value: "walkable", label: "Walkable streets only (no car roads)" },
+    ]));
   });
 
   it("returns a routed path from OSRM response", async () => {
@@ -134,6 +140,61 @@ describe("getRoute", () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(String(fetchMock.mock.calls[0]?.[0])).toContain("openrouteservice.org/v2/directions/foot-walking/geojson");
+  });
+
+  it("uses strict walkable preference via ORS when configured", async () => {
+    process.env.NEXT_PUBLIC_ORS_API_KEY = "test-ors-key";
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        features: [{
+          geometry: {
+            coordinates: [[37.61, 55.75], [37.62, 55.76]],
+          },
+          properties: {
+            summary: {
+              distance: 1200,
+              duration: 900,
+            },
+          },
+        }],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getRoute([[37.61, 55.75], [37.62, 55.76]], "Walkable test", "walkable");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(result?.routing).toMatchObject({
+      provider: "ors",
+      preference: "walkable",
+      quality: "preferred",
+    });
+  });
+
+  it("falls back from walkable mode to park-aware routing when ORS key is missing", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        code: "Ok",
+        routes: [{
+          distance: 1200,
+          duration: 900,
+          geometry: {
+            coordinates: [[37.61, 55.75], [37.62, 55.76]],
+          },
+        }],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await getRoute([[37.61, 55.75], [37.62, 55.76]], "Walkable fallback", "walkable");
+
+    expect(result?.routing).toMatchObject({
+      preference: "walkable",
+      quality: "fallback",
+      fallbackReason: "ors_missing_key",
+    });
   });
 
   it("marks route metadata with ORS provider when park preference uses ORS", async () => {
@@ -435,5 +496,18 @@ describe("getRoute", () => {
     });
 
     expect(message).toContain("no usable park-path geometry");
+  });
+
+  it("returns explicit fallback message for walkable-only mode", () => {
+    const message = getRoutingFallbackMessage({
+      provider: "osrm",
+      profile: "foot",
+      preference: "walkable",
+      quality: "fallback",
+      fallbackReason: "ors_missing_key",
+    });
+
+    expect(message).toContain("Walkable-only routing");
+    expect(message).toContain("fallback");
   });
 });

@@ -43,6 +43,9 @@ const BUILDER_DRAFT = {
   casingBlur: 8,
 };
 
+const WALKABLE_PREFERRED_COLOR = "#22c55e";
+const WALKABLE_FALLBACK_COLOR = "#f59e0b";
+
 const BUILDER_COMMUNITY = {
   strokeOpacity: 0.35,
   strokeWidth: 4,
@@ -58,7 +61,7 @@ export function resolveRouteStyle({
   isActive,
   enableRouteSnapping,
 }: {
-  route: Pick<RouteFeatureProperties, "source">;
+  route: Pick<RouteFeatureProperties, "source" | "routingPreference" | "routingQuality">;
   visualMode: RouteVisualMode;
   routeColor?: string;
   isActive: boolean;
@@ -73,11 +76,15 @@ export function resolveRouteStyle({
 
   if (visualMode === "builder") {
     if (isDraftLike) {
+      const walkableDraftColor = route.routingPreference === "walkable"
+        ? (route.routingQuality === "preferred" ? WALKABLE_PREFERRED_COLOR : WALKABLE_FALLBACK_COLOR)
+        : undefined;
+      const draftColor = walkableDraftColor ?? routeColor ?? DEFAULT_ACTIVE.strokeColor;
       return {
-        bodyColor: routeColor ?? DEFAULT_ACTIVE.strokeColor,
+        bodyColor: draftColor,
         bodyOpacity: BUILDER_DRAFT.strokeOpacity,
         bodyWidth: BUILDER_DRAFT.strokeWidth,
-        casingColor: routeColor ?? DEFAULT_ACTIVE.strokeColor,
+        casingColor: draftColor,
         casingOpacity: BUILDER_DRAFT.casingOpacity,
         casingWidth: BUILDER_DRAFT.casingWidth,
         casingBlur: BUILDER_DRAFT.casingBlur,
