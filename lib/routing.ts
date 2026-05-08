@@ -123,8 +123,6 @@ async function fetchRouteFromOsrm(osrmBaseUrl: string, coordinates: string): Pro
   const url = new URL(`${osrmBaseUrl}/route/v1/foot/${coordinates}`);
   url.searchParams.set("overview", "full");
   url.searchParams.set("geometries", "geojson");
-  url.searchParams.set("annotations", "true");
-  url.searchParams.set("steps", "true");
 
   const response = await fetch(url, {
     headers: {

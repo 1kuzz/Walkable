@@ -22,11 +22,13 @@ interface ParkMapSectionProps {
   routes: ParkRouteItem[];
 }
 
+const PARK_ROUTE_COLOR = "#22c55e";
+
 export default function ParkMapSection({ lat, lng, routes }: ParkMapSectionProps) {
   const routeFeatures = useMemo<RouteFeature[]>(
     () =>
       routes
-        .map((r) => parseRouteGeometry(r.geometryGeoJson, { id: r.id, name: r.name, color: "#22c55e" }))
+        .map((r) => parseRouteGeometry(r.geometryGeoJson, { id: r.id, name: r.name, color: PARK_ROUTE_COLOR }))
         .filter((f): f is RouteFeature => Boolean(f)),
     [routes],
   );

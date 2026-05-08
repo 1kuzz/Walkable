@@ -46,6 +46,9 @@ const ACTIVE_ROUTE_STYLE = {
 };
 const HOVER_POINT_COLOR = "#facc15";
 const SELECTED_POINT_COLOR = "#f97316";
+const WAYPOINT_START_COLOR = "#22c55e";
+const WAYPOINT_END_COLOR = "#ef4444";
+const WAYPOINT_MIDDLE_COLOR = "#f97316";
 const FLY_TO_DURATION_MS = 400;
 const FIT_BOUNDS_DURATION_MS = 600;
 const DUPLICATE_EVENT_WINDOW_MS = 400;
@@ -394,7 +397,7 @@ export default function MapContainer({
     waypoints.forEach((waypoint, index) => {
       const isFirst = index === 0;
       const isLast = index === waypoints.length - 1;
-      const markerBg = isFirst ? "#22c55e" : isLast && waypoints.length > 1 ? "#ef4444" : "#f97316";
+      const markerBg = isFirst ? WAYPOINT_START_COLOR : isLast && waypoints.length > 1 ? WAYPOINT_END_COLOR : WAYPOINT_MIDDLE_COLOR;
 
       const existing = existingMarkers.get(waypoint.id);
       const label = waypoint.label ?? `${index + 1}`;
