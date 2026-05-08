@@ -563,7 +563,8 @@ export default function MapContainer({
         type="button"
         onClick={() => setStyleMode((mode) => mode === "walkable" ? "satellite" : "walkable")}
         className="absolute bottom-8 right-2 z-10 rounded-lg border bg-background/90 px-3 py-1.5 text-xs font-medium shadow backdrop-blur hover:bg-muted active:scale-95 transition-all"
-        aria-label="Toggle map style"
+        aria-label={styleMode === "walkable" ? "Switch to satellite view" : "Switch to walkable paths view"}
+        aria-pressed={styleMode === "walkable"}
       >
         {styleMode === "walkable" ? "🛰 Satellite" : "🥾 Walkable"}
       </button>

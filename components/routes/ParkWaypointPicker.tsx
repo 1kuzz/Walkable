@@ -42,10 +42,16 @@ export default function ParkWaypointPicker({ centerLat, centerLng, onAddPark }: 
     const controller = new AbortController();
     let cancelled = false;
 
+    const params = new URLSearchParams({
+      lat: String(centerLat),
+      lng: String(centerLng),
+      radius: "10",
+    });
+
     queueMicrotask(() => {
       if (!cancelled) setLoading(true);
     });
-    fetch(`/api/parks?lat=${centerLat}&lng=${centerLng}&radius=10`, {
+    fetch(`/api/parks?${params.toString()}`, {
       cache: "no-store",
       signal: controller.signal,
     })

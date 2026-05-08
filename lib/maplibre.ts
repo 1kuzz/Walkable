@@ -48,6 +48,8 @@ export function createWalkableStyle(): StyleSpecification {
       },
       openmaptiles: {
         type: "vector",
+        // OpenFreeMap serves tiles up to zoom 14; at higher zoom levels MapLibre
+        // over-scales the z14 tiles, so road/path detail stays visible.
         tiles: ["https://tiles.openfreemap.org/planet/{z}/{x}/{y}"],
         maxzoom: 14,
         attribution: "© OpenFreeMap © OpenStreetMap contributors",

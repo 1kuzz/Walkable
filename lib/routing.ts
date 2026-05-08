@@ -158,12 +158,14 @@ async function fetchRouteFromOsrm(osrmBaseUrl: string, coordinates: string): Pro
 }
 
 async function fetchRouteFromOrs(apiKey: string, waypoints: Position[]): Promise<CachedRoutedPath | null> {
+  // ORS v2 accepts the API key in the Authorization header as a bare token (no "Bearer" prefix).
   const response = await fetch(
     "https://api.openrouteservice.org/v2/directions/foot-walking/geojson",
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        // ORS v2 authenticates with a bare API key token in the Authorization header.
         Authorization: apiKey,
       },
       body: JSON.stringify({
@@ -182,6 +184,7 @@ async function fetchRouteFromOrs(apiKey: string, waypoints: Position[]): Promise
   const feature = payload.features?.[0];
   const routeCoordinates = normalizeCoordinates(feature?.geometry?.coordinates);
   if (routeCoordinates.length < 2) {
+    // ORS returned a valid response but no usable geometry; caller will fall back to OSRM.
     return null;
   }
 
