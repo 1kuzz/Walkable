@@ -1,10 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState, type MutableRefObject } from "react";
+import "maplibre-gl/dist/maplibre-gl.css";
+
+import { useEffect, useRef, useState } from "react";
 import type { Position } from "geojson";
+import maplibregl, {
+  type MapLayerMouseEvent,
+  type MapMouseEvent,
+  type Marker,
+} from "maplibre-gl";
 import { nearestPointOnRoute, type RouteFeature, type SponsoredStopMapItem } from "@/lib/geo";
+import { createSatelliteStyle, type Map as MapLibreMap } from "@/lib/maplibre";
 import { cn } from "@/lib/utils";
-import { getYandexMapType, loadYandexMapsApi, toGeoJsonCoordinates, toYandexCoordinates, type YandexGeoObject, type YandexMap } from "@/lib/yandex-maps";
 
 interface MapContainerProps {
   lat?: number;
@@ -14,7 +21,7 @@ interface MapContainerProps {
   routes?: RouteFeature[];
   sponsoredStops?: SponsoredStopMapItem[];
   waypoints?: Array<{ id: string; lat: number; lng: number; label?: string }>;
-  onMapLoad?: (map: YandexMap) => void;
+  onMapLoad?: (map: MapLibreMap) => void;
   onMapStatusChange?: (status: "loading" | "ready" | "error") => void;
   onMapPointSelect?: (coordinates: Position) => void;
   onRoutePointSelect?: (selection: { routeId: string; routeName: string; coordinates: Position }) => void;
@@ -23,18 +30,38 @@ interface MapContainerProps {
 
 const BASE_ROUTE_STYLE = {
   strokeColor: "#2563eb",
-  strokeOpacity: 0.5,
-  strokeWidth: 4,
+  strokeOpacity: 0.8,
+  strokeWidth: 7,
+  casingWidth: 14,
+  casingOpacity: 0.25,
+  highlightColor: "#bfdbfe",
+  highlightOpacity: 0.9,
+  highlightWidth: 2,
 };
 const ACTIVE_ROUTE_STYLE = {
   strokeColor: "#f97316",
   strokeOpacity: 0.95,
-  strokeWidth: 7,
+  strokeWidth: 9,
+  casingWidth: 16,
 };
 const HOVER_POINT_COLOR = "#facc15";
 const SELECTED_POINT_COLOR = "#f97316";
+const FLY_TO_DURATION_MS = 400;
+const FIT_BOUNDS_DURATION_MS = 600;
 const DUPLICATE_EVENT_WINDOW_MS = 400;
 const POSITION_PROXIMITY_EPSILON_DEGREES = 0.000001;
+
+interface RouteLayerState {
+  feature: RouteFeature;
+  sourceId: string;
+  casingLayerId: string;
+  bodyLayerId: string;
+  highlightLayerId: string;
+  handleMouseEnter: (event: MapLayerMouseEvent) => void;
+  handleMouseMove: (event: MapLayerMouseEvent) => void;
+  handleMouseLeave: () => void;
+  handleClick: (event: MapLayerMouseEvent) => void;
+}
 
 export default function MapContainer({
   lat = 55.7558,
@@ -51,96 +78,101 @@ export default function MapContainer({
   onSponsoredStopSelect,
 }: MapContainerProps) {
   const initialViewRef = useRef({ lat, lng, zoom });
-  const mapRef = useRef<YandexMap | null>(null);
+  const mapRef = useRef<MapLibreMap | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [mapReady, setMapReady] = useState(false);
-  const hoverPointRef = useRef<YandexGeoObject | null>(null);
-  const selectedPointRef = useRef<YandexGeoObject | null>(null);
-  const routeObjectsRef = useRef<Array<{ feature: RouteFeature; line: YandexGeoObject }>>([]);
-  const sponsoredStopObjectsRef = useRef<YandexGeoObject[]>([]);
-  const waypointObjectsRef = useRef<YandexGeoObject[]>([]);
+  const routeLayersRef = useRef<RouteLayerState[]>([]);
+  const waypointMarkersRef = useRef<Map<string, { marker: Marker; label: HTMLSpanElement }>>(new Map());
+  const sponsoredStopMarkersRef = useRef<Marker[]>([]);
   const selectedRouteIdRef = useRef<string | null>(null);
+  const hoverPointRef = useRef<{ marker: Marker; element: HTMLDivElement } | null>(null);
+  const selectedPointRef = useRef<{ marker: Marker; element: HTMLDivElement } | null>(null);
   const lastRouteSelectionRef = useRef<{ position: Position; timestamp: number } | null>(null);
   const lastMapSelectionRef = useRef<{ position: Position; timestamp: number } | null>(null);
 
   useEffect(() => {
-    let cancelled = false;
     if (!containerRef.current) {
       return;
     }
+
     onMapStatusChange?.("loading");
 
-    loadYandexMapsApi()
-      .then((ymaps) => {
-        if (cancelled || !containerRef.current) {
-          return;
-        }
-        if (!ymaps) {
-          setMapReady(false);
-          onMapStatusChange?.("error");
-          return;
-        }
+    const initialView = initialViewRef.current;
+    const waypointMarkers = waypointMarkersRef.current;
+    const map = new maplibregl.Map({
+      container: containerRef.current,
+      style: createSatelliteStyle(),
+      center: [initialView.lng, initialView.lat],
+      zoom: initialView.zoom,
+    });
 
-        const initialView = initialViewRef.current;
-        const map = new ymaps.Map(containerRef.current, {
-          center: [initialView.lat, initialView.lng],
-          zoom: initialView.zoom,
-          type: getYandexMapType(),
-        });
+    let cancelled = false;
 
-        map.controls.add("zoomControl");
-        map.controls.add("geolocationControl");
+    const handleLoad = () => {
+      if (cancelled) {
+        return;
+      }
 
-        const hoverPoint = new ymaps.Placemark([initialView.lat, initialView.lng], {}, {
-          preset: "islands#circleDotIcon",
-          iconColor: HOVER_POINT_COLOR,
-          visible: false,
-        });
-        const selectedPoint = new ymaps.Placemark([initialView.lat, initialView.lng], {}, {
-          preset: "islands#circleDotIcon",
-          iconColor: SELECTED_POINT_COLOR,
-          visible: false,
-        });
+      mapRef.current = map;
+      map.addControl(new maplibregl.NavigationControl(), "top-right");
+      map.addControl(
+        new maplibregl.GeolocateControl({
+          trackUserLocation: false,
+        }),
+        "top-right",
+      );
 
-        map.geoObjects.add(hoverPoint);
-        map.geoObjects.add(selectedPoint);
+      const hoverPoint = createPointMarker(HOVER_POINT_COLOR);
+      hoverPoint.marker.setLngLat([initialView.lng, initialView.lat]).addTo(map);
+      const selectedPoint = createPointMarker(SELECTED_POINT_COLOR);
+      selectedPoint.marker.setLngLat([initialView.lng, initialView.lat]).addTo(map);
+      hoverPointRef.current = hoverPoint;
+      selectedPointRef.current = selectedPoint;
+      updatePointMarker(hoverPointRef.current, null);
+      updatePointMarker(selectedPointRef.current, null);
 
-        mapRef.current = map;
-        hoverPointRef.current = hoverPoint;
-        selectedPointRef.current = selectedPoint;
-        setMapReady(true);
-        onMapStatusChange?.("ready");
-        onMapLoad?.(map);
-      })
-      .catch(() => {
-        mapRef.current = null;
-        setMapReady(false);
+      setMapReady(true);
+      onMapStatusChange?.("ready");
+      onMapLoad?.(map);
+    };
+
+    const handleError = () => {
+      if (!cancelled) {
         onMapStatusChange?.("error");
-      });
+      }
+    };
+
+    map.on("load", handleLoad);
+    map.on("error", handleError);
 
     return () => {
       cancelled = true;
-      routeObjectsRef.current = [];
-      sponsoredStopObjectsRef.current = [];
-      selectedRouteIdRef.current = null;
+      setMapReady(false);
+      cleanupRoutes(map, routeLayersRef.current);
+      routeLayersRef.current = [];
+      waypointMarkers.clear();
+      sponsoredStopMarkersRef.current = [];
+      hoverPointRef.current?.marker.remove();
+      selectedPointRef.current?.marker.remove();
       hoverPointRef.current = null;
       selectedPointRef.current = null;
-      waypointObjectsRef.current = [];
+      selectedRouteIdRef.current = null;
+      lastRouteSelectionRef.current = null;
       lastMapSelectionRef.current = null;
-      setMapReady(false);
-      mapRef.current?.destroy();
+      map.remove();
       mapRef.current = null;
     };
   }, [onMapLoad, onMapStatusChange]);
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !mapReady) {
+    const hasWaypointFocus = waypoints.length > 0;
+    if (!map || !mapReady || hasWaypointFocus) {
       return;
     }
 
-    map.setCenter([lat, lng], zoom);
-  }, [lat, lng, zoom, mapReady]);
+    map.flyTo({ center: [lng, lat], zoom, duration: FLY_TO_DURATION_MS });
+  }, [lat, lng, zoom, mapReady, waypoints.length]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -148,50 +180,149 @@ export default function MapContainer({
       return;
     }
 
-    routeObjectsRef.current.forEach(({ line }) => map.geoObjects.remove(line));
-    routeObjectsRef.current = routes.map((route) => {
-        const line = createRouteLine(route, {
-          lastSelectionRef: lastRouteSelectionRef,
-          onHover: (coordinates) => {
-            updatePointMarker(hoverPointRef.current, coordinates);
-            applyRouteStyles(routeObjectsRef.current, selectedRouteIdRef.current ?? route.properties.id);
-          if (containerRef.current) {
-            containerRef.current.style.cursor = "pointer";
-          }
+    cleanupRoutes(map, routeLayersRef.current);
+
+    const routeLayers: RouteLayerState[] = routes.map((route, index) => {
+      const routeId = sanitizeLayerId(route.properties.id || `route-${index}`);
+      const sourceId = `${routeId}-${index}-source`;
+      const casingLayerId = `${routeId}-${index}-casing`;
+      const bodyLayerId = `${routeId}-${index}-body`;
+      const highlightLayerId = `${routeId}-${index}-highlight`;
+
+      map.addSource(sourceId, {
+        type: "geojson",
+        data: route,
+      });
+
+      map.addLayer({
+        id: casingLayerId,
+        type: "line",
+        source: sourceId,
+        paint: {
+          "line-color": route.properties.color ?? BASE_ROUTE_STYLE.strokeColor,
+          "line-opacity": BASE_ROUTE_STYLE.casingOpacity,
+          "line-width": BASE_ROUTE_STYLE.casingWidth,
+          "line-blur": 6,
         },
-        onLeave: () => {
-          updatePointMarker(hoverPointRef.current, null);
-          applyRouteStyles(routeObjectsRef.current, selectedRouteIdRef.current);
-          if (containerRef.current) {
-            containerRef.current.style.cursor = "";
-          }
+        layout: {
+          "line-cap": "round",
+          "line-join": "round",
         },
-        onSelect: (coordinates) => {
+      });
+
+      map.addLayer({
+        id: bodyLayerId,
+        type: "line",
+        source: sourceId,
+        paint: {
+          "line-color": route.properties.color ?? BASE_ROUTE_STYLE.strokeColor,
+          "line-opacity": BASE_ROUTE_STYLE.strokeOpacity,
+          "line-width": BASE_ROUTE_STYLE.strokeWidth,
+        },
+        layout: {
+          "line-cap": "round",
+          "line-join": "round",
+        },
+      });
+
+      map.addLayer({
+        id: highlightLayerId,
+        type: "line",
+        source: sourceId,
+        paint: {
+          "line-color": BASE_ROUTE_STYLE.highlightColor,
+          "line-opacity": BASE_ROUTE_STYLE.highlightOpacity,
+          "line-width": BASE_ROUTE_STYLE.highlightWidth,
+        },
+        layout: {
+          "line-cap": "round",
+          "line-join": "round",
+        },
+      });
+
+      const updateSelection = (event: MapLayerMouseEvent, callback: (position: Position) => void) => {
+        const snapped = nearestPointOnRoute(route, [event.lngLat.lng, event.lngLat.lat]);
+        callback(snapped.coordinates);
+      };
+
+      const handleMouseEnter = (event: MapLayerMouseEvent) => {
+        if (containerRef.current) {
+          containerRef.current.style.cursor = "pointer";
+        }
+        updateSelection(event, (coordinates) => {
+          updatePointMarker(hoverPointRef.current, coordinates);
+          applyRouteStyles(map, routeLayersRef.current, selectedRouteIdRef.current ?? route.properties.id);
+        });
+      };
+
+      const handleMouseMove = (event: MapLayerMouseEvent) => {
+        updateSelection(event, (coordinates) => {
+          updatePointMarker(hoverPointRef.current, coordinates);
+          applyRouteStyles(map, routeLayersRef.current, selectedRouteIdRef.current ?? route.properties.id);
+        });
+      };
+
+      const handleMouseLeave = () => {
+        if (containerRef.current) {
+          containerRef.current.style.cursor = "";
+        }
+        updatePointMarker(hoverPointRef.current, null);
+        applyRouteStyles(map, routeLayersRef.current, selectedRouteIdRef.current);
+      };
+
+      const handleClick = (event: MapLayerMouseEvent) => {
+        event.preventDefault();
+        updateSelection(event, (coordinates) => {
+          if (isDuplicateSelection(lastRouteSelectionRef.current, coordinates)) {
+            return;
+          }
+          lastRouteSelectionRef.current = {
+            position: coordinates,
+            timestamp: Date.now(),
+          };
           selectedRouteIdRef.current = route.properties.id;
           updatePointMarker(selectedPointRef.current, coordinates);
-          applyRouteStyles(routeObjectsRef.current, route.properties.id);
+          applyRouteStyles(map, routeLayersRef.current, route.properties.id);
           onRoutePointSelect?.({
             routeId: route.properties.id,
             routeName: route.properties.name,
             coordinates,
           });
-        },
-      });
+        });
+      };
 
-      map.geoObjects.add(line);
-      return { feature: route, line };
+      map.on("mouseenter", bodyLayerId, handleMouseEnter);
+      map.on("mousemove", bodyLayerId, handleMouseMove);
+      map.on("mouseleave", bodyLayerId, handleMouseLeave);
+      map.on("click", bodyLayerId, handleClick);
+
+      return {
+        feature: route,
+        sourceId,
+        casingLayerId,
+        bodyLayerId,
+        highlightLayerId,
+        handleMouseEnter,
+        handleMouseMove,
+        handleMouseLeave,
+        handleClick,
+      };
     });
+
+    routeLayersRef.current = routeLayers;
 
     if (selectedRouteIdRef.current && !routes.some((route) => route.properties.id === selectedRouteIdRef.current)) {
       selectedRouteIdRef.current = null;
       updatePointMarker(selectedPointRef.current, null);
     }
 
-    applyRouteStyles(routeObjectsRef.current, selectedRouteIdRef.current);
+    applyRouteStyles(map, routeLayersRef.current, selectedRouteIdRef.current);
 
     return () => {
-      routeObjectsRef.current.forEach(({ line }) => map.geoObjects.remove(line));
-      routeObjectsRef.current = [];
+      cleanupRoutes(map, routeLayers);
+      if (routeLayersRef.current === routeLayers) {
+        routeLayersRef.current = [];
+      }
     };
   }, [routes, onRoutePointSelect, mapReady]);
 
@@ -201,25 +332,81 @@ export default function MapContainer({
       return;
     }
 
-    sponsoredStopObjectsRef.current.forEach((marker) => map.geoObjects.remove(marker));
-    sponsoredStopObjectsRef.current = sponsoredStops.map((stop) => {
-      const buttonId = `add-sponsored-stop-${stop.id}`;
-      const placemark = createSponsoredStopMarker(stop, buttonId);
-      placemark.events.add("balloonopen", () => {
-        document.getElementById(buttonId)?.addEventListener("click", () => {
-          onSponsoredStopSelect?.(stop);
-          placemark.balloon?.close();
-        }, { once: true });
+    const existingMarkers = waypointMarkersRef.current;
+    const nextWaypointIds = new Set(waypoints.map((waypoint) => waypoint.id));
+
+    for (const [id, entry] of existingMarkers.entries()) {
+      if (!nextWaypointIds.has(id)) {
+        entry.marker.remove();
+        existingMarkers.delete(id);
+      }
+    }
+
+    waypoints.forEach((waypoint, index) => {
+      const existing = existingMarkers.get(waypoint.id);
+      const label = waypoint.label ?? `${index + 1}`;
+      if (existing) {
+        existing.marker.setLngLat([waypoint.lng, waypoint.lat]);
+        existing.label.textContent = label;
+        existing.marker.getElement().setAttribute("title", waypoint.label ?? `Waypoint ${index + 1}`);
+        return;
+      }
+
+      const element = document.createElement("div");
+      element.style.width = "32px";
+      element.style.height = "32px";
+      element.style.borderRadius = "9999px";
+      element.style.background = "#f97316";
+      element.style.color = "#fff";
+      element.style.display = "flex";
+      element.style.alignItems = "center";
+      element.style.justifyContent = "center";
+      element.style.fontWeight = "700";
+      element.style.fontSize = "12px";
+      element.style.boxShadow = "0 2px 6px rgba(0,0,0,0.35)";
+      element.style.border = "2px solid rgba(255,255,255,0.9)";
+      element.style.userSelect = "none";
+      element.style.pointerEvents = "none";
+      element.title = waypoint.label ?? `Waypoint ${index + 1}`;
+
+      const labelElement = document.createElement("span");
+      labelElement.textContent = label;
+      element.appendChild(labelElement);
+
+      const marker = new maplibregl.Marker({ element, anchor: "center" })
+        .setLngLat([waypoint.lng, waypoint.lat])
+        .addTo(map);
+
+      existingMarkers.set(waypoint.id, {
+        marker,
+        label: labelElement,
       });
-      map.geoObjects.add(placemark);
-      return placemark;
     });
 
-    return () => {
-      sponsoredStopObjectsRef.current.forEach((marker) => map.geoObjects.remove(marker));
-      sponsoredStopObjectsRef.current = [];
-    };
-  }, [sponsoredStops, onSponsoredStopSelect, mapReady]);
+    if (waypoints.length === 1) {
+      map.flyTo({
+        center: [waypoints[0].lng, waypoints[0].lat],
+        zoom: Math.max(zoom, 14),
+        duration: FLY_TO_DURATION_MS,
+      });
+      return;
+    }
+
+    if (waypoints.length > 1) {
+      const bounds = new maplibregl.LngLatBounds(
+        [waypoints[0].lng, waypoints[0].lat],
+        [waypoints[0].lng, waypoints[0].lat],
+      );
+      for (let index = 1; index < waypoints.length; index += 1) {
+        bounds.extend([waypoints[index].lng, waypoints[index].lat]);
+      }
+      map.fitBounds(bounds, {
+        padding: 60,
+        duration: FIT_BOUNDS_DURATION_MS,
+        maxZoom: 15,
+      });
+    }
+  }, [waypoints, mapReady, zoom]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -227,18 +414,63 @@ export default function MapContainer({
       return;
     }
 
-    waypointObjectsRef.current.forEach((marker) => map.geoObjects.remove(marker));
-    waypointObjectsRef.current = waypoints.map((waypoint, index) => {
-      const marker = createWaypointMarker(waypoint, index);
-      map.geoObjects.add(marker);
-      return marker;
+    sponsoredStopMarkersRef.current.forEach((marker) => marker.remove());
+
+    sponsoredStopMarkersRef.current = sponsoredStops.map((stop) => {
+      const buttonId = `add-sponsored-stop-${stop.id}`;
+      const popup = new maplibregl.Popup({ offset: 20 }).setHTML([
+        `<div style="display:flex;flex-direction:column;gap:8px;min-width:180px;">`,
+        `<p style="font-weight:600;margin:0;">${escapeHtml(stop.name)}</p>`,
+        stop.description ? `<p style="margin:0;font-size:12px;color:#475569;">${escapeHtml(stop.description)}</p>` : "",
+        `<button id="${buttonId}" type="button" style="border:none;border-radius:6px;background:#059669;color:#fff;padding:8px 12px;font-size:12px;font-weight:600;cursor:pointer;">Add to route</button>`,
+        `</div>`,
+      ].join(""));
+
+      popup.on("open", () => {
+        document.getElementById(buttonId)?.addEventListener("click", () => {
+          onSponsoredStopSelect?.(stop);
+          popup.remove();
+        }, { once: true });
+      });
+
+      const element = document.createElement("div");
+      const safeLogo = toSafeHttpUrl(stop.logoUrl);
+      if (safeLogo) {
+        element.style.width = "40px";
+        element.style.height = "40px";
+        element.style.borderRadius = "9999px";
+        element.style.overflow = "hidden";
+        element.style.border = "2px solid #fff";
+        element.style.boxShadow = "0 2px 8px rgba(0,0,0,0.35)";
+
+        const image = document.createElement("img");
+        image.src = safeLogo;
+        image.alt = stop.name;
+        image.style.width = "100%";
+        image.style.height = "100%";
+        image.style.objectFit = "cover";
+        image.style.display = "block";
+        element.appendChild(image);
+      } else {
+        element.style.width = "18px";
+        element.style.height = "18px";
+        element.style.borderRadius = "9999px";
+        element.style.background = "#059669";
+        element.style.border = "2px solid #fff";
+        element.style.boxShadow = "0 2px 6px rgba(0,0,0,0.35)";
+      }
+
+      return new maplibregl.Marker({ element, anchor: "center" })
+        .setLngLat([stop.lng, stop.lat])
+        .setPopup(popup)
+        .addTo(map);
     });
 
     return () => {
-      waypointObjectsRef.current.forEach((marker) => map.geoObjects.remove(marker));
-      waypointObjectsRef.current = [];
+      sponsoredStopMarkersRef.current.forEach((marker) => marker.remove());
+      sponsoredStopMarkersRef.current = [];
     };
-  }, [waypoints, mapReady]);
+  }, [sponsoredStops, onSponsoredStopSelect, mapReady]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -246,17 +478,14 @@ export default function MapContainer({
       return;
     }
 
-    const handleMapSelect = (event: { get(name: string): unknown }) => {
-      const coords = event.get("coords");
-      if (!Array.isArray(coords) || coords.length !== 2) {
+    const handleMapSelect = (event: MapMouseEvent) => {
+      if (event.defaultPrevented) {
         return;
       }
-
-      const selection = toGeoJsonCoordinates(coords as number[]);
+      const selection: Position = [event.lngLat.lng, event.lngLat.lat];
       if (isDuplicateSelection(lastMapSelectionRef.current, selection)) {
         return;
       }
-
       lastMapSelectionRef.current = {
         position: selection,
         timestamp: Date.now(),
@@ -264,12 +493,10 @@ export default function MapContainer({
       onMapPointSelect(selection);
     };
 
-    map.events.add("click", handleMapSelect);
-    map.events.add("tap", handleMapSelect);
+    map.on("click", handleMapSelect);
 
     return () => {
-      map.events.remove("click", handleMapSelect);
-      map.events.remove("tap", handleMapSelect);
+      map.off("click", handleMapSelect);
     };
   }, [mapReady, onMapPointSelect]);
 
@@ -280,148 +507,79 @@ export default function MapContainer({
   );
 }
 
-function createRouteLine(
-  route: RouteFeature,
-  handlers: {
-    lastSelectionRef: MutableRefObject<{ position: Position; timestamp: number } | null>;
-    onHover: (coordinates: Position) => void;
-    onLeave: () => void;
-    onSelect: (coordinates: Position) => void;
-  },
-): YandexGeoObject {
-  const ymaps = window.ymaps;
-  if (!ymaps) {
-    throw new Error("Yandex Maps is not loaded");
-  }
+function sanitizeLayerId(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_-]/g, "-");
+}
 
-  const line = new ymaps.Polyline(route.geometry.coordinates.map(toYandexCoordinates), {}, {
-    ...BASE_ROUTE_STYLE,
-    strokeColor: route.properties.color ?? BASE_ROUTE_STYLE.strokeColor,
+function cleanupRoutes(map: MapLibreMap, routeLayers: RouteLayerState[]) {
+  routeLayers.forEach((routeLayer) => {
+    map.off("mouseenter", routeLayer.bodyLayerId, routeLayer.handleMouseEnter);
+    map.off("mousemove", routeLayer.bodyLayerId, routeLayer.handleMouseMove);
+    map.off("mouseleave", routeLayer.bodyLayerId, routeLayer.handleMouseLeave);
+    map.off("click", routeLayer.bodyLayerId, routeLayer.handleClick);
+
+    if (map.getLayer(routeLayer.highlightLayerId)) {
+      map.removeLayer(routeLayer.highlightLayerId);
+    }
+    if (map.getLayer(routeLayer.bodyLayerId)) {
+      map.removeLayer(routeLayer.bodyLayerId);
+    }
+    if (map.getLayer(routeLayer.casingLayerId)) {
+      map.removeLayer(routeLayer.casingLayerId);
+    }
+    if (map.getSource(routeLayer.sourceId)) {
+      map.removeSource(routeLayer.sourceId);
+    }
   });
+}
 
-  const updateSelection = (coords: unknown, callback: (position: Position) => void) => {
-    if (!Array.isArray(coords) || coords.length !== 2) {
+function applyRouteStyles(map: MapLibreMap, routeLayers: RouteLayerState[], activeRouteId: string | null) {
+  routeLayers.forEach((routeLayer) => {
+    if (!map.getLayer(routeLayer.bodyLayerId) || !map.getLayer(routeLayer.casingLayerId)) {
       return;
     }
 
-    const snapped = nearestPointOnRoute(route, toGeoJsonCoordinates(coords as number[]));
-    callback(snapped.coordinates);
-  };
+    const isActive = routeLayer.feature.properties.id === activeRouteId;
+    const baseColor = routeLayer.feature.properties.color ?? BASE_ROUTE_STYLE.strokeColor;
 
-  const isDuplicateSelection = (position: Position) => {
-    if (!handlers.lastSelectionRef.current) {
-      return false;
-    }
+    map.setPaintProperty(routeLayer.bodyLayerId, "line-color", isActive ? ACTIVE_ROUTE_STYLE.strokeColor : baseColor);
+    map.setPaintProperty(routeLayer.bodyLayerId, "line-opacity", isActive ? ACTIVE_ROUTE_STYLE.strokeOpacity : BASE_ROUTE_STYLE.strokeOpacity);
+    map.setPaintProperty(routeLayer.bodyLayerId, "line-width", isActive ? ACTIVE_ROUTE_STYLE.strokeWidth : BASE_ROUTE_STYLE.strokeWidth);
 
-    const selectionAgeMs = Date.now() - handlers.lastSelectionRef.current.timestamp;
-    if (selectionAgeMs >= DUPLICATE_EVENT_WINDOW_MS) {
-      return false;
-    }
-
-    return arePositionsNear(
-      position,
-      handlers.lastSelectionRef.current.position,
-      POSITION_PROXIMITY_EPSILON_DEGREES,
-    );
-  };
-  const handleSelect = (coords: unknown) => {
-    updateSelection(coords, (position) => {
-      if (isDuplicateSelection(position)) {
-        return;
-      }
-
-      handlers.lastSelectionRef.current = {
-        position,
-        timestamp: Date.now(),
-      };
-      handlers.onSelect(position);
-    });
-  };
-
-  line.events.add("mouseenter", (event) => updateSelection(event.get("coords"), handlers.onHover));
-  line.events.add("mousemove", (event) => updateSelection(event.get("coords"), handlers.onHover));
-  line.events.add("mouseleave", () => handlers.onLeave());
-  line.events.add("click", (event) => handleSelect(event.get("coords")));
-  line.events.add("tap", (event) => handleSelect(event.get("coords")));
-
-  return line;
-}
-
-function applyRouteStyles(routeObjects: Array<{ feature: RouteFeature; line: YandexGeoObject }>, activeRouteId: string | null) {
-  routeObjects.forEach(({ feature, line }) => {
-    const isActive = feature.properties.id === activeRouteId;
-    line.options.set("strokeColor", isActive ? ACTIVE_ROUTE_STYLE.strokeColor : feature.properties.color ?? BASE_ROUTE_STYLE.strokeColor);
-    line.options.set("strokeOpacity", isActive ? ACTIVE_ROUTE_STYLE.strokeOpacity : BASE_ROUTE_STYLE.strokeOpacity);
-    line.options.set("strokeWidth", isActive ? ACTIVE_ROUTE_STYLE.strokeWidth : BASE_ROUTE_STYLE.strokeWidth);
+    map.setPaintProperty(routeLayer.casingLayerId, "line-color", isActive ? ACTIVE_ROUTE_STYLE.strokeColor : baseColor);
+    map.setPaintProperty(routeLayer.casingLayerId, "line-width", isActive ? ACTIVE_ROUTE_STYLE.casingWidth : BASE_ROUTE_STYLE.casingWidth);
+    map.setPaintProperty(routeLayer.casingLayerId, "line-opacity", isActive ? 0.35 : BASE_ROUTE_STYLE.casingOpacity);
   });
 }
 
-function updatePointMarker(marker: YandexGeoObject | null, coordinates: Position | null) {
-  if (!marker?.geometry) {
+function createPointMarker(color: string): { marker: Marker; element: HTMLDivElement } {
+  const element = document.createElement("div");
+  element.style.width = "14px";
+  element.style.height = "14px";
+  element.style.borderRadius = "9999px";
+  element.style.background = color;
+  element.style.border = "2px solid #fff";
+  element.style.boxShadow = "0 1px 6px rgba(0,0,0,0.35)";
+  element.style.pointerEvents = "none";
+
+  return {
+    marker: new maplibregl.Marker({ element, anchor: "center" }),
+    element,
+  };
+}
+
+function updatePointMarker(markerState: { marker: Marker; element: HTMLDivElement } | null, coordinates: Position | null) {
+  if (!markerState) {
     return;
   }
 
   if (coordinates) {
-    marker.geometry.setCoordinates(toYandexCoordinates(coordinates));
-    marker.options.set("visible", true);
+    markerState.marker.setLngLat([coordinates[0], coordinates[1]]);
+    markerState.element.style.display = "block";
     return;
   }
 
-  marker.options.set("visible", false);
-}
-
-function createSponsoredStopMarker(stop: SponsoredStopMapItem, buttonId: string): YandexGeoObject {
-  const ymaps = window.ymaps;
-  if (!ymaps) {
-    throw new Error("Yandex Maps is not loaded");
-  }
-
-  const properties = {
-    balloonContentBody: [
-      `<div style="display:flex;flex-direction:column;gap:8px;min-width:180px;">`,
-      `<p style="font-weight:600;margin:0;">${escapeHtml(stop.name)}</p>`,
-      stop.description ? `<p style="margin:0;font-size:12px;color:#475569;">${escapeHtml(stop.description)}</p>` : "",
-      `<button id="${buttonId}" type="button" style="border:none;border-radius:6px;background:#059669;color:#fff;padding:8px 12px;font-size:12px;font-weight:600;cursor:pointer;">Add to route</button>`,
-      `</div>`,
-    ].join(""),
-  };
-
-  if (stop.logoUrl) {
-    return new ymaps.Placemark([stop.lat, stop.lng], properties, {
-      balloonCloseButton: true,
-      iconImageHref: stop.logoUrl,
-      iconImageOffset: [-20, -20],
-      iconImageSize: [40, 40],
-      iconLayout: "default#image",
-    });
-  }
-
-  return new ymaps.Placemark([stop.lat, stop.lng], properties, {
-    balloonCloseButton: true,
-    preset: "islands#greenFoodIcon",
-  });
-}
-
-function createWaypointMarker(
-  waypoint: { lat: number; lng: number; label?: string },
-  index: number,
-): YandexGeoObject {
-  const ymaps = window.ymaps;
-  if (!ymaps) {
-    throw new Error("Yandex Maps is not loaded");
-  }
-
-  return new ymaps.Placemark(
-    [waypoint.lat, waypoint.lng],
-    {
-      iconCaption: waypoint.label ?? `${index + 1}`,
-      hintContent: waypoint.label ?? `Waypoint ${index + 1}`,
-    },
-    {
-      preset: "islands#orangeCircleDotIconWithCaption",
-      iconCaptionMaxWidth: "40",
-    },
-  );
+  markerState.element.style.display = "none";
 }
 
 function escapeHtml(value: string): string {
@@ -431,6 +589,23 @@ function escapeHtml(value: string): string {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
+}
+
+function toSafeHttpUrl(value: string | null | undefined): string | null {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+      return parsed.toString();
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
 }
 
 function arePositionsNear(a: Position, b: Position, epsilon: number): boolean {

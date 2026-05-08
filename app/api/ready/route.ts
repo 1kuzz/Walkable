@@ -29,8 +29,8 @@ export async function GET(req: NextRequest) {
       details: "Checks API key presence for weather",
     };
     checks.mapsApiConfig = {
-      ok: Boolean(process.env.NEXT_PUBLIC_YANDEX_MAPS_API_KEY),
-      details: "Checks API key presence for maps",
+      ok: true,
+      details: "Maps use public tile/routing providers and do not require API keys",
     };
   }
 

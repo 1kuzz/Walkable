@@ -38,7 +38,6 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/walkable
       NEXTAUTH_SECRET: ci-secret-32chars-xxxxxxxxxxxxxxxx
       NEXTAUTH_URL: http://localhost:3000
-      NEXT_PUBLIC_YANDEX_MAPS_API_KEY: test-yandex-map-key
       YANDEX_WEATHER_API_KEY: test-yandex-weather-key
     steps:
       - uses: actions/checkout@v4

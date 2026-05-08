@@ -2,6 +2,33 @@
 
 Discover, build, and share walking routes in parks. Check weather and trail conditions, browse community photos, and track your walking history.
 
+## Our vision
+
+Walkable exists to make outdoor movement simple, social, and motivating.  
+On **https://1kuzz.org**, the goal is to help people:
+
+- find enjoyable walks faster
+- feel confident before they go (route + weather context)
+- turn everyday walking into a habit they want to keep
+
+## Enjoy Walkable on 1kuzz.org (user perspective)
+
+If you are visiting **1kuzz.org**, this is the easiest flow:
+
+1. Open the map and explore available park routes.
+2. Pick a route and review distance, expected duration, and context.
+3. Use interactive route tools to preview and personalize your walk.
+4. Add optional sponsored stop points if you want a break on the way.
+5. Complete your walk and track progress in your profile.
+
+## What you can do
+
+- **Explore routes visually** on satellite-style maps with clear route overlays.
+- **Build your own route** by adding/reordering waypoints in the route builder.
+- **Check weather and trail status** before heading out.
+- **Save and share progress** through your account history and route pages.
+- **Upload and view photos** to make routes more useful for the community.
+
 ## Runtime target and release acceptance
 
 - **Primary deployment target:** Vercel (configured by `vercel.json`)
@@ -22,7 +49,7 @@ A release is considered **ready** when all of these are true:
 | Framework | Next.js 16 (App Router) |
 | Database | PostgreSQL + Prisma ORM |
 | Auth | NextAuth v4 (Google & GitHub OAuth) |
-| Maps | Yandex Maps JS API |
+| Maps | Maplibre GL JS + Esri World Imagery + OSRM (foot) |
 | Photos | Server-side file storage |
 | Weather | Yandex Weather API |
 | Styling | Tailwind CSS v4 + shadcn/ui |
@@ -61,7 +88,6 @@ The only externally required services for basic local work are:
 |---|---|
 | PostgreSQL | All pages (data layer) |
 | Google or GitHub OAuth app | Sign-in flow |
-| Yandex Maps API key | Map pages and rerouting |
 | Yandex Weather API key | Weather widgets |
 
 Photo uploads are stored by the app on the server filesystem under `storage/photos`.
@@ -161,7 +187,6 @@ The repo is configured for zero-config Vercel deployments via `vercel.json`.
    | `google-client-secret` | Google OAuth client secret |
    | `github-client-id` | GitHub OAuth app client ID |
    | `github-client-secret` | GitHub OAuth app client secret |
-   | `yandex-maps-api-key` | Yandex Maps JS API key |
    | `yandex-weather-api-key` | Yandex Weather API key |
 
 3. Add your Vercel domain to the **Authorised redirect URIs** of both OAuth apps:
@@ -203,7 +228,7 @@ This is safe to run repeatedly — Prisma only applies unapplied migrations.
 - `/api/health` — process-level liveness check
 - `/api/ready` — readiness check
   - `?checkDb=1` enables database connectivity check
-  - `?checkExternal=1` validates weather/maps API key presence
+  - `?checkExternal=1` validates external weather/maps integration configuration
 
 The server emits structured JSON logs for key failures:
 
@@ -259,7 +284,7 @@ app/
   routes/builder/          – route builder (protected)
   profile/                 – user profile (protected)
 components/
-  map/                     – MapContainer (Yandex Maps)
+  map/                     – MapContainer (Maplibre GL JS)
   routes/                  – RouteCard, FilterSidebar, …
   weather/                 – WeatherWidget
   ui/                      – shared shadcn components
@@ -305,7 +330,8 @@ After changing either the Google OAuth settings or the `NEXTAUTH_URL` Vercel sec
 
 ### Map not loading
 
-Confirm `NEXT_PUBLIC_YANDEX_MAPS_API_KEY` is set and enabled for the Yandex Maps JS API.
+Map tiles and pedestrian routing use public providers (Esri World Imagery + OSRM), so no map API key is required.
+For production traffic, set `NEXT_PUBLIC_OSRM_BASE_URL` to a dedicated/self-hosted routing endpoint.
 
 ### Photo upload fails
 
