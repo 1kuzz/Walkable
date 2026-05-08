@@ -47,6 +47,7 @@ const DEFAULT_PUBLISHED_ELEVATION_GAIN = 0;
 const DEFAULT_PUBLISHED_DESCRIPTION_SUFFIX = "community trail created in Walkable route builder.";
 const MAX_WAYPOINTS = 50;
 const WAYPOINT_DUPLICATE_PRECISION = 6;
+const PARK_ID_PREFIX_LENGTH = 6;
 
 const emptyDraftRouteState: DraftRouteState = {
   feature: null,
@@ -209,11 +210,15 @@ export default function RouteBuilderPage() {
     const parkMap = new Map<string, string>();
     baseRoutes.forEach((route) => {
       if (!parkMap.has(route.parkId)) {
-        parkMap.set(route.parkId, route.park?.name?.trim() || `Park ${route.parkId.slice(0, 6)}`);
+        parkMap.set(route.parkId, route.park?.name?.trim() || `Park ${route.parkId.slice(0, PARK_ID_PREFIX_LENGTH)}`);
       }
     });
     return Array.from(parkMap.entries()).map(([id, name]) => ({ id, name }));
   }, [baseRoutes]);
+
+  const moveWaypoint = (fromIndex: number, toIndex: number) => {
+    setWaypoints((current) => swapArrayItems(current, fromIndex, toIndex));
+  };
 
   const publishedRouteUrl = useMemo(() => {
     if (!publishedRouteId || typeof window === "undefined") {
@@ -437,12 +442,7 @@ export default function RouteBuilderPage() {
                       size="sm"
                       disabled={i === 0}
                       onClick={() => {
-                        setWaypoints((current) => {
-                          if (i === 0) return current;
-                          const reordered = [...current];
-                          [reordered[i - 1], reordered[i]] = [reordered[i], reordered[i - 1]];
-                          return reordered;
-                        });
+                        moveWaypoint(i, i - 1);
                       }}
                       aria-label={`Move waypoint ${i + 1} up`}
                     >
@@ -453,12 +453,7 @@ export default function RouteBuilderPage() {
                       size="sm"
                       disabled={i === waypoints.length - 1}
                       onClick={() => {
-                        setWaypoints((current) => {
-                          if (i === current.length - 1) return current;
-                          const reordered = [...current];
-                          [reordered[i + 1], reordered[i]] = [reordered[i], reordered[i + 1]];
-                          return reordered;
-                        });
+                        moveWaypoint(i, i + 1);
                       }}
                       aria-label={`Move waypoint ${i + 1} down`}
                     >
@@ -567,4 +562,14 @@ function hasDuplicateWaypoints(waypoints: Array<{ lat: number; lng: number }>): 
 
 function formatWaypointKey(lat: number, lng: number): string {
   return `${lat.toFixed(WAYPOINT_DUPLICATE_PRECISION)},${lng.toFixed(WAYPOINT_DUPLICATE_PRECISION)}`;
+}
+
+function swapArrayItems<T>(input: T[], fromIndex: number, toIndex: number): T[] {
+  if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= input.length || toIndex >= input.length) {
+    return input;
+  }
+
+  const next = [...input];
+  [next[fromIndex], next[toIndex]] = [next[toIndex], next[fromIndex]];
+  return next;
 }

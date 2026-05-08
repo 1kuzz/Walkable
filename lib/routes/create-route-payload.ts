@@ -8,6 +8,7 @@ const MAX_DESCRIPTION_LENGTH = 2000;
 const MIN_WAYPOINTS = 2;
 const MAX_WAYPOINTS = 50;
 const DUPLICATE_COORDINATE_PRECISION = 6;
+const COORDINATE_PRECISION_MULTIPLIER = 10 ** DUPLICATE_COORDINATE_PRECISION;
 
 interface CreateWaypointInput {
   lat: number;
@@ -239,7 +240,7 @@ function parseBoundedCoordinate(value: unknown, bounds: { min: number; max: numb
   if (numericValue == null) {
     return null;
   }
-  return Number(numericValue.toFixed(DUPLICATE_COORDINATE_PRECISION));
+  return Math.round(numericValue * COORDINATE_PRECISION_MULTIPLIER) / COORDINATE_PRECISION_MULTIPLIER;
 }
 
 function parseBoundedInteger(value: unknown, bounds: { min: number; max: number }): number | null {

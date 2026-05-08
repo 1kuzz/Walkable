@@ -74,11 +74,12 @@ export default function MapContainer({
 
     loadYandexMapsApi()
       .then((ymaps) => {
-        if (cancelled || !containerRef.current || !ymaps) {
-          if (!cancelled && !ymaps) {
-            setMapReady(false);
-            onMapStatusChange?.("error");
-          }
+        if (cancelled || !containerRef.current) {
+          return;
+        }
+        if (!ymaps) {
+          setMapReady(false);
+          onMapStatusChange?.("error");
           return;
         }
 
