@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { logServerEvent, toErrorMessage } from "@/lib/server/logger";
+import { validateCreateRoutePayload } from "@/lib/routes/create-route-payload";
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
@@ -43,9 +44,14 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json();
+    const { data, error } = validateCreateRoutePayload(body);
+    if (!data) {
+      return NextResponse.json({ error: error ?? "Invalid route payload" }, { status: 400 });
+    }
+
     const route = await db.route.create({
       data: {
-        ...body,
+        ...data,
         createdById: session.user.id,
       },
     });

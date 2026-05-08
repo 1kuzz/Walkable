@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Position } from "geojson";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,7 @@ interface ApiRoute {
   id: string;
   parkId: string;
   name: string;
+  park?: { name?: string };
   geometryGeoJson?: string | null;
 }
 
@@ -44,6 +45,8 @@ const DEFAULT_PUBLISHED_DIFFICULTY = "easy";
 const DEFAULT_PUBLISHED_SURFACE_TYPE = "mixed";
 const DEFAULT_PUBLISHED_ELEVATION_GAIN = 0;
 const DEFAULT_PUBLISHED_DESCRIPTION_SUFFIX = "community trail created in Walkable route builder.";
+const MAX_WAYPOINTS = 50;
+const WAYPOINT_DUPLICATE_EPSILON = 0.000001;
 
 const emptyDraftRouteState: DraftRouteState = {
   feature: null,
@@ -71,6 +74,10 @@ export default function RouteBuilderPage() {
   const [publishedRouteId, setPublishedRouteId] = useState<string | null>(null);
   const [copiedShareLink, setCopiedShareLink] = useState(false);
   const [shareError, setShareError] = useState<string | null>(null);
+  const [mapStatus, setMapStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [draftStatus, setDraftStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
+  const [selectedParkId, setSelectedParkId] = useState<string>("");
+  const draftRequestIdRef = useRef(0);
 
   useEffect(() => {
     fetch("/api/routes?sort=popular")
@@ -88,6 +95,8 @@ export default function RouteBuilderPage() {
 
   useEffect(() => {
     if (waypointPositions.length < 2) {
+      setDraftRouteState(emptyDraftRouteState);
+      setDraftStatus("idle");
       return;
     }
 
@@ -100,9 +109,11 @@ export default function RouteBuilderPage() {
     }
 
     let cancelled = false;
+    const requestId = ++draftRequestIdRef.current;
+    setDraftStatus("loading");
     getRoute(points, routeName || DEFAULT_DRAFT_ROUTE_NAME)
       .then((result) => {
-        if (!cancelled) {
+        if (!cancelled && requestId === draftRequestIdRef.current) {
           setDraftRouteState(
             result
               ? {
@@ -120,11 +131,13 @@ export default function RouteBuilderPage() {
                 }
               : emptyDraftRouteState,
           );
+          setDraftStatus(result ? "ready" : "error");
         }
       })
       .catch(() => {
-        if (!cancelled) {
+        if (!cancelled && requestId === draftRequestIdRef.current) {
           setDraftRouteState(emptyDraftRouteState);
+          setDraftStatus("error");
         }
       });
 
@@ -170,7 +183,29 @@ export default function RouteBuilderPage() {
 
     return visibleDraftRoute ? [...existingRoutes, visibleDraftRoute] : existingRoutes;
   }, [baseRoutes, visibleDraftRoute]);
-  const canPublishRoute = waypoints.length >= 2 && Boolean(visibleDraftRoute) && !publishing;
+  const canPublishRoute = waypoints.length >= 2
+    && Boolean(visibleDraftRoute)
+    && draftStatus === "ready"
+    && !publishing;
+  const waypointMarkers = useMemo(
+    () =>
+      waypoints.map((waypoint, index) => ({
+        id: waypoint.id,
+        lat: waypoint.lat,
+        lng: waypoint.lng,
+        label: `${index + 1}`,
+      })),
+    [waypoints],
+  );
+  const parkOptions = useMemo(() => {
+    const parkMap = new Map<string, string>();
+    baseRoutes.forEach((route) => {
+      if (!parkMap.has(route.parkId)) {
+        parkMap.set(route.parkId, route.park?.name?.trim() || `Park ${route.parkId.slice(0, 6)}`);
+      }
+    });
+    return Array.from(parkMap.entries()).map(([id, name]) => ({ id, name }));
+  }, [baseRoutes]);
 
   const publishedRouteUrl = useMemo(() => {
     if (!publishedRouteId || typeof window === "undefined") {
@@ -189,6 +224,22 @@ export default function RouteBuilderPage() {
       setPublishError("Add at least two points before publishing.");
       return;
     }
+    if (waypoints.length > MAX_WAYPOINTS) {
+      setPublishError(`Waypoints are limited to ${MAX_WAYPOINTS}.`);
+      return;
+    }
+    if (hasDuplicateWaypoints(waypoints)) {
+      setPublishError("Waypoint list contains duplicate points. Remove duplicates before publishing.");
+      return;
+    }
+    if (visibleDraftRoute.geometry.type !== "LineString" || visibleDraftRoute.geometry.coordinates.length < 2) {
+      setPublishError("Draft route geometry is invalid. Adjust waypoints and try again.");
+      return;
+    }
+    if (draftStatus === "loading") {
+      setPublishError("Route is still being calculated. Please wait.");
+      return;
+    }
 
     const selectedParks = Array.from(
       new Set(
@@ -197,8 +248,12 @@ export default function RouteBuilderPage() {
           .filter((parkId): parkId is string => Boolean(parkId)),
       ),
     );
-
-    if (selectedParks.length !== 1) {
+    const resolvedParkId = selectedParks.length === 1 ? selectedParks[0] : selectedParkId || null;
+    if (!resolvedParkId) {
+      setPublishError("Choose a park before publishing.");
+      return;
+    }
+    if (selectedParks.length > 1) {
       setPublishError("Select points from routes in the same park before publishing.");
       return;
     }
@@ -210,7 +265,7 @@ export default function RouteBuilderPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          parkId: selectedParks[0],
+          parkId: resolvedParkId,
           name: normalizedRouteName,
           description: `${normalizedRouteName} — ${DEFAULT_PUBLISHED_DESCRIPTION_SUFFIX}`,
           difficulty: DEFAULT_PUBLISHED_DIFFICULTY,
@@ -245,6 +300,24 @@ export default function RouteBuilderPage() {
     } finally {
       setPublishing(false);
     }
+  };
+
+  const addWaypoint = (waypoint: Omit<BuilderWaypoint, "id">) => {
+    setWaypoints((current) => {
+      if (current.length >= MAX_WAYPOINTS) {
+        return current;
+      }
+      if (current.some((item) => areCoordinatesNear(item, waypoint))) {
+        return current;
+      }
+      return [
+        ...current,
+        {
+          ...waypoint,
+          id: crypto.randomUUID(),
+        },
+      ];
+    });
   };
 
   const handleCopyShareLink = async () => {
@@ -288,8 +361,22 @@ export default function RouteBuilderPage() {
             <p>📏 Distance: {visibleDistanceKm > 0 ? `${visibleDistanceKm.toFixed(1)} km` : "calculating…"}</p>
             <p>⏱️ Time: {visibleDurationMin > 0 ? `${visibleDurationMin} min` : "—"}</p>
             <p>🔥 Calories: {visibleDurationMin > 0 ? `${estimateCalories({ estimatedMin: visibleDurationMin, lengthKm: visibleDistanceKm })} kcal` : "—"}</p>
+            <p>🧭 Draft: {draftStatus === "idle" ? "add 2+ points" : draftStatus}</p>
           </CardContent>
         </Card>
+        <div>
+          <label className="text-sm font-medium mb-1 block">Park for publication</label>
+          <select
+            value={selectedParkId}
+            onChange={(event) => setSelectedParkId(event.target.value)}
+            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+          >
+            <option value="">Auto-detect from selected route points</option>
+            {parkOptions.map((park) => (
+              <option key={park.id} value={park.id}>{park.name}</option>
+            ))}
+          </select>
+        </div>
 
         <RouteOptions
           includeFoodStops={includeFoodStops}
@@ -308,18 +395,74 @@ export default function RouteBuilderPage() {
 
         {waypoints.length > 0 && (
           <div>
-            <h3 className="text-sm font-medium mb-2">Waypoints</h3>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <h3 className="text-sm font-medium">Waypoints</h3>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setWaypoints([])}
+              >
+                Clear all
+              </Button>
+            </div>
             <div className="space-y-1">
               {waypoints.map((wp, i) => (
                 <div key={wp.id} className="flex items-center justify-between text-xs p-2 rounded border">
-                  <span className="truncate mr-2">{wp.name || `Point ${i + 1}`}</span>
-                  <button
-                    onClick={() => setWaypoints((current) => current.filter((_, index) => index !== i))}
-                    className="shrink-0 flex items-center justify-center min-w-[36px] min-h-[36px] rounded text-destructive hover:bg-destructive/10 active:scale-95 transition-all"
-                    aria-label={`Remove waypoint ${i + 1}`}
-                  >
-                    ×
-                  </button>
+                  <div className="mr-2 flex-1 space-y-1">
+                    <p className="text-[11px] text-muted-foreground">#{i + 1}</p>
+                    <Input
+                      value={wp.name}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setWaypoints((current) => current.map((item, index) => (index === i ? { ...item, name: value } : item)));
+                      }}
+                      className="h-8 text-xs"
+                      placeholder={`Point ${i + 1}`}
+                    />
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={i === 0}
+                      onClick={() => {
+                        setWaypoints((current) => {
+                          if (i === 0) return current;
+                          const reordered = [...current];
+                          [reordered[i - 1], reordered[i]] = [reordered[i], reordered[i - 1]];
+                          return reordered;
+                        });
+                      }}
+                      aria-label={`Move waypoint ${i + 1} up`}
+                    >
+                      ↑
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      disabled={i === waypoints.length - 1}
+                      onClick={() => {
+                        setWaypoints((current) => {
+                          if (i === current.length - 1) return current;
+                          const reordered = [...current];
+                          [reordered[i + 1], reordered[i]] = [reordered[i], reordered[i + 1]];
+                          return reordered;
+                        });
+                      }}
+                      aria-label={`Move waypoint ${i + 1} down`}
+                    >
+                      ↓
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setWaypoints((current) => current.filter((_, index) => index !== i))}
+                      className="text-destructive hover:text-destructive"
+                      aria-label={`Remove waypoint ${i + 1}`}
+                    >
+                      ×
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -357,29 +500,64 @@ export default function RouteBuilderPage() {
         {shareError && <p className="text-sm text-destructive">{shareError}</p>}
       </div>
 
-      <div className="flex-1 relative">
-        <MapContainer
-          className="w-full h-full"
-          routes={routeFeatures}
-          sponsoredStops={effectiveSponsoredStops}
-          onSponsoredStopSelect={(stop) => setSelectedSponsoredStopId(stop.id)}
-          onRoutePointSelect={({ routeId, routeName: selectedRouteName, coordinates }) => {
-            setWaypoints((current) => ([
-              ...current,
-              {
-                id: crypto.randomUUID(),
+        <div className="flex-1 relative">
+        {mapStatus === "loading" && (
+          <div className="absolute left-4 right-4 top-4 z-20 rounded-lg border bg-background/95 p-3 text-sm text-muted-foreground shadow">
+            Loading map…
+          </div>
+        )}
+        {mapStatus === "error" && (
+          <div className="absolute left-4 right-4 top-4 z-20 rounded-lg border border-destructive/40 bg-background/95 p-3 text-sm text-destructive shadow">
+            Map is unavailable. Verify your Yandex Maps API key and network connection.
+          </div>
+        )}
+          <MapContainer
+            className="w-full h-full"
+            routes={routeFeatures}
+            sponsoredStops={effectiveSponsoredStops}
+            waypoints={waypointMarkers}
+            onMapStatusChange={setMapStatus}
+            onMapPointSelect={(coordinates) => {
+              addWaypoint({
                 lat: coordinates[1],
                 lng: coordinates[0],
-                name: `${selectedRouteName} · Point ${current.length + 1}`,
+                name: `Point ${waypoints.length + 1}`,
+              });
+            }}
+            onSponsoredStopSelect={(stop) => setSelectedSponsoredStopId(stop.id)}
+            onRoutePointSelect={({ routeId, routeName: selectedRouteName, coordinates }) => {
+              addWaypoint({
+                lat: coordinates[1],
+                lng: coordinates[0],
+                name: `${selectedRouteName} · Point ${waypoints.length + 1}`,
                 routeId,
-              },
-            ]));
-          }}
-        />
+              });
+            }}
+          />
         <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-background/90 backdrop-blur rounded-lg px-4 py-2 text-sm text-muted-foreground shadow">
-          Tap or click a route to snap in your next waypoint.
+          Tap/click a route to snap a waypoint, or tap/click anywhere on the map to place one manually.
         </div>
       </div>
     </div>
   );
+}
+
+function areCoordinatesNear(
+  a: { lat: number; lng: number },
+  b: { lat: number; lng: number },
+): boolean {
+  return Math.abs(a.lat - b.lat) < WAYPOINT_DUPLICATE_EPSILON
+    && Math.abs(a.lng - b.lng) < WAYPOINT_DUPLICATE_EPSILON;
+}
+
+function hasDuplicateWaypoints(waypoints: Array<{ lat: number; lng: number }>): boolean {
+  const seen = new Set<string>();
+  for (const waypoint of waypoints) {
+    const key = `${waypoint.lat.toFixed(6)},${waypoint.lng.toFixed(6)}`;
+    if (seen.has(key)) {
+      return true;
+    }
+    seen.add(key);
+  }
+  return false;
 }

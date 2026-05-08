@@ -18,7 +18,7 @@ export default async function RoutePage({ params }: { params: Promise<{ id: stri
     where: { id },
     include: {
       park: true,
-      waypoints: true,
+      waypoints: { orderBy: { createdAt: "asc" } },
       sponsoredStops: { include: { meal: true }, orderBy: { stopOrder: "asc" } },
       reviews: { include: { user: { select: { name: true, image: true } } }, orderBy: { createdAt: "desc" } },
       photos: { include: { user: { select: { name: true } } } },
@@ -100,6 +100,24 @@ export default async function RoutePage({ params }: { params: Promise<{ id: stri
               <div className="rounded-xl border bg-card p-4">
                 <h2 className="text-lg font-semibold mb-2">About this route</h2>
                 <p className="text-sm text-muted-foreground">{route.description}</p>
+              </div>
+            )}
+
+            {route.waypoints.length > 0 && (
+              <div className="rounded-xl border bg-card p-4">
+                <h2 className="text-lg font-semibold mb-3">Waypoints ({route.waypoints.length})</h2>
+                <ol className="space-y-2 text-sm">
+                  {route.waypoints.map((waypoint, index) => (
+                    <li key={waypoint.id} className="rounded-lg border p-3">
+                      <p className="font-medium">
+                        {index + 1}. {waypoint.name?.trim() || `Point ${index + 1}`}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {waypoint.lat.toFixed(5)}, {waypoint.lng.toFixed(5)}
+                      </p>
+                    </li>
+                  ))}
+                </ol>
               </div>
             )}
 

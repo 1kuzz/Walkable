@@ -24,6 +24,10 @@ export interface YandexGeoObject {
 }
 
 export interface YandexMap {
+  events: {
+    add(name: string, handler: YandexEventHandler): void;
+    remove(name: string, handler: YandexEventHandler): void;
+  };
   controls: {
     add(name: string, options?: Record<string, unknown>): void;
   };
