@@ -40,10 +40,19 @@ export async function POST(req: NextRequest) {
       ) {
         await db.achievement
           .create({ data: { userId: session.user.id, type: "photographer" } })
-          .catch(() => {});
+          .catch((err) => {
+            logServerEvent("error", "photos.achievement_grant_failed", {
+              userId: session.user.id,
+              error: toErrorMessage(err),
+            });
+          });
       }
-    } catch {
+    } catch (err) {
       // Stats update is best-effort; photo upload already succeeded.
+      logServerEvent("error", "photos.stats_update_failed", {
+        userId: session.user.id,
+        error: toErrorMessage(err),
+      });
     }
 
     return NextResponse.json(photo, { status: 201 });
