@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type MutableRefObject } from "react";
 import type { Position } from "geojson";
 import { nearestPointOnRoute, type RouteFeature, type SponsoredStopMapItem } from "@/lib/geo";
 import { cn } from "@/lib/utils";
@@ -55,6 +55,7 @@ export default function MapContainer({
   const routeObjectsRef = useRef<Array<{ feature: RouteFeature; line: YandexGeoObject }>>([]);
   const sponsoredStopObjectsRef = useRef<YandexGeoObject[]>([]);
   const selectedRouteIdRef = useRef<string | null>(null);
+  const lastRouteSelectionRef = useRef<{ position: Position; timestamp: number } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -134,10 +135,11 @@ export default function MapContainer({
 
     routeObjectsRef.current.forEach(({ line }) => map.geoObjects.remove(line));
     routeObjectsRef.current = routes.map((route) => {
-      const line = createRouteLine(route, {
-        onHover: (coordinates) => {
-          updatePointMarker(hoverPointRef.current, coordinates);
-          applyRouteStyles(routeObjectsRef.current, selectedRouteIdRef.current ?? route.properties.id);
+        const line = createRouteLine(route, {
+          lastSelectionRef: lastRouteSelectionRef,
+          onHover: (coordinates) => {
+            updatePointMarker(hoverPointRef.current, coordinates);
+            applyRouteStyles(routeObjectsRef.current, selectedRouteIdRef.current ?? route.properties.id);
           if (containerRef.current) {
             containerRef.current.style.cursor = "pointer";
           }
@@ -214,6 +216,7 @@ export default function MapContainer({
 function createRouteLine(
   route: RouteFeature,
   handlers: {
+    lastSelectionRef: MutableRefObject<{ position: Position; timestamp: number } | null>;
     onHover: (coordinates: Position) => void;
     onLeave: () => void;
     onSelect: (coordinates: Position) => void;
@@ -238,16 +241,16 @@ function createRouteLine(
     callback(snapped.coordinates);
   };
 
-  let lastSelection: { position: Position; timestamp: number } | null = null;
   const isDuplicateSelection = (position: Position) => {
-    if (!lastSelection) {
+    if (!handlers.lastSelectionRef.current) {
       return false;
     }
 
     const [lng, lat] = position;
-    const [lastLng, lastLat] = lastSelection.position;
-    const isSamePoint = Math.abs(lng - lastLng) < DUPLICATE_SELECTION_EPSILON && Math.abs(lat - lastLat) < DUPLICATE_SELECTION_EPSILON;
-    return isSamePoint && Date.now() - lastSelection.timestamp < DUPLICATE_SELECTION_WINDOW_MS;
+    const [lastLng, lastLat] = handlers.lastSelectionRef.current.position;
+    const isSameLocation = Math.abs(lng - lastLng) < DUPLICATE_SELECTION_EPSILON
+      && Math.abs(lat - lastLat) < DUPLICATE_SELECTION_EPSILON;
+    return isSameLocation && Date.now() - handlers.lastSelectionRef.current.timestamp < DUPLICATE_SELECTION_WINDOW_MS;
   };
   const handleSelect = (coords: unknown) => {
     updateSelection(coords, (position) => {
@@ -255,7 +258,7 @@ function createRouteLine(
         return;
       }
 
-      lastSelection = {
+      handlers.lastSelectionRef.current = {
         position,
         timestamp: Date.now(),
       };
