@@ -31,7 +31,7 @@ const ACTIVE_ROUTE_STYLE = {
 };
 const HOVER_POINT_COLOR = "#facc15";
 const SELECTED_POINT_COLOR = "#f97316";
-const TAP_CLICK_DUPLICATE_WINDOW_MS = 400;
+const DUPLICATE_EVENT_WINDOW_MS = 400;
 const POSITION_PROXIMITY_EPSILON_DEGREES = 0.000001;
 
 export default function MapContainer({
@@ -246,12 +246,16 @@ function createRouteLine(
       return false;
     }
 
-    const isSameLocation = arePositionsNear(
+    const selectionAgeMs = Date.now() - handlers.lastSelectionRef.current.timestamp;
+    if (selectionAgeMs >= DUPLICATE_EVENT_WINDOW_MS) {
+      return false;
+    }
+
+    return arePositionsNear(
       position,
       handlers.lastSelectionRef.current.position,
       POSITION_PROXIMITY_EPSILON_DEGREES,
     );
-    return isSameLocation && Date.now() - handlers.lastSelectionRef.current.timestamp < TAP_CLICK_DUPLICATE_WINDOW_MS;
   };
   const handleSelect = (coords: unknown) => {
     updateSelection(coords, (position) => {
