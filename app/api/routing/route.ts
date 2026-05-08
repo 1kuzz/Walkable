@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getRoute } from "@/lib/routing";
 import type { GetRouteOptions } from "@/lib/routing";
+import { logServerEvent, toErrorMessage } from "@/lib/server/logger";
 
 function isPosition(value: unknown): value is [number, number] {
   return Array.isArray(value)
@@ -78,7 +79,10 @@ export async function POST(req: NextRequest) {
 
     const result = await getRoute(waypoints, name, preference, parseRouteOptions(payload.options));
     return NextResponse.json(result);
-  } catch {
+  } catch (error) {
+    logServerEvent("error", "routing.calculate_failed", {
+      error: toErrorMessage(error),
+    });
     return NextResponse.json({ error: "Failed to calculate route" }, { status: 500 });
   }
 }

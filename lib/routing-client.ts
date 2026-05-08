@@ -29,7 +29,8 @@ export async function getRouteFromApi(
   });
 
   if (!response.ok) {
-    throw new Error("Failed to fetch directions");
+    const details = await response.text().catch(() => "");
+    throw new Error(`Failed to fetch directions (${response.status})${details ? `: ${details}` : ""}`);
   }
 
   return response.json() as Promise<RoutedPath | null>;

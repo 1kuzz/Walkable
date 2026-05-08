@@ -74,6 +74,7 @@ const ROUTE_CACHE_MAX_ENTRIES = 50;
 const MIN_ROUTE_DURATION_MINUTES = 1;
 const WALKING_SPEED_KMH = 5;
 const WALKING_OSRM_PROFILES = new Set(["foot", "walking", "pedestrian", "hiking"]);
+const DEFAULT_OSRM_BASE_URL = "https://router.project-osrm.org";
 const routeCache = new Map<string, { value: CachedRoutedPath | null; expiresAt: number }>();
 const inFlightRouteRequests = new Map<string, Promise<CachedRoutedPath | null>>();
 
@@ -127,7 +128,7 @@ export async function getRoute(
     return null;
   }
 
-  const osrmBaseUrl = (process.env.NEXT_PUBLIC_OSRM_BASE_URL ?? "https://router.project-osrm.org").replace(/\/+$/, "");
+  const osrmBaseUrl = resolveOsrmBaseUrl();
   const osrmProfile = resolveWalkingOsrmProfile();
   const coordinates = waypoints
     .map(([lng, lat]) => `${lng},${lat}`)
@@ -768,4 +769,23 @@ function resolveWalkingOsrmProfile(): string {
     return "foot";
   }
   return WALKING_OSRM_PROFILES.has(configuredProfile) ? configuredProfile : "foot";
+}
+
+function resolveOsrmBaseUrl(): string {
+  const configuredBaseUrl = process.env.NEXT_PUBLIC_OSRM_BASE_URL?.trim();
+  if (!configuredBaseUrl) {
+    return DEFAULT_OSRM_BASE_URL;
+  }
+
+  try {
+    const parsed = new URL(configuredBaseUrl);
+    if ((parsed.protocol !== "https:" && parsed.protocol !== "http:") || parsed.username || parsed.password) {
+      return DEFAULT_OSRM_BASE_URL;
+    }
+    parsed.hash = "";
+    parsed.search = "";
+    return parsed.toString().replace(/\/+$/, "");
+  } catch {
+    return DEFAULT_OSRM_BASE_URL;
+  }
 }
