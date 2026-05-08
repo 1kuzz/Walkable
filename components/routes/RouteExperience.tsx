@@ -8,7 +8,7 @@ import CompletionCard from "@/components/routes/CompletionCard";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getRouteEndpoints, type RouteFeature, type SponsoredStopMapItem } from "@/lib/geo";
-import { getRoute } from "@/lib/routing";
+import { getRouteFromApi } from "@/lib/routing-client";
 
 interface RouteExperienceProps {
   routeId: string;
@@ -108,7 +108,7 @@ export default function RouteExperience({
     }
 
     try {
-      const rerouted = await getRoute([routeWaypoints[0], [stop.lng, stop.lat], routeWaypoints[1]], `${routeName} via ${stop.name}`);
+      const rerouted = await getRouteFromApi([routeWaypoints[0], [stop.lng, stop.lat], routeWaypoints[1]], `${routeName} via ${stop.name}`);
       setReroutedFeature(rerouted?.feature ?? null);
     } catch {
       setReroutedFeature(null);
