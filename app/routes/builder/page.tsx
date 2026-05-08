@@ -22,6 +22,11 @@ import {
   type RoutePreference,
   type RoutingDiagnostics,
 } from "@/lib/routing";
+import {
+  WALKABLE_FOOTPATH_COLOR,
+  WALKABLE_ROAD_CASING_COLOR,
+  WALKABLE_ROAD_RIVER_COLOR,
+} from "@/lib/maplibre";
 
 const MapContainer = dynamic(() => import("@/components/map/MapContainer"), {
   ssr: false,
@@ -216,6 +221,8 @@ export default function RouteBuilderPage() {
                       id: "draft-route",
                       color: "#f97316",
                       source: "draft",
+                      routingPreference: result.routing.preference,
+                      routingQuality: result.routing.quality,
                     },
                   },
                   distanceKm: result.distanceKm,
@@ -502,6 +509,8 @@ export default function RouteBuilderPage() {
               id: "hover-preview",
               color: "#22c55e",
               source: "hover-preview",
+              routingPreference: result.routing.preference,
+              routingQuality: result.routing.quality,
             },
           });
         })
@@ -548,6 +557,9 @@ export default function RouteBuilderPage() {
               <option key={pref.value} value={pref.value}>{pref.label}</option>
             ))}
           </select>
+          <p className="mt-1 text-xs text-muted-foreground">
+            “Walkable streets only” uses specialized routing and can automatically fall back to park-aware routing in areas with limited walkable infrastructure data.
+          </p>
         </div>
         <label className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
           <input
@@ -609,6 +621,17 @@ export default function RouteBuilderPage() {
             <p className="flex items-center gap-2">
               <span className="inline-block h-0.5 w-6 rounded opacity-60" style={{ background: "#60a5fa" }} />
               Community route reference
+            </p>
+            <p className="flex items-center gap-2">
+              <span
+                className="inline-block h-0.5 w-6 rounded"
+                style={{ background: WALKABLE_ROAD_RIVER_COLOR, boxShadow: `0 0 0 1px ${WALKABLE_ROAD_CASING_COLOR}` }}
+              />
+              Blue rivers = car roads
+            </p>
+            <p className="flex items-center gap-2">
+              <span className="inline-block h-0.5 w-6 border-t-2 border-dashed" style={{ borderColor: WALKABLE_FOOTPATH_COLOR }} />
+              Cream dashed = walkable paths
             </p>
           </CardContent>
         </Card>
@@ -763,6 +786,7 @@ export default function RouteBuilderPage() {
             waypoints={waypointMarkers}
             previewRoute={waypoints.length > 0 ? hoverPreviewRoute : null}
             routeVisualMode="builder"
+            styleModeOverride={routePreference === "walkable" ? "walkable" : undefined}
             enableRouteSnapping={snapToRoutes}
             onMapStatusChange={setMapStatus}
             onPathwayDiagnosticsChange={setPathwayDiagnostics}

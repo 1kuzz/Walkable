@@ -332,6 +332,7 @@ After changing either the Google OAuth settings or the `NEXTAUTH_URL` Vercel sec
 
 Map tiles and pedestrian routing use public providers (Esri World Imagery + OSRM), so no map API key is required.
 For production traffic, set `NEXT_PUBLIC_OSRM_BASE_URL` to a dedicated/self-hosted routing endpoint.
+Strict "walkable streets only" routing quality depends on `NEXT_PUBLIC_ORS_API_KEY`; without it, routing automatically falls back to park-aware/standard walking behavior.
 
 ### Photo upload fails
 

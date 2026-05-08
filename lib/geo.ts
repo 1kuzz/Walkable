@@ -6,6 +6,8 @@ export interface RouteFeatureProperties {
   name: string;
   color?: string;
   source?: "route" | "draft" | "reroute" | "hover-preview";
+  routingPreference?: "foot" | "park" | "walkable";
+  routingQuality?: "preferred" | "fallback";
 }
 
 export type RouteFeature = Feature<LineString, RouteFeatureProperties>;

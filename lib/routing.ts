@@ -9,12 +9,13 @@ export interface RoutedPath {
 }
 
 /** How the router should prefer the path. */
-export type RoutePreference = "foot" | "park";
+export type RoutePreference = "foot" | "park" | "walkable";
 
 /** Options shown in the route-builder preference selector. */
 export const ROUTE_PREFERENCES: Array<{ value: RoutePreference; label: string }> = [
-  { value: "foot", label: "Standard walking" },
+  { value: "foot", label: "Standard walking (uses any street)" },
   { value: "park", label: "Park & paths (avoid large roads)" },
+  { value: "walkable", label: "Walkable streets only (no car roads)" },
 ];
 
 interface CachedRoutedPath {
@@ -30,15 +31,16 @@ export interface RoutingDiagnostics {
   preference: RoutePreference;
   quality: "preferred" | "fallback";
   /**
-   * ORS fallback reasons for park preference:
+   * ORS fallback reasons for park/walkable preferences:
    * - ors_missing_key: no ORS API key configured
    * - ors_error: ORS request failed
    * - ors_no_geometry: ORS succeeded but returned unusable geometry
+   * - walkable_fallback_to_park: strict walkable mode fell back to park-aware routing
    */
   fallbackReason?: RoutingFallbackReason;
 }
 
-export type RoutingFallbackReason = "ors_missing_key" | "ors_error" | "ors_no_geometry";
+export type RoutingFallbackReason = "ors_missing_key" | "ors_error" | "ors_no_geometry" | "walkable_fallback_to_park";
 
 export interface RouteWaypointHint {
   routeId?: string | null;
@@ -76,7 +78,24 @@ const routeCache = new Map<string, { value: CachedRoutedPath | null; expiresAt: 
 const inFlightRouteRequests = new Map<string, Promise<CachedRoutedPath | null>>();
 
 export function getRoutingFallbackMessage(diagnostics: RoutingDiagnostics | null): string | null {
-  if (!diagnostics || diagnostics.preference !== "park" || diagnostics.quality !== "fallback") {
+  if (!diagnostics || diagnostics.quality !== "fallback") {
+    return null;
+  }
+
+  if (diagnostics.preference === "walkable") {
+    if (diagnostics.fallbackReason === "ors_missing_key") {
+      return "Walkable-only routing needs the ORS API key; using Park & paths fallback.";
+    }
+    if (diagnostics.fallbackReason === "ors_error") {
+      return "Walkable-only routing provider is temporarily unavailable; using Park & paths fallback.";
+    }
+    if (diagnostics.fallbackReason === "ors_no_geometry") {
+      return "Walkable-only routing returned no usable geometry; using Park & paths fallback.";
+    }
+    return "Walkable-only routing is unavailable here; using Park & paths fallback.";
+  }
+
+  if (diagnostics.preference !== "park") {
     return null;
   }
 
@@ -92,6 +111,9 @@ export function getRoutingFallbackMessage(diagnostics: RoutingDiagnostics | null
       return "Park-aware routing provider is temporarily unavailable; using standard walking network.";
     case "ors_no_geometry":
       return "Park-aware routing returned no usable park-path geometry; using standard walking network.";
+    case "walkable_fallback_to_park":
+      // This value is expected for walkable preference; keep a safe message if it appears here.
+      return "Park-aware routing is unavailable; using standard walking network.";
   }
 }
 
@@ -172,6 +194,15 @@ async function fetchRoute(
       knownRouteGeometries: options?.knownRouteGeometries,
     });
   }
+  if (preference === "walkable") {
+    return fetchSegmentedWalkableRoute({
+      osrmBaseUrl,
+      osrmProfile,
+      waypoints,
+      waypointHints: options?.waypointHints,
+      knownRouteGeometries: options?.knownRouteGeometries,
+    });
+  }
   return fetchRouteFromOsrm(osrmBaseUrl, osrmProfile, coordinates, {
     preference,
     quality: "preferred",
@@ -185,7 +216,7 @@ async function fetchRouteFromOsrm(
   routingContext: {
     preference: RoutePreference;
     quality: "preferred" | "fallback";
-    fallbackReason?: "ors_missing_key" | "ors_error" | "ors_no_geometry";
+    fallbackReason?: RoutingFallbackReason;
   },
 ): Promise<CachedRoutedPath | null> {
 
@@ -232,6 +263,21 @@ async function fetchRouteFromOsrm(
 }
 
 async function fetchRouteFromOrs(apiKey: string, waypoints: Position[], preference: RoutePreference): Promise<CachedRoutedPath | null> {
+  // Park mode adds "roads" to avoid_features to keep routes in greener areas.
+  // Walkable mode keeps base avoid_features for stricter ORS requests here;
+  // caller-level fallback handling is managed in fetchWalkableNetworkLeg.
+  const avoidFeatures = preference === "park"
+    ? ["highways", "tollways", "ferries", "fords", "roads"]
+    : ["highways", "tollways", "ferries", "fords"];
+  // Green + steepness weighting nudges ORS toward easier, greener walking legs.
+  // `green.factor = 1` keeps a neutral-positive bias for greener segments.
+  // `steepness_difficulty = 1` biases against steep gradients for walk comfort.
+  const profileParams = {
+    weightings: {
+      green: { factor: 1 },
+      steepness_difficulty: 1,
+    },
+  };
   // ORS v2 accepts the API key in the Authorization header as a bare token (no "Bearer" prefix).
   const response = await fetch(
     "https://api.openrouteservice.org/v2/directions/foot-walking/geojson",
@@ -245,7 +291,10 @@ async function fetchRouteFromOrs(apiKey: string, waypoints: Position[], preferen
       body: JSON.stringify({
         coordinates: waypoints,
         preference: "recommended",
-        options: { avoid_features: ["highways", "tollways", "ferries", "fords"] },
+        options: {
+          avoid_features: avoidFeatures,
+          profile_params: profileParams,
+        },
       }),
     },
   );
@@ -331,6 +380,103 @@ async function fetchSegmentedParkRoute({
   }
 
   return combineLegResults(legResults, preference);
+}
+
+async function fetchSegmentedWalkableRoute({
+  osrmBaseUrl,
+  osrmProfile,
+  waypoints,
+  waypointHints,
+  knownRouteGeometries,
+}: {
+  osrmBaseUrl: string;
+  osrmProfile: string;
+  waypoints: Position[];
+  waypointHints?: RouteWaypointHint[];
+  knownRouteGeometries?: Record<string, Position[]>;
+}): Promise<CachedRoutedPath | null> {
+  const legResults: CachedRoutedPath[] = [];
+  for (let index = 0; index < waypoints.length - 1; index += 1) {
+    const legStart = waypoints[index];
+    const legEnd = waypoints[index + 1];
+    const startHint = waypointHints?.[index];
+    const endHint = waypointHints?.[index + 1];
+
+    const preferredCommunityLeg = buildCommunityLeg(
+      legStart,
+      legEnd,
+      startHint,
+      endHint,
+      knownRouteGeometries,
+      "walkable",
+    );
+    if (preferredCommunityLeg) {
+      legResults.push(preferredCommunityLeg);
+      continue;
+    }
+
+    const networkLeg = await fetchWalkableNetworkLeg({
+      osrmBaseUrl,
+      osrmProfile,
+      legStart,
+      legEnd,
+    });
+    if (!networkLeg) {
+      return null;
+    }
+    legResults.push(networkLeg);
+  }
+
+  return combineLegResults(legResults, "walkable");
+}
+
+async function fetchWalkableNetworkLeg({
+  osrmBaseUrl,
+  osrmProfile,
+  legStart,
+  legEnd,
+}: {
+  osrmBaseUrl: string;
+  osrmProfile: string;
+  legStart: Position;
+  legEnd: Position;
+}): Promise<CachedRoutedPath | null> {
+  const orsApiKey = process.env.NEXT_PUBLIC_ORS_API_KEY;
+  if (orsApiKey) {
+    try {
+      const orsResult = await fetchRouteFromOrs(orsApiKey, [legStart, legEnd], "walkable");
+      if (orsResult) {
+        return orsResult;
+      }
+    } catch {
+      // Fallback to park preference logic below.
+    }
+  }
+
+  const fallbackLeg = await fetchParkNetworkLeg({
+    osrmBaseUrl,
+    osrmProfile,
+    legStart,
+    legEnd,
+    preference: "park",
+  });
+  if (!fallbackLeg) {
+    return null;
+  }
+
+  return {
+    ...fallbackLeg,
+    routing: {
+      ...fallbackLeg.routing,
+      preference: "walkable",
+      quality: "fallback",
+      fallbackReason: fallbackLeg.routing.fallbackReason ?? (
+        orsApiKey
+          ? "walkable_fallback_to_park"
+          : "ors_missing_key"
+      ),
+    },
+  };
 }
 
 async function fetchParkNetworkLeg({
@@ -561,6 +707,8 @@ function buildRoutedPath(result: CachedRoutedPath | null, name: string, waypoint
         name,
         color: "#f97316",
         source: "reroute",
+        routingPreference: result.routing.preference,
+        routingQuality: result.routing.quality,
       },
     },
     distanceKm: result.distanceKm,

@@ -27,7 +27,8 @@ import {
   VECTOR_ROAD_COLOR,
   VECTOR_PARK_COLOR,
   WALKABLE_FOOTPATH_COLOR,
-  WALKABLE_ROAD_COLOR,
+  WALKABLE_ROAD_CASING_COLOR,
+  WALKABLE_ROAD_RIVER_COLOR,
   WALKABLE_PARK_COLOR,
   WALKWAY_COLOR,
 } from "@/lib/maplibre";
@@ -63,6 +64,7 @@ interface MapContainerProps {
   onPathwayDiagnosticsChange?: (diagnostics: PathwayDiagnostics) => void;
   routeVisualMode?: RouteVisualMode;
   enableRouteSnapping?: boolean;
+  styleModeOverride?: MapStyleMode;
 }
 
 export interface PathwayDiagnostics {
@@ -113,12 +115,14 @@ export default function MapContainer({
   onPathwayDiagnosticsChange,
   routeVisualMode = "default",
   enableRouteSnapping = true,
+  styleModeOverride,
 }: MapContainerProps) {
   const initialViewRef = useRef({ lat, lng, zoom });
   const mapRef = useRef<MapLibreMap | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [mapReady, setMapReady] = useState(false);
   const [styleMode, setStyleMode] = useState<MapStyleMode>("walkable");
+  const effectiveStyleMode: MapStyleMode = styleModeOverride ?? styleMode;
   const [pathwayDiagnostics, setPathwayDiagnostics] = useState<PathwayDiagnostics | null>(null);
   const styleModeRef = useRef<MapStyleMode>("walkable");
   const routeLayersRef = useRef<RouteLayerState[]>([]);
@@ -235,18 +239,18 @@ export default function MapContainer({
     const map = mapRef.current;
     if (!map) {
       // Map hasn't loaded yet; the initial style is set in the init effect.
-      styleModeRef.current = styleMode;
+      styleModeRef.current = effectiveStyleMode;
       return;
     }
-    if (styleModeRef.current === styleMode) {
+    if (styleModeRef.current === effectiveStyleMode) {
       return;
     }
-    styleModeRef.current = styleMode;
+    styleModeRef.current = effectiveStyleMode;
     setMapReady(false);
     map.setStyle(
-      styleMode === "vector"
+      effectiveStyleMode === "vector"
         ? createVectorStyle()
-        : styleMode === "walkable"
+        : effectiveStyleMode === "walkable"
         ? createWalkableStyle()
         : createSatelliteStyle(),
     );
@@ -255,7 +259,7 @@ export default function MapContainer({
         setMapReady(true);
       }
     });
-  }, [styleMode]);
+  }, [effectiveStyleMode]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -264,7 +268,7 @@ export default function MapContainer({
     }
 
     const emitDiagnostics = () => {
-      const diagnostics = collectPathwayDiagnostics(map, styleMode);
+      const diagnostics = collectPathwayDiagnostics(map, effectiveStyleMode);
       setPathwayDiagnostics(diagnostics);
       onPathwayDiagnosticsChange?.(diagnostics);
     };
@@ -282,7 +286,7 @@ export default function MapContainer({
       map.off("styledata", emitDiagnostics);
       map.off("sourcedata", emitDiagnostics);
     };
-  }, [mapReady, onPathwayDiagnosticsChange, styleMode]);
+  }, [mapReady, onPathwayDiagnosticsChange, effectiveStyleMode]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -792,70 +796,74 @@ export default function MapContainer({
         <button
           type="button"
           onClick={() => setStyleMode("vector")}
-          className={cn(
-            "rounded-lg border px-3 py-1.5 text-xs font-medium shadow transition-all",
-            styleMode === "vector"
-              ? "bg-primary text-primary-foreground"
-              : "bg-background/90 backdrop-blur hover:bg-muted active:scale-95",
-          )}
-          aria-label="Switch to vector map view"
-          aria-pressed={styleMode === "vector"}
-        >
-          🗺 Vector
+            className={cn(
+              "rounded-lg border px-3 py-1.5 text-xs font-medium shadow transition-all",
+              effectiveStyleMode === "vector"
+                ? "bg-primary text-primary-foreground"
+                : "bg-background/90 backdrop-blur hover:bg-muted active:scale-95",
+            )}
+            aria-label="Switch to vector map view"
+            aria-pressed={effectiveStyleMode === "vector"}
+          >
+            🗺 Vector
         </button>
         <button
           type="button"
           onClick={() => setStyleMode("walkable")}
-          className={cn(
-            "rounded-lg border px-3 py-1.5 text-xs font-medium shadow transition-all",
-            styleMode === "walkable"
-              ? "bg-primary text-primary-foreground"
-              : "bg-background/90 backdrop-blur hover:bg-muted active:scale-95",
-          )}
-          aria-label="Switch to walkable paths view"
-          aria-pressed={styleMode === "walkable"}
-        >
-          🥾 Walkable
+            className={cn(
+              "rounded-lg border px-3 py-1.5 text-xs font-medium shadow transition-all",
+              effectiveStyleMode === "walkable"
+                ? "bg-primary text-primary-foreground"
+                : "bg-background/90 backdrop-blur hover:bg-muted active:scale-95",
+            )}
+            aria-label="Switch to walkable paths view"
+            aria-pressed={effectiveStyleMode === "walkable"}
+          >
+            🥾 Walkable
         </button>
         <button
           type="button"
           onClick={() => setStyleMode("satellite")}
-          className={cn(
-            "rounded-lg border px-3 py-1.5 text-xs font-medium shadow transition-all",
-            styleMode === "satellite"
-              ? "bg-primary text-primary-foreground"
-              : "bg-background/90 backdrop-blur hover:bg-muted active:scale-95",
-          )}
-          aria-label="Switch to satellite view"
-          aria-pressed={styleMode === "satellite"}
-        >
-          🛰 Satellite
+            className={cn(
+              "rounded-lg border px-3 py-1.5 text-xs font-medium shadow transition-all",
+              effectiveStyleMode === "satellite"
+                ? "bg-primary text-primary-foreground"
+                : "bg-background/90 backdrop-blur hover:bg-muted active:scale-95",
+            )}
+            aria-label="Switch to satellite view"
+            aria-pressed={effectiveStyleMode === "satellite"}
+          >
+            🛰 Satellite
         </button>
       </div>
 
       {/* Legend */}
-      {(styleMode !== "satellite" || walkways.length > 0) && (
+      {(effectiveStyleMode !== "satellite" || walkways.length > 0) && (
         <div className="absolute bottom-8 left-2 z-10 flex items-center gap-3 rounded-full border bg-background/85 px-3 py-1.5 text-xs shadow backdrop-blur">
-          {styleMode !== "satellite" && (
+          {effectiveStyleMode !== "satellite" && (
             <>
               <span className="flex items-center gap-1">
                 <span
                   className="inline-block h-0.5 w-5 border-t-2 border-dashed"
-                  style={{ borderColor: styleMode === "vector" ? VECTOR_FOOTPATH_COLOR : WALKABLE_FOOTPATH_COLOR }}
+                  style={{ borderColor: effectiveStyleMode === "vector" ? VECTOR_FOOTPATH_COLOR : WALKABLE_FOOTPATH_COLOR }}
                 />
                 Footpath
               </span>
               <span className="flex items-center gap-1">
                 <span
                   className="inline-block h-0.5 w-5"
-                  style={{ background: styleMode === "vector" ? VECTOR_ROAD_COLOR : WALKABLE_ROAD_COLOR, opacity: 0.8 }}
+                  style={{
+                    background: effectiveStyleMode === "vector" ? VECTOR_ROAD_COLOR : WALKABLE_ROAD_RIVER_COLOR,
+                    boxShadow: effectiveStyleMode === "vector" ? undefined : `0 0 0 1px ${WALKABLE_ROAD_CASING_COLOR}`,
+                    opacity: 0.95,
+                  }}
                 />
-                Road
+                {effectiveStyleMode === "vector" ? "Road" : "Car-road river"}
               </span>
               <span className="flex items-center gap-1">
                 <span
                   className="inline-block h-2 w-5 rounded opacity-70"
-                  style={{ background: styleMode === "vector" ? VECTOR_PARK_COLOR : WALKABLE_PARK_COLOR }}
+                  style={{ background: effectiveStyleMode === "vector" ? VECTOR_PARK_COLOR : WALKABLE_PARK_COLOR }}
                 />
                 Park
               </span>
