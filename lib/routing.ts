@@ -44,6 +44,7 @@ export async function getRoute(waypoints: Position[], name = "Updated route"): P
 
   const cached = routeCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
+    touchRouteCacheEntry(cacheKey, cached);
     return buildRoutedPath(cached.value, name, waypoints.length);
   }
 
@@ -58,7 +59,7 @@ export async function getRoute(waypoints: Position[], name = "Updated route"): P
 
   try {
     const result = await request;
-    routeCache.set(cacheKey, {
+    touchRouteCacheEntry(cacheKey, {
       value: result,
       expiresAt: Date.now() + ROUTE_CACHE_TTL_MS,
     });
@@ -152,6 +153,11 @@ function trimRouteCache() {
     }
     routeCache.delete(oldestKey);
   }
+}
+
+function touchRouteCacheEntry(key: string, entry: { value: CachedRoutedPath | null; expiresAt: number }) {
+  routeCache.delete(key);
+  routeCache.set(key, entry);
 }
 
 function normalizeCoordinates(value: unknown): Position[] {

@@ -24,7 +24,7 @@ function isDesktop() {
 
 function subscribeToDesktopMediaQuery(onStoreChange: () => void) {
   if (typeof window === "undefined") {
-    return () => undefined;
+    return () => {};
   }
 
   const mediaQuery = window.matchMedia(MD_BREAKPOINT);

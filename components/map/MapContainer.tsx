@@ -108,10 +108,16 @@ export default function MapContainer({
     });
     let resizeFrameId: number | null = null;
     const resizeObserver = new ResizeObserver(() => {
+      if (cancelled) {
+        return;
+      }
       if (resizeFrameId !== null) {
         cancelAnimationFrame(resizeFrameId);
       }
       resizeFrameId = requestAnimationFrame(() => {
+        if (cancelled) {
+          return;
+        }
         resizeFrameId = null;
         map.resize();
       });
