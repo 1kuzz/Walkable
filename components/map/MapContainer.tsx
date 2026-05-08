@@ -10,7 +10,7 @@ import maplibregl, {
   type Marker,
 } from "maplibre-gl";
 import { nearestPointOnRoute, type RouteFeature, type SponsoredStopMapItem } from "@/lib/geo";
-import { createSatelliteStyle, type Map as MapLibreMap } from "@/lib/maplibre";
+import { createSatelliteStyle, createWalkableStyle, type Map as MapLibreMap, type MapStyleMode } from "@/lib/maplibre";
 import { cn } from "@/lib/utils";
 
 interface MapContainerProps {
@@ -46,6 +46,9 @@ const ACTIVE_ROUTE_STYLE = {
 };
 const HOVER_POINT_COLOR = "#facc15";
 const SELECTED_POINT_COLOR = "#f97316";
+const WAYPOINT_START_COLOR = "#22c55e";
+const WAYPOINT_END_COLOR = "#ef4444";
+const WAYPOINT_MIDDLE_COLOR = "#f97316";
 const FLY_TO_DURATION_MS = 400;
 const FIT_BOUNDS_DURATION_MS = 600;
 const DUPLICATE_EVENT_WINDOW_MS = 400;
@@ -81,6 +84,8 @@ export default function MapContainer({
   const mapRef = useRef<MapLibreMap | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [mapReady, setMapReady] = useState(false);
+  const [styleMode, setStyleMode] = useState<MapStyleMode>("walkable");
+  const styleModeRef = useRef<MapStyleMode>("walkable");
   const routeLayersRef = useRef<RouteLayerState[]>([]);
   const waypointMarkersRef = useRef<Map<string, { marker: Marker; label: HTMLSpanElement }>>(new Map());
   const sponsoredStopMarkersRef = useRef<Marker[]>([]);
@@ -102,7 +107,7 @@ export default function MapContainer({
     const waypointMarkers = waypointMarkersRef.current;
     const map = new maplibregl.Map({
       container: containerElement,
-      style: createSatelliteStyle(),
+      style: createWalkableStyle(),
       center: [initialView.lng, initialView.lat],
       zoom: initialView.zoom,
     });
@@ -187,6 +192,29 @@ export default function MapContainer({
       mapRef.current = null;
     };
   }, [onMapLoad, onMapStatusChange]);
+
+  // Style-toggle effect: runs when styleMode changes after initial mount.
+  // Sets mapReady false → switches style → re-sets mapReady true so all
+  // route/waypoint effects naturally re-run on the fresh style.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) {
+      // Map hasn't loaded yet; the initial style is set in the init effect.
+      styleModeRef.current = styleMode;
+      return;
+    }
+    if (styleModeRef.current === styleMode) {
+      return;
+    }
+    styleModeRef.current = styleMode;
+    setMapReady(false);
+    map.setStyle(styleMode === "walkable" ? createWalkableStyle() : createSatelliteStyle());
+    map.once("styledata", () => {
+      if (mapRef.current) {
+        setMapReady(true);
+      }
+    });
+  }, [styleMode]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -367,12 +395,17 @@ export default function MapContainer({
     }
 
     waypoints.forEach((waypoint, index) => {
+      const isFirst = index === 0;
+      const isLast = index === waypoints.length - 1;
+      const markerBg = isFirst ? WAYPOINT_START_COLOR : isLast && waypoints.length > 1 ? WAYPOINT_END_COLOR : WAYPOINT_MIDDLE_COLOR;
+
       const existing = existingMarkers.get(waypoint.id);
       const label = waypoint.label ?? `${index + 1}`;
       if (existing) {
         existing.marker.setLngLat([waypoint.lng, waypoint.lat]);
         existing.label.textContent = label;
         existing.marker.getElement().setAttribute("title", waypoint.label ?? `Waypoint ${index + 1}`);
+        existing.marker.getElement().style.background = markerBg;
         return;
       }
 
@@ -380,7 +413,7 @@ export default function MapContainer({
       element.style.width = "32px";
       element.style.height = "32px";
       element.style.borderRadius = "9999px";
-      element.style.background = "#f97316";
+      element.style.background = markerBg;
       element.style.color = "#fff";
       element.style.display = "flex";
       element.style.alignItems = "center";
@@ -527,6 +560,35 @@ export default function MapContainer({
   return (
     <div className={cn(className, "relative isolate")}>
       <div ref={containerRef} className="h-full w-full" />
+
+      {/* Style toggle button */}
+      <button
+        type="button"
+        onClick={() => setStyleMode((mode) => mode === "walkable" ? "satellite" : "walkable")}
+        className="absolute bottom-8 right-2 z-10 rounded-lg border bg-background/90 px-3 py-1.5 text-xs font-medium shadow backdrop-blur hover:bg-muted active:scale-95 transition-all"
+        aria-label={styleMode === "walkable" ? "Switch to satellite view" : "Switch to walkable paths view"}
+        aria-pressed={styleMode === "walkable"}
+      >
+        {styleMode === "walkable" ? "🛰 Satellite" : "🥾 Walkable"}
+      </button>
+
+      {/* Legend — only visible in walkable mode */}
+      {styleMode === "walkable" && (
+        <div className="absolute bottom-8 left-2 z-10 flex items-center gap-3 rounded-full border bg-background/85 px-3 py-1.5 text-xs shadow backdrop-blur">
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-0.5 w-5 border-t-2 border-dashed border-[#f5f0e8] bg-transparent" />
+            Footpath
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-0.5 w-5 bg-[#6baed6] opacity-60" />
+            Road
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-2 w-5 rounded bg-[#22c55e] opacity-50" />
+            Park
+          </span>
+        </div>
+      )}
     </div>
   );
 }

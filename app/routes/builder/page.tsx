@@ -9,9 +9,10 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import RouteOptions from "@/components/routes/RouteOptions";
+import ParkWaypointPicker from "@/components/routes/ParkWaypointPicker";
 import { estimateCalories } from "@/lib/calories";
 import { parseRouteGeometry, type RouteFeature, type SponsoredStopMapItem } from "@/lib/geo";
-import { getRoute } from "@/lib/routing";
+import { getRoute, ROUTE_PREFERENCES, type RoutePreference } from "@/lib/routing";
 
 const MapContainer = dynamic(() => import("@/components/map/MapContainer"), {
   ssr: false,
@@ -78,6 +79,7 @@ export default function RouteBuilderPage() {
   const [mapStatus, setMapStatus] = useState<"loading" | "ready" | "error">("loading");
   const [draftStatus, setDraftStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [selectedParkId, setSelectedParkId] = useState<string>("");
+  const [routePreference, setRoutePreference] = useState<RoutePreference>("foot");
   const draftRequestIdRef = useRef(0);
 
   useEffect(() => {
@@ -127,7 +129,7 @@ export default function RouteBuilderPage() {
         setDraftStatus("loading");
       }
     });
-    getRoute(points, routeName || DEFAULT_DRAFT_ROUTE_NAME)
+    getRoute(points, routeName || DEFAULT_DRAFT_ROUTE_NAME, routePreference)
       .then((result) => {
         if (!cancelled && requestId === draftRequestIdRef.current) {
           setDraftRouteState(
@@ -160,7 +162,7 @@ export default function RouteBuilderPage() {
     return () => {
       cancelled = true;
     };
-  }, [effectiveSelectedSponsoredStopId, routeName, sponsoredStops, waypointPositions]);
+  }, [effectiveSelectedSponsoredStopId, routeName, routePreference, sponsoredStops, waypointPositions]);
 
   useEffect(() => {
     if (!includeFoodStops) {
@@ -404,6 +406,19 @@ export default function RouteBuilderPage() {
           </CardContent>
         </Card>
         <div>
+          <label className="text-sm font-medium mb-1 block">Route preference</label>
+          <select
+            value={routePreference}
+            onChange={(event) => setRoutePreference(event.target.value as RoutePreference)}
+            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+          >
+            {ROUTE_PREFERENCES.map((pref) => (
+              <option key={pref.value} value={pref.value}>{pref.label}</option>
+            ))}
+          </select>
+        </div>
+
+        <div>
           <label className="text-sm font-medium mb-1 block">Park for publication</label>
           <select
             value={selectedParkId}
@@ -430,6 +445,12 @@ export default function RouteBuilderPage() {
             }
           }}
           onSponsoredStopSelect={(stop) => setSelectedSponsoredStopId(stop.id)}
+        />
+
+        <ParkWaypointPicker
+          centerLat={waypoints.at(-1)?.lat ?? 55.7558}
+          centerLng={waypoints.at(-1)?.lng ?? 37.6173}
+          onAddPark={(park) => addWaypoint({ lat: park.lat, lng: park.lng, name: park.name })}
         />
 
         {waypoints.length > 0 && (
