@@ -111,6 +111,10 @@ export function getRoutingFallbackMessage(diagnostics: RoutingDiagnostics | null
       return "Park-aware routing provider is temporarily unavailable; using standard walking network.";
     case "ors_no_geometry":
       return "Park-aware routing returned no usable park-path geometry; using standard walking network.";
+    case "walkable_fallback_to_park":
+      return "Park-aware routing is unavailable; using standard walking network.";
+    default:
+      return "Park-aware routing is unavailable; using standard walking network.";
   }
 }
 

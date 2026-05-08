@@ -56,6 +56,8 @@ describe("getRoute", () => {
           name: "Test route",
           color: "#f97316",
           source: "reroute",
+          routingPreference: "park",
+          routingQuality: "fallback",
         },
       },
       distanceKm: 1.2,
