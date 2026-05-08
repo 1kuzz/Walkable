@@ -56,8 +56,17 @@ export default function RouteExperience({
       return;
     }
 
+    const controller = new AbortController();
     let cancelled = false;
-    fetch(`/api/sponsored?lat=${parkLat}&lng=${parkLng}&radius=3&routeId=${routeId}`)
+    queueMicrotask(() => {
+      if (!cancelled) {
+        setLoadingStops(true);
+      }
+    });
+    fetch(`/api/sponsored?lat=${parkLat}&lng=${parkLng}&radius=3&routeId=${routeId}`, {
+      cache: "force-cache",
+      signal: controller.signal,
+    })
       .then(async (response) => {
         const payload = await response.json();
         if (!cancelled) {
@@ -65,7 +74,7 @@ export default function RouteExperience({
         }
       })
       .catch(() => {
-        if (!cancelled) {
+        if (!cancelled && !controller.signal.aborted) {
           setSponsoredStops([]);
         }
       })
@@ -77,6 +86,7 @@ export default function RouteExperience({
 
     return () => {
       cancelled = true;
+      controller.abort();
     };
   }, [includeFoodStops, parkLat, parkLng, routeId]);
 

@@ -42,10 +42,23 @@ export default function MapPage() {
   const sidebarOpen = isDesktopViewport ? desktopSidebarOpen : mobileSidebarOpen;
 
   useEffect(() => {
-    fetch(`/api/routes?sort=${filters.sort}`)
+    const controller = new AbortController();
+
+    fetch(`/api/routes?sort=${filters.sort}`, {
+      cache: "force-cache",
+      signal: controller.signal,
+    })
       .then(async (response) => response.json())
       .then((payload) => setRoutes(Array.isArray(payload) ? payload : []))
-      .catch(() => setRoutes([]));
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setRoutes([]);
+        }
+      });
+
+    return () => {
+      controller.abort();
+    };
   }, [filters.sort]);
 
   const routeFeatures = useMemo<RouteFeature[]>(() => {
