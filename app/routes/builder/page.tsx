@@ -68,6 +68,7 @@ const PARK_ID_PREFIX_LENGTH = 6;
 // ~55 m at mid-latitudes — skip preview when cursor is virtually on top of the waypoint.
 const HOVER_PREVIEW_MIN_DISTANCE_DEGREES = 0.0005;
 const HOVER_PREVIEW_DEBOUNCE_MS = 120;
+const SNAP_INDICATOR_DISPLAY_DURATION_MS = 3000;
 
 const emptyDraftRouteState: DraftRouteState = {
   feature: null,
@@ -217,7 +218,7 @@ export default function RouteBuilderPage() {
     }
     const timeoutId = window.setTimeout(() => {
       setSnapIndicator(null);
-    }, 3000);
+    }, SNAP_INDICATOR_DISPLAY_DURATION_MS);
     return () => window.clearTimeout(timeoutId);
   }, [snapIndicator]);
 

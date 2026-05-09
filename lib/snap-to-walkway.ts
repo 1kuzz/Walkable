@@ -66,7 +66,7 @@ function resolveOsrmBaseUrl(): string {
 
   try {
     const parsed = new URL(configuredBaseUrl);
-    if (parsed.protocol !== "https:" || parsed.username || parsed.password) {
+    if (parsed.protocol !== "https:" || parsed.username !== "" || parsed.password !== "") {
       return DEFAULT_OSRM_BASE_URL;
     }
     if (isPrivateHostname(parsed.hostname)) {

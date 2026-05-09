@@ -136,7 +136,9 @@ export async function getRoute(
     return null;
   }
 
-  const effectivePreference: RoutePreference = mode === "car" ? "foot" : preference;
+  // RoutingDiagnostics currently stores walking-preference values only.
+  // For car mode we treat preference as not-applicable and carry "foot" as a neutral value.
+  const diagnosticPreference: RoutePreference = mode === "car" ? "foot" : preference;
   const osrmBaseUrl = resolveOsrmBaseUrl();
   const osrmProfile = resolveOsrmProfile(mode);
   const coordinates = waypoints
@@ -145,7 +147,7 @@ export async function getRoute(
   const hintsKey = options?.waypointHints
     ?.map((hint, index) => `${index}:${hint.routeId ?? "-"}`)
     .join("|");
-  const cacheKey = `${mode}|${effectivePreference}|${osrmBaseUrl}|${osrmProfile}|${coordinates}|${hintsKey ?? ""}`;
+  const cacheKey = `${mode}|${diagnosticPreference}|${osrmBaseUrl}|${osrmProfile}|${coordinates}|${hintsKey ?? ""}`;
 
   evictExpiredRouteCacheEntries();
 
@@ -161,7 +163,7 @@ export async function getRoute(
     return buildRoutedPath(result, name, waypoints.length);
   }
 
-  const request = fetchRoute(osrmBaseUrl, osrmProfile, coordinates, waypoints, effectivePreference, mode, options);
+  const request = fetchRoute(osrmBaseUrl, osrmProfile, coordinates, waypoints, diagnosticPreference, mode, options);
   inFlightRouteRequests.set(cacheKey, request);
 
   try {
