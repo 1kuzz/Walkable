@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getRoute } from "@/lib/routing";
-import type { GetRouteOptions, RoutePreference } from "@/lib/routing";
+import type { GetRouteOptions, RoutePreference, TransportMode } from "@/lib/routing";
 import { DEFAULT_ROUTE_NAME } from "@/lib/routing-defaults";
 import { isValidRoutePosition } from "@/lib/routing-coordinates";
 import { logServerEvent, toErrorMessage } from "@/lib/server/logger";
@@ -60,12 +60,14 @@ export async function POST(req: NextRequest) {
   let waypointCount: number | undefined;
   let routeName: string | undefined;
   let routePreference: RoutePreference | undefined;
+  let routeMode: TransportMode | undefined;
 
   try {
     const payload = await req.json() as {
       waypoints?: unknown;
       name?: unknown;
       preference?: unknown;
+      mode?: unknown;
       options?: unknown;
     };
 
@@ -84,8 +86,10 @@ export async function POST(req: NextRequest) {
       ? payload.preference
       : "park";
     routePreference = preference;
+    const mode = payload.mode === "car" || payload.mode === "foot" ? payload.mode : "foot";
+    routeMode = mode;
 
-    const result = await getRoute(waypoints, name, preference, parseRouteOptions(payload.options));
+    const result = await getRoute(waypoints, name, preference, parseRouteOptions(payload.options), mode);
     return NextResponse.json(result);
   } catch (error) {
     logServerEvent("error", "routing.calculate_failed", {
@@ -93,6 +97,7 @@ export async function POST(req: NextRequest) {
       waypointCount,
       routeName,
       routePreference,
+      routeMode,
     });
     return NextResponse.json({ error: "Failed to calculate route" }, { status: 500 });
   }

@@ -31,6 +31,7 @@ describe("validateCreateRoutePayload", () => {
     expect(result.data?.name).toBe("Morning trail");
     expect(result.data?.waypoints.create).toHaveLength(2);
     expect(result.data?.geometryGeoJson).toContain("LineString");
+    expect(result.data?.transportMode).toBe("foot");
   });
 
   it("rejects invalid geometry", () => {
@@ -66,5 +67,15 @@ describe("validateCreateRoutePayload", () => {
 
     expect(result.data).toBeUndefined();
     expect(result.error).toContain("at least 2");
+  });
+
+  it("rejects unsupported transport mode", () => {
+    const result = validateCreateRoutePayload({
+      ...validPayload,
+      transportMode: "bike",
+    });
+
+    expect(result.data).toBeUndefined();
+    expect(result.error).toContain("transportMode");
   });
 });

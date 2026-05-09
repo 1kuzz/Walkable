@@ -3,6 +3,7 @@ import type { Feature, LineString } from "geojson";
 
 const DIFFICULTIES: ReadonlySet<Difficulty> = new Set(["easy", "moderate", "hard"]);
 const SURFACE_TYPES: ReadonlySet<SurfaceType> = new Set(["paved", "gravel", "dirt", "mixed"]);
+const TRANSPORT_MODES: ReadonlySet<TransportMode> = new Set(["foot", "car"]);
 const MAX_NAME_LENGTH = 120;
 const MAX_DESCRIPTION_LENGTH = 2000;
 const MIN_WAYPOINTS = 2;
@@ -16,6 +17,8 @@ interface CreateWaypointInput {
   name?: string;
 }
 
+type TransportMode = "foot" | "car";
+
 export interface CreateRouteData {
   parkId: string;
   name: string;
@@ -24,6 +27,7 @@ export interface CreateRouteData {
   lengthKm: number;
   elevationGain: number;
   surfaceType: SurfaceType;
+  transportMode: TransportMode;
   estimatedMin: number;
   geometryGeoJson: string;
   waypoints: {
@@ -70,6 +74,10 @@ export function validateCreateRoutePayload(payload: unknown): { data?: CreateRou
   if (estimatedMin == null) {
     return { error: "estimatedMin must be an integer between 1 and 1440" };
   }
+  const transportMode = parseTransportMode(payload.transportMode ?? "foot");
+  if (!transportMode) {
+    return { error: "transportMode must be one of: foot, car" };
+  }
 
   const geometry = parseLineStringGeometry(payload.geometryGeoJson);
   if (!geometry) {
@@ -96,6 +104,7 @@ export function validateCreateRoutePayload(payload: unknown): { data?: CreateRou
       lengthKm,
       elevationGain,
       surfaceType,
+      transportMode,
       estimatedMin,
       geometryGeoJson: JSON.stringify(geometry),
       waypoints: {
@@ -190,6 +199,13 @@ function parseSurfaceType(value: unknown): SurfaceType | null {
     return null;
   }
   return SURFACE_TYPES.has(value as SurfaceType) ? (value as SurfaceType) : null;
+}
+
+function parseTransportMode(value: unknown): TransportMode | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  return TRANSPORT_MODES.has(value as TransportMode) ? (value as TransportMode) : null;
 }
 
 function sanitizeId(value: unknown): string | null {

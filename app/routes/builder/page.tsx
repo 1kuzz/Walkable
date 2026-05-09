@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Position } from "geojson";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -20,8 +21,10 @@ import {
   type GetRouteOptions,
   type RoutePreference,
   type RoutingDiagnostics,
+  type TransportMode,
 } from "@/lib/routing";
 import { getRouteFromApi } from "@/lib/routing-client";
+import { isSignificantSnap, snapToNearestRoad, snapToNearestWalkway } from "@/lib/snap-to-walkway";
 import {
   WALKABLE_FOOTPATH_COLOR,
   WALKABLE_ROAD_CASING_COLOR,
@@ -80,6 +83,7 @@ function publishButtonTitle(waypointCount: number, draftRoute: RouteFeature | nu
 }
 
 export default function RouteBuilderPage() {
+  const searchParams = useSearchParams();
   const [routeName, setRouteName] = useState("");
   const [baseRoutes, setBaseRoutes] = useState<ApiRoute[]>([]);
   const [waypoints, setWaypoints] = useState<BuilderWaypoint[]>([]);
@@ -96,8 +100,10 @@ export default function RouteBuilderPage() {
   const [mapStatus, setMapStatus] = useState<"loading" | "ready" | "error">("loading");
   const [draftStatus, setDraftStatus] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [selectedParkId, setSelectedParkId] = useState<string>("");
+  const [transportMode, setTransportMode] = useState<TransportMode>("foot");
   const [routePreference, setRoutePreference] = useState<RoutePreference>("park");
   const [snapToRoutes, setSnapToRoutes] = useState(false);
+  const [snapIndicator, setSnapIndicator] = useState<"path" | "road" | null>(null);
   const [draftRoutingDiagnostics, setDraftRoutingDiagnostics] = useState<RoutingDiagnostics | null>(null);
   const [hoverRoutingDiagnostics, setHoverRoutingDiagnostics] = useState<RoutingDiagnostics | null>(null);
   const [pathwayDiagnostics, setPathwayDiagnostics] = useState<PathwayDiagnostics | null>(null);
@@ -150,13 +156,14 @@ export default function RouteBuilderPage() {
     ),
     [baseRoutes],
   );
+  const effectiveRoutePreference = transportMode === "foot" ? routePreference : "foot";
   const hoverPreviewResetKey = useMemo(
-    () => createHoverPreviewResetKey(waypointPositions, routePreference),
-    [waypointPositions, routePreference],
+    () => createHoverPreviewResetKey(waypointPositions, effectiveRoutePreference),
+    [waypointPositions, effectiveRoutePreference],
   );
   const selectedRoutePreferenceLabel = useMemo(
-    () => ROUTE_PREFERENCES.find((item) => item.value === routePreference)?.label ?? routePreference,
-    [routePreference],
+    () => ROUTE_PREFERENCES.find((item) => item.value === effectiveRoutePreference)?.label ?? effectiveRoutePreference,
+    [effectiveRoutePreference],
   );
 
   useEffect(() => {
@@ -169,7 +176,32 @@ export default function RouteBuilderPage() {
       setHoverPreviewRoute(null);
       setHoverRoutingDiagnostics(null);
     });
-  }, [hoverPreviewResetKey]);
+  }, [hoverPreviewResetKey, transportMode]);
+
+  useEffect(() => {
+    const preselectedParkId = searchParams.get("parkId");
+    if (preselectedParkId) {
+      setSelectedParkId(preselectedParkId);
+    }
+    const startLat = Number(searchParams.get("startLat"));
+    const startLng = Number(searchParams.get("startLng"));
+    const startName = searchParams.get("startName")?.trim();
+    if (!Number.isFinite(startLat) || !Number.isFinite(startLng)) {
+      return;
+    }
+
+    setWaypoints((current) => {
+      if (current.length > 0) {
+        return current;
+      }
+      return [{
+        id: crypto.randomUUID(),
+        lat: startLat,
+        lng: startLng,
+        name: startName || "Park start",
+      }];
+    });
+  }, [searchParams]);
 
   const effectiveSponsoredStops = includeFoodStops ? sponsoredStops : [];
   const effectiveSelectedSponsoredStopId = includeFoodStops ? selectedSponsoredStopId : null;
@@ -203,7 +235,8 @@ export default function RouteBuilderPage() {
     getRouteFromApi(
       routingWaypoints.map((item) => item.position),
       routeName || DEFAULT_DRAFT_ROUTE_NAME,
-      routePreference,
+      effectiveRoutePreference,
+      transportMode,
       {
         waypointHints: routingWaypoints.map((item) => ({ routeId: item.routeId })),
         knownRouteGeometries,
@@ -245,7 +278,7 @@ export default function RouteBuilderPage() {
     return () => {
       cancelled = true;
     };
-  }, [effectiveSelectedSponsoredStopId, knownRouteGeometries, routeName, routePreference, sponsoredStops, waypointPositions, waypoints]);
+  }, [effectiveRoutePreference, effectiveSelectedSponsoredStopId, knownRouteGeometries, routeName, sponsoredStops, transportMode, waypointPositions, waypoints]);
 
   useEffect(() => {
     if (!includeFoodStops) {
@@ -389,10 +422,11 @@ export default function RouteBuilderPage() {
       const response = await fetch("/api/routes", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          parkId: resolvedParkId,
-          name: normalizedRouteName,
-          description: `${normalizedRouteName} — ${DEFAULT_PUBLISHED_DESCRIPTION_SUFFIX}`,
+          body: JSON.stringify({
+            parkId: resolvedParkId,
+            name: normalizedRouteName,
+            transportMode,
+            description: `${normalizedRouteName} — ${DEFAULT_PUBLISHED_DESCRIPTION_SUFFIX}`,
           difficulty: DEFAULT_PUBLISHED_DIFFICULTY,
           lengthKm: Math.round(visibleDistanceKm * 100) / 100,
           elevationGain: DEFAULT_PUBLISHED_ELEVATION_GAIN,
@@ -465,24 +499,36 @@ export default function RouteBuilderPage() {
     }
   };
 
-  const handleMapPointSelect = useCallback((coordinates: Position) => {
+  const handleMapPointSelect = useCallback(async (coordinates: Position) => {
     setHoverPreviewRoute(null);
+    const snappedCoordinates = transportMode === "foot"
+      ? await snapToNearestWalkway(coordinates)
+      : await snapToNearestRoad(coordinates);
+    if (isSignificantSnap(coordinates, snappedCoordinates)) {
+      setSnapIndicator(transportMode === "foot" ? "path" : "road");
+    }
     addWaypoint({
-      lat: coordinates[1],
-      lng: coordinates[0],
+      lat: snappedCoordinates[1],
+      lng: snappedCoordinates[0],
       name: `Point ${waypoints.length + 1}`,
     });
-  }, [addWaypoint, waypoints.length]);
+  }, [addWaypoint, transportMode, waypoints.length]);
 
-  const handleRoutePointSelect = useCallback(({ routeId, routeName: selectedRouteName, coordinates }: { routeId: string; routeName: string; coordinates: Position }) => {
+  const handleRoutePointSelect = useCallback(async ({ routeId, routeName: selectedRouteName, coordinates }: { routeId: string; routeName: string; coordinates: Position }) => {
     setHoverPreviewRoute(null);
+    const snappedCoordinates = transportMode === "foot"
+      ? await snapToNearestWalkway(coordinates)
+      : await snapToNearestRoad(coordinates);
+    if (isSignificantSnap(coordinates, snappedCoordinates)) {
+      setSnapIndicator(transportMode === "foot" ? "path" : "road");
+    }
     addWaypoint({
-      lat: coordinates[1],
-      lng: coordinates[0],
+      lat: snappedCoordinates[1],
+      lng: snappedCoordinates[0],
       name: `${selectedRouteName} · Point ${waypoints.length + 1}`,
       routeId,
     });
-  }, [addWaypoint, waypoints.length]);
+  }, [addWaypoint, transportMode, waypoints.length]);
 
   const handleSponsoredStopSelect = useCallback((stop: SponsoredStopMapItem) => {
     setSelectedSponsoredStopId(stop.id);
@@ -516,7 +562,7 @@ export default function RouteBuilderPage() {
     const requestId = ++hoverRequestIdRef.current;
     hoverDebounceTimerRef.current = setTimeout(() => {
       hoverDebounceTimerRef.current = null;
-      getRouteFromApi([from, coordinates], "Preview", routePreference, {
+      getRouteFromApi([from, coordinates], "Preview", effectiveRoutePreference, transportMode, {
         waypointHints: [{ routeId: lastWaypoint.routeId }, {}],
         knownRouteGeometries,
       })
@@ -542,7 +588,7 @@ export default function RouteBuilderPage() {
           // Silently ignore preview routing errors.
         });
     }, HOVER_PREVIEW_DEBOUNCE_MS);
-  }, [knownRouteGeometries, waypoints, routePreference]);
+  }, [effectiveRoutePreference, knownRouteGeometries, transportMode, waypoints]);
 
   return (
     <div className="flex h-[calc(100vh-64px)] overflow-hidden">
@@ -570,20 +616,43 @@ export default function RouteBuilderPage() {
           </CardContent>
         </Card>
         <div>
-          <label className="text-sm font-medium mb-1 block">Route preference</label>
-          <select
-            value={routePreference}
-            onChange={(event) => setRoutePreference(event.target.value as RoutePreference)}
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm"
-          >
-            {ROUTE_PREFERENCES.map((pref) => (
-              <option key={pref.value} value={pref.value}>{pref.label}</option>
-            ))}
-          </select>
-          <p className="mt-1 text-xs text-muted-foreground">
-            “Walkable streets only” uses specialized routing and can automatically fall back to park-aware routing in areas with limited walkable infrastructure data.
-          </p>
+          <label className="text-sm font-medium mb-1 block">Transport mode</label>
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              type="button"
+              variant={transportMode === "car" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setTransportMode("car")}
+            >
+              🚗 Drive
+            </Button>
+            <Button
+              type="button"
+              variant={transportMode === "foot" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setTransportMode("foot")}
+            >
+              🚶 Walk
+            </Button>
+          </div>
         </div>
+        {transportMode === "foot" && (
+          <div>
+            <label className="text-sm font-medium mb-1 block">Route preference</label>
+            <select
+              value={routePreference}
+              onChange={(event) => setRoutePreference(event.target.value as RoutePreference)}
+              className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+            >
+              {ROUTE_PREFERENCES.map((pref) => (
+                <option key={pref.value} value={pref.value}>{pref.label}</option>
+              ))}
+            </select>
+            <p className="mt-1 text-xs text-muted-foreground">
+              “Walkable streets only” uses specialized routing and can automatically fall back to park-aware routing in areas with limited walkable infrastructure data.
+            </p>
+          </div>
+        )}
         <label className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm">
           <input
             type="checkbox"
@@ -599,7 +668,10 @@ export default function RouteBuilderPage() {
             <CardTitle className="text-sm">Routing status</CardTitle>
           </CardHeader>
           <CardContent className="space-y-1 text-xs">
-            <p><span className="font-medium">Mode:</span> {selectedRoutePreferenceLabel}</p>
+            <p>
+              <span className="font-medium">Mode:</span>{" "}
+              {transportMode === "car" ? "Drive" : `Walk · ${selectedRoutePreferenceLabel}`}
+            </p>
             <p>
               <span className="font-medium">Provider:</span>{" "}
               {routingDiagnostics
@@ -809,7 +881,7 @@ export default function RouteBuilderPage() {
             waypoints={waypointMarkers}
             previewRoute={waypoints.length > 0 ? hoverPreviewRoute : null}
             routeVisualMode="builder"
-            styleModeOverride={routePreference === "walkable" ? "walkable" : undefined}
+            styleModeOverride={transportMode === "foot" && effectiveRoutePreference === "walkable" ? "walkable" : undefined}
             enableRouteSnapping={snapToRoutes}
             onMapStatusChange={setMapStatus}
             onPathwayDiagnosticsChange={setPathwayDiagnostics}
@@ -823,6 +895,11 @@ export default function RouteBuilderPage() {
             ? "Tap or click a community route to snap a waypoint, or tap/click the map for manual placement."
             : "Tap or click the map to place waypoints. Enable “Snap to community routes” to snap onto existing routes."}
         </div>
+        {snapIndicator && (
+          <div className="absolute top-4 right-4 rounded-full border bg-background/95 px-3 py-1 text-xs shadow">
+            {snapIndicator === "path" ? "Snapped to path" : "Snapped to road"}
+          </div>
+        )}
       </div>
     </div>
   );

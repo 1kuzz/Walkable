@@ -1,9 +1,11 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { db } from "@/lib/db";
 import WeatherWidget from "@/components/weather/WeatherWidget";
 import RouteCard from "@/components/routes/RouteCard";
 import ParkMapSection from "@/components/map/ParkMapSection";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
 export default async function ParkPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -50,7 +52,16 @@ export default async function ParkPage({ params }: { params: Promise<{ id: strin
 
         <div className="grid md:grid-cols-3 gap-8">
           <div className="md:col-span-2">
-            <h2 className="text-xl font-semibold mb-4">Routes in {park.name}</h2>
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <h2 className="text-xl font-semibold">Routes in {park.name}</h2>
+              <Button asChild size="sm">
+                <Link
+                  href={`/routes/builder?parkId=${encodeURIComponent(park.id)}&startLat=${park.lat}&startLng=${park.lng}&startName=${encodeURIComponent(park.name)}`}
+                >
+                  Start a walk here
+                </Link>
+              </Button>
+            </div>
             <div className="grid sm:grid-cols-2 gap-4">
               {park.routes.map((route) => (
                 <div key={route.id} id={`route-${route.id}`}>
