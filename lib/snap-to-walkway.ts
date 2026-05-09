@@ -66,7 +66,7 @@ function resolveOsrmBaseUrl(): string {
 
   try {
     const parsed = new URL(configuredBaseUrl);
-    if ((parsed.protocol !== "https:" && parsed.protocol !== "http:") || parsed.username || parsed.password) {
+    if (parsed.protocol !== "https:" || parsed.username || parsed.password) {
       return DEFAULT_OSRM_BASE_URL;
     }
     if (isPrivateHostname(parsed.hostname)) {
@@ -105,6 +105,7 @@ function isPrivateHostname(hostname: string): boolean {
       return true;
     }
   }
+  // IPv6 ULA ranges start with fc00::/7 (commonly fc/fd prefixes).
   if (normalizedHost.startsWith("fc") || normalizedHost.startsWith("fd")) {
     return true;
   }

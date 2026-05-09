@@ -204,7 +204,7 @@ export default function RouteBuilderPage() {
             id: crypto.randomUUID(),
             lat: startLat,
             lng: startLng,
-            name: startName || "Start point",
+            name: startName || "Start Point",
           }];
         });
       });
@@ -929,7 +929,7 @@ export default function RouteBuilderPage() {
         </div>
         {snapIndicator && (
           <div className="absolute top-4 right-4 rounded-full border bg-background/95 px-3 py-1 text-xs shadow">
-            {snapIndicator === "path" ? "Snapped to path" : snapIndicator === "road" ? "Snapped to road" : "Placed without snap"}
+            {describeSnapIndicator(snapIndicator)}
           </div>
         )}
         {snappingWaypoint && (
@@ -985,4 +985,15 @@ function describePathwayDiagnostics(diagnostics: PathwayDiagnostics | null): str
     return "No pedestrian vector pathways are visible in this area or at this zoom level.";
   }
   return `${diagnostics.visiblePathFeatureCount} pedestrian vector pathway segments are visible in the current viewport.`;
+}
+
+function describeSnapIndicator(indicator: "path" | "road" | "manual"): string {
+  switch (indicator) {
+    case "path":
+      return "Snapped to path";
+    case "road":
+      return "Snapped to road";
+    case "manual":
+      return "Placed without snap";
+  }
 }

@@ -114,7 +114,7 @@ export default function MapPage() {
   }, [walkways]);
 
   const nearbyPathMarker = useMemo(
-    () => (nearbyPathPoint ? [{ id: "nearby-path", lat: nearbyPathPoint[1], lng: nearbyPathPoint[0], label: "P" }] : []),
+    () => (nearbyPathPoint ? [{ id: "nearby-path", lat: nearbyPathPoint[1], lng: nearbyPathPoint[0], label: "Path" }] : []),
     [nearbyPathPoint],
   );
 
