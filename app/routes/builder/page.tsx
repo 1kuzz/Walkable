@@ -4,7 +4,6 @@ import dynamic from "next/dynamic";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Position } from "geojson";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -83,7 +82,12 @@ function publishButtonTitle(waypointCount: number, draftRoute: RouteFeature | nu
 }
 
 export default function RouteBuilderPage() {
-  const searchParams = useSearchParams();
+  const initialSearchParams = useMemo(() => {
+    if (typeof window === "undefined") {
+      return null;
+    }
+    return new URLSearchParams(window.location.search);
+  }, []);
   const [routeName, setRouteName] = useState("");
   const [baseRoutes, setBaseRoutes] = useState<ApiRoute[]>([]);
   const [waypoints, setWaypoints] = useState<BuilderWaypoint[]>([]);
@@ -179,29 +183,32 @@ export default function RouteBuilderPage() {
   }, [hoverPreviewResetKey, transportMode]);
 
   useEffect(() => {
-    const preselectedParkId = searchParams.get("parkId");
-    if (preselectedParkId) {
-      setSelectedParkId(preselectedParkId);
-    }
-    const startLat = Number(searchParams.get("startLat"));
-    const startLng = Number(searchParams.get("startLng"));
-    const startName = searchParams.get("startName")?.trim();
-    if (!Number.isFinite(startLat) || !Number.isFinite(startLng)) {
+    if (!initialSearchParams) {
       return;
     }
-
-    setWaypoints((current) => {
-      if (current.length > 0) {
-        return current;
-      }
-      return [{
-        id: crypto.randomUUID(),
-        lat: startLat,
-        lng: startLng,
-        name: startName || "Park start",
-      }];
-    });
-  }, [searchParams]);
+    const preselectedParkId = initialSearchParams.get("parkId");
+    const startLat = Number(initialSearchParams.get("startLat"));
+    const startLng = Number(initialSearchParams.get("startLng"));
+    const startName = initialSearchParams.get("startName")?.trim();
+    if (preselectedParkId) {
+      queueMicrotask(() => setSelectedParkId(preselectedParkId));
+    }
+    if (Number.isFinite(startLat) && Number.isFinite(startLng)) {
+      queueMicrotask(() => {
+        setWaypoints((current) => {
+          if (current.length > 0) {
+            return current;
+          }
+          return [{
+            id: crypto.randomUUID(),
+            lat: startLat,
+            lng: startLng,
+            name: startName || "Park start",
+          }];
+        });
+      });
+    }
+  }, [initialSearchParams]);
 
   const effectiveSponsoredStops = includeFoodStops ? sponsoredStops : [];
   const effectiveSelectedSponsoredStopId = includeFoodStops ? selectedSponsoredStopId : null;
