@@ -136,6 +136,7 @@ export async function getRoute(
     return null;
   }
 
+  const normalizedPreference: RoutePreference = mode === "car" ? "foot" : preference;
   const osrmBaseUrl = resolveOsrmBaseUrl();
   const osrmProfile = resolveOsrmProfile(mode);
   const coordinates = waypoints
@@ -144,7 +145,7 @@ export async function getRoute(
   const hintsKey = options?.waypointHints
     ?.map((hint, index) => `${index}:${hint.routeId ?? "-"}`)
     .join("|");
-  const cacheKey = `${mode}|${preference}|${osrmBaseUrl}|${osrmProfile}|${coordinates}|${hintsKey ?? ""}`;
+  const cacheKey = `${mode}|${normalizedPreference}|${osrmBaseUrl}|${osrmProfile}|${coordinates}|${hintsKey ?? ""}`;
 
   evictExpiredRouteCacheEntries();
 
@@ -160,7 +161,7 @@ export async function getRoute(
     return buildRoutedPath(result, name, waypoints.length);
   }
 
-  const request = fetchRoute(osrmBaseUrl, osrmProfile, coordinates, waypoints, preference, mode, options);
+  const request = fetchRoute(osrmBaseUrl, osrmProfile, coordinates, waypoints, normalizedPreference, mode, options);
   inFlightRouteRequests.set(cacheKey, request);
 
   try {
@@ -196,7 +197,7 @@ async function fetchRoute(
 ): Promise<CachedRoutedPath | null> {
   if (mode === "car") {
     return fetchRouteFromOsrm(osrmBaseUrl, osrmProfile, coordinates, {
-      preference: "foot",
+      preference,
       quality: "preferred",
     }, mode);
   }

@@ -69,12 +69,46 @@ function resolveOsrmBaseUrl(): string {
     if ((parsed.protocol !== "https:" && parsed.protocol !== "http:") || parsed.username || parsed.password) {
       return DEFAULT_OSRM_BASE_URL;
     }
+    if (process.env.NODE_ENV === "production" && isPrivateHostname(parsed.hostname)) {
+      return DEFAULT_OSRM_BASE_URL;
+    }
     parsed.hash = "";
     parsed.search = "";
     return parsed.toString().replace(/\/+$/, "");
   } catch {
     return DEFAULT_OSRM_BASE_URL;
   }
+}
+
+function isPrivateHostname(hostname: string): boolean {
+  const normalizedHost = hostname.toLowerCase();
+  if (normalizedHost === "localhost" || normalizedHost === "::1") {
+    return true;
+  }
+  const ipv4Match = normalizedHost.match(/^(\d{1,3})(?:\.(\d{1,3})){3}$/);
+  if (ipv4Match) {
+    const octets = normalizedHost.split(".").map((segment) => Number(segment));
+    if (octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) {
+      return true;
+    }
+    const [first, second] = octets;
+    if (first === 10 || first === 127 || first === 0) {
+      return true;
+    }
+    if (first === 192 && second === 168) {
+      return true;
+    }
+    if (first === 172 && second >= 16 && second <= 31) {
+      return true;
+    }
+    if (first === 169 && second === 254) {
+      return true;
+    }
+  }
+  if (normalizedHost.startsWith("fc") || normalizedHost.startsWith("fd")) {
+    return true;
+  }
+  return false;
 }
 
 function haversineDistanceMeters(a: Position, b: Position): number {

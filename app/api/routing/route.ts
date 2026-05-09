@@ -85,11 +85,12 @@ export async function POST(req: NextRequest) {
     const preference = payload.preference === "foot" || payload.preference === "park" || payload.preference === "walkable"
       ? payload.preference
       : "park";
-    routePreference = preference;
     const mode = payload.mode === "car" || payload.mode === "foot" ? payload.mode : "foot";
     routeMode = mode;
+    const normalizedPreference: RoutePreference = mode === "car" ? "foot" : preference;
+    routePreference = normalizedPreference;
 
-    const result = await getRoute(waypoints, name, preference, parseRouteOptions(payload.options), mode);
+    const result = await getRoute(waypoints, name, normalizedPreference, parseRouteOptions(payload.options), mode);
     return NextResponse.json(result);
   } catch (error) {
     logServerEvent("error", "routing.calculate_failed", {

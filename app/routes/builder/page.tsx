@@ -108,6 +108,7 @@ export default function RouteBuilderPage() {
   const [routePreference, setRoutePreference] = useState<RoutePreference>("park");
   const [snapToRoutes, setSnapToRoutes] = useState(false);
   const [snapIndicator, setSnapIndicator] = useState<"path" | "road" | null>(null);
+  const [snappingWaypoint, setSnappingWaypoint] = useState(false);
   const [draftRoutingDiagnostics, setDraftRoutingDiagnostics] = useState<RoutingDiagnostics | null>(null);
   const [hoverRoutingDiagnostics, setHoverRoutingDiagnostics] = useState<RoutingDiagnostics | null>(null);
   const [pathwayDiagnostics, setPathwayDiagnostics] = useState<PathwayDiagnostics | null>(null);
@@ -209,6 +210,16 @@ export default function RouteBuilderPage() {
       });
     }
   }, [initialSearchParams]);
+
+  useEffect(() => {
+    if (!snapIndicator) {
+      return;
+    }
+    const timeoutId = window.setTimeout(() => {
+      setSnapIndicator(null);
+    }, 3000);
+    return () => window.clearTimeout(timeoutId);
+  }, [snapIndicator]);
 
   const effectiveSponsoredStops = includeFoodStops ? sponsoredStops : [];
   const effectiveSelectedSponsoredStopId = includeFoodStops ? selectedSponsoredStopId : null;
@@ -508,33 +519,47 @@ export default function RouteBuilderPage() {
 
   const handleMapPointSelect = useCallback(async (coordinates: Position) => {
     setHoverPreviewRoute(null);
-    const snappedCoordinates = transportMode === "foot"
-      ? await snapToNearestWalkway(coordinates)
-      : await snapToNearestRoad(coordinates);
-    if (isSignificantSnap(coordinates, snappedCoordinates)) {
-      setSnapIndicator(transportMode === "foot" ? "path" : "road");
+    setSnappingWaypoint(true);
+    try {
+      const snappedCoordinates = transportMode === "foot"
+        ? await snapToNearestWalkway(coordinates)
+        : await snapToNearestRoad(coordinates);
+      if (isSignificantSnap(coordinates, snappedCoordinates)) {
+        setSnapIndicator(transportMode === "foot" ? "path" : "road");
+      } else {
+        setSnapIndicator(null);
+      }
+      addWaypoint({
+        lat: snappedCoordinates[1],
+        lng: snappedCoordinates[0],
+        name: `Point ${waypoints.length + 1}`,
+      });
+    } finally {
+      setSnappingWaypoint(false);
     }
-    addWaypoint({
-      lat: snappedCoordinates[1],
-      lng: snappedCoordinates[0],
-      name: `Point ${waypoints.length + 1}`,
-    });
   }, [addWaypoint, transportMode, waypoints.length]);
 
   const handleRoutePointSelect = useCallback(async ({ routeId, routeName: selectedRouteName, coordinates }: { routeId: string; routeName: string; coordinates: Position }) => {
     setHoverPreviewRoute(null);
-    const snappedCoordinates = transportMode === "foot"
-      ? await snapToNearestWalkway(coordinates)
-      : await snapToNearestRoad(coordinates);
-    if (isSignificantSnap(coordinates, snappedCoordinates)) {
-      setSnapIndicator(transportMode === "foot" ? "path" : "road");
+    setSnappingWaypoint(true);
+    try {
+      const snappedCoordinates = transportMode === "foot"
+        ? await snapToNearestWalkway(coordinates)
+        : await snapToNearestRoad(coordinates);
+      if (isSignificantSnap(coordinates, snappedCoordinates)) {
+        setSnapIndicator(transportMode === "foot" ? "path" : "road");
+      } else {
+        setSnapIndicator(null);
+      }
+      addWaypoint({
+        lat: snappedCoordinates[1],
+        lng: snappedCoordinates[0],
+        name: `${selectedRouteName} · Point ${waypoints.length + 1}`,
+        routeId,
+      });
+    } finally {
+      setSnappingWaypoint(false);
     }
-    addWaypoint({
-      lat: snappedCoordinates[1],
-      lng: snappedCoordinates[0],
-      name: `${selectedRouteName} · Point ${waypoints.length + 1}`,
-      routeId,
-    });
   }, [addWaypoint, transportMode, waypoints.length]);
 
   const handleSponsoredStopSelect = useCallback((stop: SponsoredStopMapItem) => {
@@ -905,6 +930,11 @@ export default function RouteBuilderPage() {
         {snapIndicator && (
           <div className="absolute top-4 right-4 rounded-full border bg-background/95 px-3 py-1 text-xs shadow">
             {snapIndicator === "path" ? "Snapped to path" : "Snapped to road"}
+          </div>
+        )}
+        {snappingWaypoint && (
+          <div className="absolute top-14 right-4 rounded-full border bg-background/95 px-3 py-1 text-xs text-muted-foreground shadow">
+            Snapping waypoint…
           </div>
         )}
       </div>
