@@ -107,12 +107,15 @@ export function createWalkablePathFilter(): FilterSpecification {
   return [
     "all",
     ["==", ["geometry-type"], "LineString"],
+    // Some providers encode pedestrian features with a broad class (e.g. minor)
+    // while preserving foot semantics in subclass (e.g. path/footway/sidewalk).
+    // Keep subclass-based positives and avoid class-level road exclusion so we
+    // don't hide valid walkway geometry.
     [
       "any",
       ["match", ["get", "class"], PATHWAY_TRANSPORT_CLASSES, true, false],
       ["match", ["get", "subclass"], PATHWAY_TRANSPORT_SUBCLASSES, true, false],
     ],
-    ["!", ["match", ["get", "class"], ROAD_TRANSPORT_CLASSES, true, false]],
     ["!", ["match", ["get", "subclass"], ROAD_TRANSPORT_CLASSES, true, false]],
     ["!", ["match", ["get", "class"], NON_PATH_TRANSPORT_CLASSES, true, false]],
     ["!", ["match", ["get", "subclass"], NON_PATH_TRANSPORT_SUBCLASSES, true, false]],
@@ -339,7 +342,7 @@ export function createVectorStyle(): StyleSpecification {
         paint: {
           "line-color": VECTOR_FOOTPATH_COLOR,
           "line-opacity": 0.95,
-          "line-width": ["interpolate", ["linear"], ["zoom"], 10, 1.2, 13, 2.2, 16, 4],
+          "line-width": ["interpolate", ["linear"], ["zoom"], 10, 1.5, 13, 2.5, 16, 5],
           "line-dasharray": VECTOR_PATHWAY_DASHARRAY,
         },
       },
@@ -527,7 +530,7 @@ export function createWalkableStyle(): StyleSpecification {
       },
 
       // ── Walkable paths (footway / cycleway / path / pedestrian / steps / track) ──
-      // Bright dotted cream lines with subtle green casing.
+      // Bright dotted cream lines with visible green casing.
       {
         id: "walkable-paths-casing",
         type: "line",
@@ -536,10 +539,10 @@ export function createWalkableStyle(): StyleSpecification {
         filter: createWalkablePathFilter(),
         layout: { "line-cap": "round", "line-join": "round" },
         paint: {
-          "line-color": "rgba(21,128,61,0.30)",
+          "line-color": "rgba(21,128,61,0.65)",
           "line-opacity": 1,
-          "line-width": ["interpolate", ["linear"], ["zoom"], 10, 2.5, 16, 5],
-          "line-blur": 0.4,
+          "line-width": ["interpolate", ["linear"], ["zoom"], 10, 4, 13, 6, 16, 9],
+          "line-blur": 0.3,
         },
       },
       {
@@ -552,7 +555,7 @@ export function createWalkableStyle(): StyleSpecification {
         paint: {
           "line-color": WALKABLE_FOOTPATH_COLOR,
           "line-opacity": 1,
-          "line-width": ["interpolate", ["linear"], ["zoom"], 10, 1.5, 16, 4],
+          "line-width": ["interpolate", ["linear"], ["zoom"], 10, 2.5, 13, 4, 16, 6],
           "line-dasharray": WALKABLE_PATHWAY_DASHARRAY,
         },
       },
