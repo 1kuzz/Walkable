@@ -107,7 +107,7 @@ export default function RouteBuilderPage() {
   const [transportMode, setTransportMode] = useState<TransportMode>("foot");
   const [routePreference, setRoutePreference] = useState<RoutePreference>("park");
   const [snapToRoutes, setSnapToRoutes] = useState(false);
-  const [snapIndicator, setSnapIndicator] = useState<"path" | "road" | null>(null);
+  const [snapIndicator, setSnapIndicator] = useState<"path" | "road" | "manual" | null>(null);
   const [snappingWaypoint, setSnappingWaypoint] = useState(false);
   const [draftRoutingDiagnostics, setDraftRoutingDiagnostics] = useState<RoutingDiagnostics | null>(null);
   const [hoverRoutingDiagnostics, setHoverRoutingDiagnostics] = useState<RoutingDiagnostics | null>(null);
@@ -527,7 +527,7 @@ export default function RouteBuilderPage() {
       if (isSignificantSnap(coordinates, snappedCoordinates)) {
         setSnapIndicator(transportMode === "foot" ? "path" : "road");
       } else {
-        setSnapIndicator(null);
+        setSnapIndicator("manual");
       }
       addWaypoint({
         lat: snappedCoordinates[1],
@@ -549,7 +549,7 @@ export default function RouteBuilderPage() {
       if (isSignificantSnap(coordinates, snappedCoordinates)) {
         setSnapIndicator(transportMode === "foot" ? "path" : "road");
       } else {
-        setSnapIndicator(null);
+        setSnapIndicator("manual");
       }
       addWaypoint({
         lat: snappedCoordinates[1],
@@ -929,7 +929,7 @@ export default function RouteBuilderPage() {
         </div>
         {snapIndicator && (
           <div className="absolute top-4 right-4 rounded-full border bg-background/95 px-3 py-1 text-xs shadow">
-            {snapIndicator === "path" ? "Snapped to path" : "Snapped to road"}
+            {snapIndicator === "path" ? "Snapped to path" : snapIndicator === "road" ? "Snapped to road" : "Placed without snap"}
           </div>
         )}
         {snappingWaypoint && (
