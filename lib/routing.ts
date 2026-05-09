@@ -265,12 +265,10 @@ async function fetchRouteFromOsrm(
 
   const distanceMeters = typeof route?.distance === "number" ? route.distance : 0;
   const durationSeconds = typeof route?.duration === "number" ? route.duration : 0;
-  const distanceKm = distanceMeters / 1000;
-
   return {
     coordinates: routeCoordinates,
-    distanceKm,
-    durationMin: resolveDurationMinutes({ durationSeconds, distanceKm, mode }),
+    distanceKm: distanceMeters / 1000,
+    durationMin: resolveDurationMinutes({ durationSeconds, distanceKm: distanceMeters / 1000, mode }),
     routing: {
       provider: "osrm",
       profile: osrmProfile,

@@ -69,7 +69,7 @@ function resolveOsrmBaseUrl(): string {
     if ((parsed.protocol !== "https:" && parsed.protocol !== "http:") || parsed.username || parsed.password) {
       return DEFAULT_OSRM_BASE_URL;
     }
-    if (process.env.NODE_ENV === "production" && isPrivateHostname(parsed.hostname)) {
+    if (isPrivateHostname(parsed.hostname)) {
       return DEFAULT_OSRM_BASE_URL;
     }
     parsed.hash = "";
@@ -88,7 +88,7 @@ function isPrivateHostname(hostname: string): boolean {
   const ipv4Match = normalizedHost.match(/^(\d{1,3})(?:\.(\d{1,3})){3}$/);
   if (ipv4Match) {
     const octets = normalizedHost.split(".").map((segment) => Number(segment));
-    if (octets.some((octet) => !Number.isInteger(octet) || octet < 0 || octet > 255)) {
+    if (octets.some((octet) => octet < 0 || octet > 255)) {
       return true;
     }
     const [first, second] = octets;

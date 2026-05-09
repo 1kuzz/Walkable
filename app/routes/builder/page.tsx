@@ -204,7 +204,7 @@ export default function RouteBuilderPage() {
             id: crypto.randomUUID(),
             lat: startLat,
             lng: startLng,
-            name: startName || "Park start",
+            name: startName || "Start point",
           }];
         });
       });
