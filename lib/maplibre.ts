@@ -203,7 +203,7 @@ export function createVectorStyle(): StyleSpecification {
           true,
           false,
         ],
-        paint: { "fill-color": "#cde8c3" },
+        paint: { "fill-color": VECTOR_PARK_COLOR },
       },
       {
         id: "landuse-residential",
@@ -338,6 +338,7 @@ export function createVectorStyle(): StyleSpecification {
         source: "openmaptiles",
         "source-layer": "transportation",
         filter: createWalkablePathFilter(),
+        minzoom: 14,
         layout: { "line-cap": "round", "line-join": "round" },
         paint: {
           "line-color": VECTOR_FOOTPATH_COLOR,
@@ -537,6 +538,7 @@ export function createWalkableStyle(): StyleSpecification {
         source: "openmaptiles",
         "source-layer": "transportation",
         filter: createWalkablePathFilter(),
+        minzoom: 14,
         layout: { "line-cap": "round", "line-join": "round" },
         paint: {
           "line-color": "rgba(21,128,61,0.65)",
@@ -551,6 +553,7 @@ export function createWalkableStyle(): StyleSpecification {
         source: "openmaptiles",
         "source-layer": "transportation",
         filter: createWalkablePathFilter(),
+        minzoom: 14,
         layout: { "line-cap": "round", "line-join": "round" },
         paint: {
           "line-color": WALKABLE_FOOTPATH_COLOR,

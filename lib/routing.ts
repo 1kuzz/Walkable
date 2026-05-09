@@ -10,6 +10,8 @@ export interface RoutedPath {
   routing: RoutingDiagnostics;
 }
 
+export type TransportMode = "car" | "foot";
+
 /** How the router should prefer the path. */
 export type RoutePreference = "foot" | "park" | "walkable";
 
@@ -125,6 +127,7 @@ export async function getRoute(
   name = DEFAULT_ROUTE_NAME,
   preference: RoutePreference = "park",
   options?: GetRouteOptions,
+  mode: TransportMode = "foot",
 ): Promise<RoutedPath | null> {
   if (waypoints.length < 2) {
     return null;
@@ -133,15 +136,18 @@ export async function getRoute(
     return null;
   }
 
+  // RoutingDiagnostics currently stores walking-preference values only.
+  // For car mode we treat preference as not-applicable and carry "foot" as a neutral value.
+  const diagnosticPreference: RoutePreference = mode === "car" ? "foot" : preference;
   const osrmBaseUrl = resolveOsrmBaseUrl();
-  const osrmProfile = resolveWalkingOsrmProfile();
+  const osrmProfile = resolveOsrmProfile(mode);
   const coordinates = waypoints
     .map(([lng, lat]) => `${lng},${lat}`)
     .join(";");
   const hintsKey = options?.waypointHints
     ?.map((hint, index) => `${index}:${hint.routeId ?? "-"}`)
     .join("|");
-  const cacheKey = `${preference}|${osrmBaseUrl}|${osrmProfile}|${coordinates}|${hintsKey ?? ""}`;
+  const cacheKey = `${mode}|${diagnosticPreference}|${osrmBaseUrl}|${osrmProfile}|${coordinates}|${hintsKey ?? ""}`;
 
   evictExpiredRouteCacheEntries();
 
@@ -157,7 +163,7 @@ export async function getRoute(
     return buildRoutedPath(result, name, waypoints.length);
   }
 
-  const request = fetchRoute(osrmBaseUrl, osrmProfile, coordinates, waypoints, preference, options);
+  const request = fetchRoute(osrmBaseUrl, osrmProfile, coordinates, waypoints, diagnosticPreference, mode, options);
   inFlightRouteRequests.set(cacheKey, request);
 
   try {
@@ -188,8 +194,15 @@ async function fetchRoute(
   coordinates: string,
   waypoints: Position[],
   preference: RoutePreference,
+  mode: TransportMode,
   options?: GetRouteOptions,
 ): Promise<CachedRoutedPath | null> {
+  if (mode === "car") {
+    return fetchRouteFromOsrm(osrmBaseUrl, osrmProfile, coordinates, {
+      preference,
+      quality: "preferred",
+    }, mode);
+  }
   if (preference === "park") {
     return fetchSegmentedParkRoute({
       osrmBaseUrl,
@@ -212,7 +225,7 @@ async function fetchRoute(
   return fetchRouteFromOsrm(osrmBaseUrl, osrmProfile, coordinates, {
     preference,
     quality: "preferred",
-  });
+  }, mode);
 }
 
 async function fetchRouteFromOsrm(
@@ -224,6 +237,7 @@ async function fetchRouteFromOsrm(
     quality: "preferred" | "fallback";
     fallbackReason?: RoutingFallbackReason;
   },
+  mode: TransportMode = "foot",
 ): Promise<CachedRoutedPath | null> {
 
   const url = new URL(`${osrmBaseUrl}/route/v1/${osrmProfile}/${coordinates}`);
@@ -253,11 +267,10 @@ async function fetchRouteFromOsrm(
 
   const distanceMeters = typeof route?.distance === "number" ? route.distance : 0;
   const durationSeconds = typeof route?.duration === "number" ? route.duration : 0;
-
   return {
     coordinates: routeCoordinates,
     distanceKm: distanceMeters / 1000,
-    durationMin: Math.round(durationSeconds / 60),
+    durationMin: resolveDurationMinutes({ durationSeconds, distanceKm: distanceMeters / 1000, mode }),
     routing: {
       provider: "osrm",
       profile: osrmProfile,
@@ -510,20 +523,20 @@ async function fetchParkNetworkLeg({
         preference,
         quality: "fallback",
         fallbackReason: "ors_no_geometry",
-      });
+      }, "foot");
     } catch {
       return fetchRouteFromOsrm(osrmBaseUrl, osrmProfile, coordinates, {
         preference,
         quality: "fallback",
         fallbackReason: "ors_error",
-      });
+      }, "foot");
     }
   }
   return fetchRouteFromOsrm(osrmBaseUrl, osrmProfile, coordinates, {
     preference,
     quality: "fallback",
     fallbackReason: "ors_missing_key",
-  });
+  }, "foot");
 }
 
 function buildCommunityLeg(
@@ -768,12 +781,33 @@ function normalizeCoordinates(value: unknown): Position[] {
     .filter((point): point is Position => Boolean(point));
 }
 
-function resolveWalkingOsrmProfile(): string {
+function resolveOsrmProfile(mode: TransportMode): string {
+  if (mode === "car") {
+    return "car";
+  }
   const configuredProfile = process.env.NEXT_PUBLIC_OSRM_PROFILE?.trim().toLowerCase();
   if (!configuredProfile) {
     return "foot";
   }
   return WALKING_OSRM_PROFILES.has(configuredProfile) ? configuredProfile : "foot";
+}
+
+function resolveDurationMinutes({
+  durationSeconds,
+  distanceKm,
+  mode,
+}: {
+  durationSeconds: number;
+  distanceKm: number;
+  mode: TransportMode;
+}): number {
+  if (durationSeconds > 0) {
+    return Math.max(MIN_ROUTE_DURATION_MINUTES, Math.round(durationSeconds / 60));
+  }
+  if (mode === "foot" && distanceKm > 0) {
+    return Math.max(MIN_ROUTE_DURATION_MINUTES, Math.round((distanceKm / WALKING_SPEED_KMH) * 60));
+  }
+  return MIN_ROUTE_DURATION_MINUTES;
 }
 
 function resolveOsrmBaseUrl(): string {

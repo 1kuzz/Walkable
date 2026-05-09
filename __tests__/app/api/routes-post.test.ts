@@ -73,6 +73,7 @@ describe("POST /api/routes", () => {
         lengthKm: 5,
         elevationGain: 100,
         surfaceType: "mixed",
+        transportMode: "car",
         estimatedMin: 55,
         geometryGeoJson: JSON.stringify({
           type: "LineString",
@@ -97,6 +98,7 @@ describe("POST /api/routes", () => {
       data: expect.objectContaining({
         parkId: "park_1",
         name: "My route",
+        transportMode: "car",
         createdById: "user_1",
       }),
     });

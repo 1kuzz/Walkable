@@ -118,6 +118,7 @@ model Route {
   lengthKm        Float             @default(0)
   elevationGain   Float             @default(0)
   surfaceType     SurfaceType       @default(mixed)
+  transportMode   String            @default("foot")
   estimatedMin    Int               @default(0)
   geometryGeoJson String?           @db.Text
   createdById     String

@@ -72,6 +72,47 @@ describe("getRoute", () => {
     });
   });
 
+  it("uses car profile when transport mode is car", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        code: "Ok",
+        routes: [{
+          distance: 4200,
+          duration: 600,
+          geometry: {
+            coordinates: [[37.61, 55.75], [37.65, 55.78]],
+          },
+        }],
+      }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await getRoute([[37.61, 55.75], [37.65, 55.78]], "Drive route", "foot", undefined, "car");
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toContain("/route/v1/car/");
+  });
+
+  it("estimates walking duration when OSRM omits duration", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        code: "Ok",
+        routes: [{
+          distance: 1500,
+          geometry: {
+            coordinates: [[37.61, 55.75], [37.62, 55.76]],
+          },
+        }],
+      }),
+    }));
+
+    const result = await getRoute([[37.61, 55.75], [37.62, 55.76]], "No duration");
+
+    expect(result?.durationMin).toBeGreaterThanOrEqual(1);
+  });
+
   it("uses a pedestrian OSRM profile from env", async () => {
     process.env.NEXT_PUBLIC_OSRM_PROFILE = "walking";
     const fetchMock = vi.fn().mockResolvedValue({

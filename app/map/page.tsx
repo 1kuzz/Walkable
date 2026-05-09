@@ -2,9 +2,12 @@
 
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import dynamic from "next/dynamic";
+import type { Position } from "geojson";
 import FilterSidebar, { FilterState } from "@/components/routes/FilterSidebar";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
 import { parseRouteGeometry, parseWalkwayGeometry, type RouteFeature, type WalkwayFeature } from "@/lib/geo";
+import { snapToNearestWalkway } from "@/lib/snap-to-walkway";
 
 const MapContainer = dynamic(() => import("@/components/map/MapContainer"), { ssr: false, loading: () => <Skeleton className="w-full h-full" /> });
 
@@ -48,6 +51,9 @@ export default function MapPage() {
   const [routes, setRoutes] = useState<ApiRoute[]>([]);
   const [walkways, setWalkways] = useState<ApiWalkway[]>([]);
   const [nextDestination, setNextDestination] = useState<{ routeName: string; coordinates: [number, number] } | null>(null);
+  const [nearbyPathPoint, setNearbyPathPoint] = useState<Position | null>(null);
+  const [locatingNearbyPath, setLocatingNearbyPath] = useState(false);
+  const [nearbyPathError, setNearbyPathError] = useState<string | null>(null);
   const sidebarOpen = isDesktopViewport ? desktopSidebarOpen : mobileSidebarOpen;
 
   useEffect(() => {
@@ -107,6 +113,37 @@ export default function MapPage() {
       .filter((feature): feature is WalkwayFeature => Boolean(feature));
   }, [walkways]);
 
+  const nearbyPathMarker = useMemo(
+    () => (nearbyPathPoint ? [{ id: "nearby-path", lat: nearbyPathPoint[1], lng: nearbyPathPoint[0], label: "Path" }] : []),
+    [nearbyPathPoint],
+  );
+
+  const handleFindNearbyPath = () => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      setNearbyPathError("Geolocation is unavailable in this browser.");
+      return;
+    }
+    setLocatingNearbyPath(true);
+    setNearbyPathError(null);
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const currentPoint: Position = [position.coords.longitude, position.coords.latitude];
+        const snapped = await snapToNearestWalkway(currentPoint);
+        setNearbyPathPoint(snapped);
+        setLocatingNearbyPath(false);
+      },
+      () => {
+        setNearbyPathError("Could not access your location.");
+        setLocatingNearbyPath(false);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 30000,
+      },
+    );
+  };
+
   return (
     <div className="flex h-[calc(100vh-64px)] overflow-hidden relative">
       {/* Overlay for mobile when sidebar is open */}
@@ -132,8 +169,19 @@ export default function MapPage() {
           className="h-full w-full"
           routes={routeFeatures}
           walkways={walkwayFeatures}
+          waypoints={nearbyPathMarker}
           onRoutePointSelect={({ routeName, coordinates }) => setNextDestination({ routeName, coordinates: [coordinates[0], coordinates[1]] })}
         />
+        <div className="absolute top-4 right-4 z-20 flex flex-col items-end gap-2">
+          <Button size="sm" variant="outline" onClick={handleFindNearbyPath} disabled={locatingNearbyPath}>
+            {locatingNearbyPath ? "Finding path…" : "Nearby paths"}
+          </Button>
+          {nearbyPathError && (
+            <p className="max-w-xs rounded-md border bg-background/95 px-2 py-1 text-xs text-destructive shadow">
+              {nearbyPathError}
+            </p>
+          )}
+        </div>
         <button
           onClick={() => {
             if (isDesktopViewport) {

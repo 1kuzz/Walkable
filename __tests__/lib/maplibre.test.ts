@@ -3,6 +3,7 @@ import {
   createVectorStyle,
   createWalkableStyle,
   VECTOR_FOOTPATH_COLOR,
+  VECTOR_PARK_COLOR,
   WALKABLE_ROAD_RIVER_COLOR,
   WALKABLE_ROAD_CASING_COLOR,
 } from "@/lib/maplibre";
@@ -24,10 +25,24 @@ describe("createVectorStyle", () => {
     expect(getWalkablePathsLayer().id).toBe("walkable-paths");
   });
 
+  it("renders walkable paths above road layers", () => {
+    const layers = createVectorStyle().layers;
+    const roadIndex = layers.findIndex((layer) => layer.id === "road-minor");
+    const pathsIndex = layers.findIndex((layer) => layer.id === "walkable-paths");
+
+    expect(roadIndex).toBeGreaterThan(-1);
+    expect(pathsIndex).toBeGreaterThan(roadIndex);
+  });
+
   it("uses the correct color token for walkable paths", () => {
     const walkablePaths = getWalkablePathsLayer();
 
     expect((walkablePaths as { paint?: Record<string, unknown> }).paint?.["line-color"]).toBe(VECTOR_FOOTPATH_COLOR);
+  });
+
+  it("uses vector park color token for landuse park fill", () => {
+    const parkLayer = createVectorStyle().layers.find((layer) => layer.id === "landuse-park");
+    expect((parkLayer as { paint?: Record<string, unknown> }).paint?.["fill-color"]).toBe(VECTOR_PARK_COLOR);
   });
 
   it("includes pathway transport classes and excludes road transport classes in filter", () => {
