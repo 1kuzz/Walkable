@@ -107,12 +107,15 @@ export function createWalkablePathFilter(): FilterSpecification {
   return [
     "all",
     ["==", ["geometry-type"], "LineString"],
+    // Some providers encode pedestrian features with a broad class (e.g. minor)
+    // while preserving foot semantics in subclass (e.g. path/footway/sidewalk).
+    // Keep subclass-based positives and avoid class-level road exclusion so we
+    // don't hide valid walkway geometry.
     [
       "any",
       ["match", ["get", "class"], PATHWAY_TRANSPORT_CLASSES, true, false],
       ["match", ["get", "subclass"], PATHWAY_TRANSPORT_SUBCLASSES, true, false],
     ],
-    ["!", ["match", ["get", "class"], ROAD_TRANSPORT_CLASSES, true, false]],
     ["!", ["match", ["get", "subclass"], ROAD_TRANSPORT_CLASSES, true, false]],
     ["!", ["match", ["get", "class"], NON_PATH_TRANSPORT_CLASSES, true, false]],
     ["!", ["match", ["get", "subclass"], NON_PATH_TRANSPORT_SUBCLASSES, true, false]],

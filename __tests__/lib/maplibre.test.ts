@@ -62,6 +62,25 @@ describe("createVectorStyle", () => {
     expect(filter).toContain("\"aerialway\"");
     expect(hasNegatedNonPathClassExclusion).toBe(true);
   });
+
+  it("does not block valid path subclasses by broad road class exclusion", () => {
+    const walkablePaths = getWalkablePathsLayer();
+    const structuredFilter = (walkablePaths as { filter?: unknown[] }).filter ?? [];
+    const hasNegatedRoadClassExclusion = structuredFilter.some((clause) => (
+      Array.isArray(clause)
+      && clause[0] === "!"
+      && Array.isArray(clause[1])
+      && clause[1][0] === "match"
+      && Array.isArray(clause[1][1])
+      && clause[1][1][0] === "get"
+      && clause[1][1][1] === "class"
+      && Array.isArray(clause[1][2])
+      && clause[1][2].includes("motorway")
+      && clause[1][2].includes("residential")
+    ));
+
+    expect(hasNegatedRoadClassExclusion).toBe(false);
+  });
 });
 
 describe("createWalkableStyle", () => {
