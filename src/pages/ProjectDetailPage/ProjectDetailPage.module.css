@@ -1,0 +1,130 @@
+.page {
+  padding: 24px;
+  max-width: 720px;
+}
+
+.backBtn {
+  background: none;
+  border: none;
+  color: var(--color-teal);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  padding: 0;
+  margin-bottom: 24px;
+  display: block;
+  transition: color 0.15s;
+}
+.backBtn:hover { color: var(--color-teal-dark); text-decoration: underline; }
+
+.loading {
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
+
+.errorMsg {
+  color: var(--color-danger);
+  font-size: 14px;
+}
+
+/* ── Card ── */
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  padding: 28px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* ── Owner / repo header ── */
+.cardOwner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.ownerLogin {
+  font-size: 15px;
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.slash {
+  color: var(--color-border);
+  font-size: 18px;
+}
+
+.repoName {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+/* ── Description ── */
+.description {
+  font-size: 15px;
+  color: var(--color-text-muted);
+  margin: 0;
+  line-height: 1.6;
+}
+
+/* ── Meta row ── */
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.metaItem {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
+  color: var(--color-text-muted);
+}
+
+.langDot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ── Actions ── */
+.actions { display: flex; gap: 10px; }
+
+.githubBtn {
+  background: var(--color-teal);
+  border: none;
+  border-radius: 8px;
+  color: #0d1117;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 700;
+  padding: 10px 20px;
+  text-decoration: none;
+  transition: opacity 0.15s;
+  display: inline-block;
+}
+.githubBtn:hover { opacity: 0.85; text-decoration: none; color: #0d1117; }
+
+/* ── Footer ── */
+.submittedAt {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  margin: 0;
+  border-top: 1px solid var(--color-border);
+  padding-top: 16px;
+}

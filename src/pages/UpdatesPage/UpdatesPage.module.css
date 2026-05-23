@@ -1,0 +1,357 @@
+.page {
+  padding: 24px;
+  max-width: 900px;
+}
+
+/* ── Page header ── */
+.pageHeader {
+  margin-bottom: 24px;
+}
+
+.pageHeaderRow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.pageTitle {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-teal-dark);
+  margin: 0 0 4px;
+}
+
+.pageSubtitle {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.addBtn {
+  background: var(--color-teal);
+  border: none;
+  border-radius: 8px;
+  color: #0d1117;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 8px 16px;
+  transition: opacity 0.15s;
+  white-space: nowrap;
+}
+
+.addBtn:hover { opacity: 0.85; }
+
+.tagsBtn {
+  background: none;
+  border: 1px solid var(--color-border, #2a2d3a);
+  border-radius: 8px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 7px 14px;
+  transition: border-color 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.tagsBtn:hover {
+  border-color: var(--color-teal);
+  color: var(--color-teal);
+}
+
+/* ── Filter bar ── */
+.filterBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.typeFilters {
+  display: flex;
+  gap: 4px;
+}
+
+.filterBtn {
+  background: var(--color-surface, #1a1d27);
+  border: 1px solid var(--color-border, #2a2d3a);
+  border-radius: 6px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 12px;
+  transition: all 0.15s;
+  white-space: nowrap;
+}
+
+.filterBtn:hover { border-color: #4a4d5a; color: var(--color-text); }
+
+.filterBtnActive {
+  background: rgba(41, 204, 177, 0.12);
+  border-color: rgba(41, 204, 177, 0.45);
+  color: var(--color-teal, #29ccb1);
+}
+
+.tagSelect {
+  background: var(--color-surface, #1a1d27);
+  border: 1px solid var(--color-border, #2a2d3a);
+  border-radius: 6px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-family: inherit;
+  padding: 5px 10px;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+
+.tagSelect:focus { outline: none; border-color: var(--color-teal, #29ccb1); }
+
+.searchInput {
+  background: var(--color-surface, #1a1d27);
+  border: 1px solid var(--color-border, #2a2d3a);
+  border-radius: 6px;
+  color: var(--color-text);
+  font-size: 13px;
+  font-family: inherit;
+  padding: 5px 12px;
+  width: 200px;
+  transition: border-color 0.15s;
+}
+
+.searchInput:focus { outline: none; border-color: var(--color-teal, #29ccb1); }
+.searchInput::placeholder { color: var(--color-text-muted); }
+
+/* ── Sections ── */
+.pinnedSection {
+  margin-bottom: 8px;
+}
+
+.sectionLabel {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin: 0 0 10px;
+}
+
+/* ── Update list ── */
+.updateList {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+/* ── Update card ── */
+.updateCard {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-teal);
+  border-radius: 8px;
+  padding: 14px 18px;
+  cursor: default;
+  transition: box-shadow 0.15s;
+}
+
+.updateCard:hover {
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.12);
+}
+
+.pinnedCard {
+  border-left-color: #f59e0b;
+  background: rgba(245, 158, 11, 0.03);
+}
+
+/* ── Meta row ── */
+.updateMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.updateDate {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-teal);
+  letter-spacing: 0.3px;
+  flex-shrink: 0;
+}
+
+/* ── Type chips ── */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 9px;
+  flex-shrink: 0;
+}
+
+.chipPortal {
+  background: rgba(139, 92, 246, 0.12);
+  border: 1px solid rgba(139, 92, 246, 0.3);
+  color: #a78bfa;
+}
+
+.chipApp {
+  background: rgba(59, 130, 246, 0.12);
+  border: 1px solid rgba(59, 130, 246, 0.3);
+  color: #93c5fd;
+}
+
+.chipNews {
+  background: rgba(41, 204, 177, 0.1);
+  border: 1px solid rgba(41, 204, 177, 0.25);
+  color: var(--color-teal, #29ccb1);
+}
+
+.versionBadge {
+  display: inline-flex;
+  align-items: center;
+  background: rgba(41, 204, 177, 0.07);
+  border: 1px solid rgba(41, 204, 177, 0.2);
+  border-radius: 20px;
+  color: var(--color-teal);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  flex-shrink: 0;
+}
+
+/* Dynamic tag chip — styles applied inline via hexRgba */
+.tagChip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 9px;
+  flex-shrink: 0;
+}
+
+/* ── Admin controls ── */
+.adminActions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.pinBtn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 2px 4px;
+  opacity: 0.3;
+  transition: opacity 0.15s;
+  line-height: 1;
+}
+
+.pinBtn:hover:not(:disabled) { opacity: 0.8; }
+.pinBtn:disabled { cursor: not-allowed; }
+.pinBtnActive { opacity: 1; }
+
+.editBtn {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  flex-shrink: 0;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.editBtn:hover {
+  border-color: var(--color-teal);
+  color: var(--color-teal);
+}
+
+/* ── Card body ── */
+.updateTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-text);
+  margin: 0 0 6px;
+}
+
+.updateDescription {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  line-height: 1.6;
+  margin: 0 0 6px;
+}
+
+.updateDescription p { margin: 0 0 4px; }
+.updateDescription ul, .updateDescription ol { margin: 4px 0; padding-left: 20px; }
+
+.publishedBy {
+  display: block;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  opacity: 0.7;
+  margin-top: 6px;
+}
+
+/* ── Load more ── */
+.loadMoreWrap {
+  display: flex;
+  justify-content: center;
+  margin-top: 16px;
+}
+
+.loadMoreBtn {
+  background: none;
+  border: 1px solid var(--color-border, #2a2d3a);
+  border-radius: 8px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 24px;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.loadMoreBtn:hover:not(:disabled) {
+  border-color: var(--color-teal);
+  color: var(--color-teal);
+}
+
+.loadMoreBtn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.loadingMsg {
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  padding: 32px 0;
+}
+
+.empty {
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 14px;
+  padding: 48px 0;
+  list-style: none;
+}

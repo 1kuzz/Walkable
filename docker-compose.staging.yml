@@ -1,0 +1,98 @@
+# Staging compose file — used by CI/CD (deploy/compose-deploy.sh).
+# Images are pre-built by the pipeline; no build: context here.
+# Run with: PORTAL_IMAGE=... BACKEND_IMAGE=... docker compose -f docker-compose.staging.yml --project-name showcase-staging up -d
+
+services:
+  postgres:
+    image: "${DOCKER_REGISTRY:-}postgres:16-alpine"
+    container_name: showcase-staging-postgres
+    restart: unless-stopped
+    security_opt:
+      - "no-new-privileges:true"
+    environment:
+      POSTGRES_DB: portal
+      POSTGRES_USER: portal
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+    volumes:
+      - showcase-staging-postgres:/var/lib/postgresql/data
+    networks:
+      - showcase-staging
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U portal"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  backend:
+    image: "${BACKEND_IMAGE}"
+    container_name: showcase-staging-backend
+    restart: unless-stopped
+    security_opt:
+      - "no-new-privileges:true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgresql://portal:${POSTGRES_PASSWORD}@postgres:5432/portal"
+      PORT: "3001"
+      UPLOADS_DIR: /app/uploads
+      CORS_ORIGIN: "${CORS_ORIGIN:-}"
+      GITHUB_TOKEN: "${GITHUB_TOKEN:-}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-}"
+    volumes:
+      - showcase-staging-uploads:/app/uploads
+    networks:
+      - showcase-staging
+    expose:
+      - "3001"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  portal:
+    image: "${PORTAL_IMAGE}"
+    container_name: showcase-staging-portal
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/cache/nginx
+      - /var/run
+    security_opt:
+      - "no-new-privileges:true"
+    ports:
+      - "3001:80"
+    networks:
+      - showcase-staging
+    depends_on:
+      backend:
+        condition: service_healthy
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+networks:
+  showcase-staging:
+    name: showcase-staging
+    driver: bridge
+
+volumes:
+  showcase-staging-postgres:
+    name: showcase-staging-postgres
+  showcase-staging-uploads:
+    name: showcase-staging-uploads

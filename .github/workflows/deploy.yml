@@ -1,33 +1,51 @@
-name: Deploy Walkable
+name: Deploy
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
       - name: Deploy to server
         uses: appleboy/ssh-action@v1.2.0
-
         with:
           host: ${{ secrets.SERVER_HOST }}
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
-
           script: |
+            set -e
             cd /var/www/walkable/app
 
             git pull origin main
 
-            npm ci
-
-            npx prisma generate
-            npx prisma db push
-
+            # ── Frontend ────────────────────────────────────────────────────
+            npm ci --prefer-offline --ignore-scripts
             npm run build
 
-            pm2 restart walkable
+            # ── Backend ─────────────────────────────────────────────────────
+            cd backend
+            npm ci --prefer-offline --ignore-scripts
+            npm run build
+            mkdir -p dist/db/migrations
+            cp src/db/migrations/*.sql dist/db/migrations/
+            cd ..
+
+            # ── PM2 ─────────────────────────────────────────────────────────
+            # First deploy: stop old walkable process if it exists, start fresh.
+            # Subsequent deploys: just restart showcase-backend.
+            if pm2 describe showcase-backend > /dev/null 2>&1; then
+              pm2 restart showcase-backend
+            else
+              pm2 stop walkable 2>/dev/null || true
+              pm2 delete walkable 2>/dev/null || true
+              pm2 start ecosystem.config.js
+              pm2 save
+            fi
+
+            # ── nginx ───────────────────────────────────────────────────────
+            sudo cp nginx.production.conf /etc/nginx/sites-available/showcase
+            sudo ln -sf /etc/nginx/sites-available/showcase /etc/nginx/sites-enabled/showcase
+            sudo rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+            sudo nginx -t && sudo systemctl reload nginx

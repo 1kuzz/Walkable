@@ -1,0 +1,35 @@
+import type { Messages } from '../types';
+
+export const ruAuthMessages = {
+  'auth.login.title': 'MOPS Portal',
+  'auth.login.subtitle': 'Войдите с корпоративной учетной записью Kaspersky',
+  'auth.login.signIn': 'Войти',
+  'auth.login.signingIn': 'Вход…',
+  'auth.login.redirecting': 'Переадресация…',
+  'auth.login.ssoButton': 'Войти через Kaspersky SSO',
+  'auth.login.hideManual': 'Скрыть ручной вход',
+  'auth.login.useLocal': 'Использовать локальную учетную запись',
+  'auth.login.loginLabel': 'Логин',
+  'auth.login.passwordLabel': 'Пароль',
+  'auth.login.passwordPlaceholder': '••••••••',
+  'auth.login.usernamePlaceholder': 'логин или KL\\Username',
+  'auth.login.usernameRequired': 'Требуется логин.',
+  'auth.login.enterPassword': 'Введите пароль.',
+  'auth.login.authFailed': 'Ошибка аутентификации. Попробуйте снова.',
+  'auth.login.ssoFailed': 'Ошибка входа через SSO. Попробуйте снова.',
+  'auth.login.devLogin': 'Dev Admin вход',
+  'auth.login.devLoginFailed': 'Ошибка dev-входа.',
+  'auth.login.ssoAvailableHint':
+    'SSO доступен как вариант входа. Попросите администратора включить его или настройте предпочтение в Settings после входа.',
+  'auth.login.enableSsoHint': 'Чтобы включить SSO, задайте VITE_OIDC_AUTHORITY в окружении.',
+  'auth.callback.signInFailed': 'Не удалось выполнить вход',
+  'auth.callback.backToSignIn': '← Назад ко входу',
+  'auth.callback.signingIn': 'Вход…',
+  'auth.callback.completing': 'Завершение аутентификации, подождите.',
+  'auth.callback.loadingAria': 'Загрузка',
+  'auth.callback.idpError': 'Провайдер идентификации вернул ошибку: {{description}}',
+  'auth.callback.missingCode': 'Отсутствует код авторизации или state. Повторите вход.',
+  'auth.callback.accessHintPrefix':
+    'Похоже, у вас нет доступа к MOPS Portal. Пожалуйста, запросите его',
+  'auth.callback.here': 'здесь',
+} satisfies Messages;

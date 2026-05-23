@@ -1,0 +1,83 @@
+# Full local development stack.
+# Starts PostgreSQL + backend (hot-reload via tsx watch) on Docker.
+# The Vite frontend dev server runs on the HOST via `npm run dev` (already
+# proxies /api/* → localhost:3001).
+#
+# Quick start:
+#   ./setup.sh --dev-full
+# or:
+#   make dev-full
+
+services:
+  postgres:
+    image: "${DOCKER_REGISTRY:-}postgres:16-alpine"
+    container_name: showcase-dev-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: portal
+      POSTGRES_USER: portal
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-portal_dev_secret}"
+    volumes:
+      - showcase-dev-postgres:/var/lib/postgresql/data
+    networks:
+      - showcase-dev
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U portal"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5432:5432"
+
+  backend:
+    build:
+      context: ./backend
+      target: builder
+      args:
+        DOCKER_REGISTRY: "${DOCKER_REGISTRY:-}"
+    container_name: showcase-dev-backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: ["npm", "run", "dev"]
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: "postgresql://portal:${POSTGRES_PASSWORD:-portal_dev_secret}@postgres:5432/portal"
+      PORT: "3001"
+      UPLOADS_DIR: /app/uploads
+      CORS_ORIGIN: "http://localhost:${DEV_PORT:-5173}"
+      GITHUB_TOKEN: "${GITHUB_TOKEN:-}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-}"
+    volumes:
+      # Mount source for hot-reload (tsx watch)
+      - ./backend/src:/app/src:ro
+      - showcase-dev-uploads:/app/uploads
+    networks:
+      - showcase-dev
+    ports:
+      # Expose backend to host so the Vite proxy (localhost:3001) works
+      - "3001:3001"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:3001/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+networks:
+  showcase-dev:
+    name: showcase-dev
+    driver: bridge
+
+volumes:
+  showcase-dev-postgres:
+    name: showcase-dev-postgres
+  showcase-dev-uploads:
+    name: showcase-dev-uploads

@@ -1,0 +1,23 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": [
+    "src/auth",
+    "src/services",
+    "src/api",
+    "src/utils"
+  ],
+  "entryPointStrategy": "expand",
+  "out": "docs/api",
+  "readme": "none",
+  "plugin": [],
+  "excludePrivate": true,
+  "excludeProtected": false,
+  "excludeExternals": true,
+  "excludeInternal": true,
+  "includeVersion": true,
+  "categorizeByGroup": true,
+  "sort": [
+    "source-order"
+  ]
+}
+

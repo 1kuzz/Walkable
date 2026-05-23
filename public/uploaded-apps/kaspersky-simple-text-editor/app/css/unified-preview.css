@@ -1,0 +1,772 @@
+/* Hide original editor and toolbar to show only final preview */
+:root {
+  --z-layer-header: 1000;
+  --z-layer-property-panel: 10010;
+  --z-layer-context-menu: 10020;
+  --z-layer-submenu: 10030;
+}
+
+.word-like-toolbar,
+.editor-panel,
+.preview-header,
+#previewModeToggle {
+  display: none !important;
+}
+
+/* Remove grid background and allow the preview panel to take full width */
+.canvas {
+  background-image: none !important;
+  background-color: transparent !important;
+}
+.canvas-inner {
+  width: auto !important;
+  height: auto !important;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  /* Bottom padding creates space so the save-export-bar (fixed, ~64px tall at bottom:16px)
+     never covers the footer of the email preview. */
+  padding: 0 0 80px 0;
+}
+.preview-panel {
+  flex: 1 1 100% !important;
+  width: 100% !important;
+  margin: 0 !important;
+}
+.preview-content {
+  overflow: visible !important;
+}
+.preview-frame {
+  max-width: none !important;
+  /* Ensure the frame itself participates in the normal document flow so that
+     the canvas can grow to fit it and avoid scroll-cutting the email. */
+  min-height: 0 !important;
+}
+
+/* Highlighting styles for interactive elements */
+.preview-hover {
+  outline: 1px dashed #29a8e0;
+}
+.preview-selected {
+  outline: 2px solid #0066cc;
+  position: relative;
+}
+.preview-editing {
+  outline: 2px solid #2e7d32 !important;
+  outline-offset: 2px;
+  position: relative;
+}
+.preview-editing::before {
+  content: 'Editing ' attr(data-tag);
+  position: absolute;
+  top: -1.2em;
+  left: 0;
+  background: #2e7d32;
+  color: #fff;
+  font-size: 10px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  pointer-events: none;
+}
+.preview-selected::before {
+  content: attr(data-tag);
+  position: absolute;
+  top: -1.2em;
+  left: 0;
+  background: #0066cc;
+  color: #fff;
+  font-size: 10px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  pointer-events: none;
+}
+
+/* Context menu for preview actions */
+/* ── Context menu (right-click) ── */
+.preview-action-menu {
+  position: absolute;
+  background: #ffffff;
+  border: 1px solid #e5e5e5;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.12), 0 0 1px rgba(0,0,0,0.08);
+  border-radius: 8px;
+  padding: 4px 0;
+  margin: 0;
+  list-style: none;
+  display: none;
+  z-index: var(--z-layer-context-menu);
+  min-width: 180px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+.preview-action-menu li {
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #333;
+  transition: background 0.1s;
+}
+.preview-action-menu li:hover {
+  background: #f0faf8;
+  color: #29ccb1;
+}
+.preview-action-menu .menu-sep {
+  height: 1px;
+  background: #eee;
+  margin: 4px 0;
+  padding: 0;
+  cursor: default;
+}
+.preview-action-menu .menu-sep:hover { background: #eee; color: #333; }
+
+/* Block-conversion submenu */
+.block-convert-menu {
+  position: fixed;
+  background: #ffffff;
+  border: 1px solid #e5e5e5;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.12), 0 0 1px rgba(0,0,0,0.08);
+  border-radius: 8px;
+  padding: 4px 0;
+  margin: 0;
+  list-style: none;
+  display: none;
+  z-index: var(--z-layer-submenu);
+  min-width: 220px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+.block-convert-menu li {
+  padding: 8px 16px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #333;
+  transition: background 0.1s;
+}
+.block-convert-menu li:hover { background: #f0faf8; color: #29ccb1; }
+.block-convert-menu .bcm-sep {
+  height: 1px;
+  background: #eee;
+  margin: 4px 0;
+  padding: 0;
+  cursor: default;
+}
+
+/* ── Floating selection toolbar ── */
+.inline-toolbar {
+  position: absolute;
+  background: #1e1e1e;
+  border: none;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.25), 0 0 1px rgba(0,0,0,0.1);
+  border-radius: 8px;
+  padding: 4px 6px;
+  display: none;
+  z-index: var(--z-layer-context-menu);
+  gap: 2px;
+  align-items: center;
+}
+.inline-toolbar.visible { display: flex; }
+.inline-toolbar button {
+  background: none;
+  border: none;
+  margin: 0;
+  padding: 6px 8px;
+  font-size: 14px;
+  cursor: pointer;
+  color: #ccc;
+  border-radius: 4px;
+  transition: all 0.15s;
+  line-height: 1;
+}
+.inline-toolbar button svg {
+  display: inline-block;
+  vertical-align: middle;
+  stroke: currentColor;
+}
+.inline-toolbar button:hover {
+  background: rgba(255,255,255,0.12);
+  color: #fff;
+}
+.inline-toolbar button:hover svg {
+  stroke: #fff;
+}
+.inline-toolbar button.active {
+  background: rgba(41,204,177,0.2);
+  color: #29ccb1;
+}
+.inline-toolbar button.active svg {
+  stroke: #29ccb1;
+}
+.inline-toolbar .itb-sep {
+  width: 1px;
+  height: 18px;
+  background: rgba(255,255,255,0.15);
+  margin: 0 3px;
+  flex-shrink: 0;
+}
+.inline-toolbar select {
+  background: transparent;
+  color: #ccc;
+  border: none;
+  font-size: 12px;
+  padding: 4px 2px;
+  cursor: pointer;
+  outline: none;
+}
+.inline-toolbar .inline-typography-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.inline-toolbar .inline-typography-controls select#fontSizeSelect,
+.inline-toolbar .inline-typography-controls select#lineHeightSelect {
+  min-width: 66px;
+}
+.inline-toolbar .inline-typography-controls select#fontFamilySelect {
+  min-width: 140px;
+}
+.inline-toolbar select option { background: #1e1e1e; color: #ccc; }
+.inline-toolbar select:hover { color: #fff; }
+
+/* ── Property panel (Figma-style) ── */
+.property-panel {
+  position: fixed;
+  top: 130px;
+  left: 16px;
+  width: 280px;
+  background: #ffffff;
+  border: 1px solid #e5e5e5;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.1), 0 0 1px rgba(0,0,0,0.06);
+  border-radius: 10px;
+  padding: 0;
+  display: none;
+  z-index: var(--z-layer-property-panel);
+  font-size: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  max-height: calc(100vh - 160px);
+  overflow-y: auto;
+  opacity: 0;
+  transform: translateX(-10px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.property-panel.show {
+  opacity: 1;
+  transform: translateX(0);
+}
+.property-panel::-webkit-scrollbar { width: 4px; }
+.property-panel::-webkit-scrollbar-thumb { background: #ccc; border-radius: 4px; }
+.property-panel h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 12px 16px 8px;
+  color: #333;
+  position: sticky;
+  top: 0;
+  background: #fff;
+  border-radius: 10px 10px 0 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+.property-panel .prop-section {
+  padding: 8px 16px;
+  border-bottom: 1px solid #f5f5f5;
+}
+.property-panel .prop-section-title {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #767676;
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+.property-panel .property-row {
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.property-panel .property-row label {
+  margin-right: 0;
+  flex: 0 0 auto;
+  min-width: 65px;
+  color: #666;
+  font-size: 11px;
+}
+.property-panel .property-row input[type="number"] {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  border: 1px solid #e5e5e5;
+  border-radius: 6px;
+  padding: 0 8px;
+  font-size: 12px;
+  background: #fafafa;
+  transition: border-color 0.15s;
+}
+.property-panel .property-row input[type="number"]:focus {
+  border-color: #29ccb1;
+  outline: none;
+  background: #fff;
+}
+.property-panel .property-row input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  border: 1px solid #e5e5e5;
+  border-radius: 6px;
+  padding: 0 8px;
+  font-size: 12px;
+  background: #fafafa;
+}
+.property-panel .property-row input[type="text"]:focus {
+  border-color: #29ccb1;
+  outline: none;
+  background: #fff;
+}
+.property-panel .property-row input[type="color"] {
+  width: 28px; height: 28px;
+  border: 1px solid #e5e5e5;
+  border-radius: 6px;
+  padding: 2px;
+  cursor: pointer;
+  flex: 0 0 28px;
+}
+.property-panel .property-row select {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  border: 1px solid #e5e5e5;
+  border-radius: 6px;
+  padding: 0 6px;
+  font-size: 12px;
+  background: #fafafa;
+  cursor: pointer;
+}
+.property-panel .property-row select:focus {
+  border-color: #29ccb1;
+  outline: none;
+}
+.property-panel .property-actions {
+  padding: 8px 16px 12px;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.property-panel .property-actions button {
+  margin: 0;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.property-panel .btn-primary {
+  background: #29ccb1;
+  color: #fff;
+  border: none;
+}
+.property-panel .btn-primary:hover { background: #22b89e; }
+/* Hint text in property panel — must meet WCAG AA 4.5:1 on white background */
+.prop-hint {
+  color: #767676;
+  font-size: 10px;
+  font-weight: normal;
+}
+.property-panel .btn-secondary {
+  background: #f5f5f5;
+  color: #666;
+  border: 1px solid #e5e5e5;
+}
+.property-panel .btn-secondary:hover { background: #eee; }
+/* Block formatting buttons in property panel */
+.property-panel .block-format-btn {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid #e5e5e5;
+  border-radius: 6px;
+  background: #fafafa;
+  cursor: pointer;
+  text-align: left;
+  transition: all 0.15s;
+}
+.property-panel .block-format-btn:hover {
+  background: #e8e8e8;
+  border-color: #d0d0d0;
+}
+.property-panel .block-format-btn:active {
+  background: #d8d8d8;
+  transform: scale(0.98);
+}
+.property-panel .block-format-btn[aria-pressed="true"] {
+  background: #e0f7f3;
+  border-color: #29ccb1;
+  color: #29ccb1;
+}
+.property-panel .block-format-btn.indent-btn {
+  flex: 1;
+  font-size: 16px;
+}
+
+/* ── Page Settings Panel - Separate visual island ── */
+.page-settings-panel {
+  position: fixed;
+  top: 130px;
+  left: 312px; /* Position to the right of property panel (16px + 280px + 16px gap) */
+  width: 280px;
+  background: #ffffff;
+  border: 1px solid #e5e5e5;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.1), 0 0 1px rgba(0,0,0,0.06);
+  border-radius: 10px;
+  padding: 0;
+  display: none;
+  z-index: 9998; /* Below property panel */
+  font-size: 12px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  max-height: calc(100vh - 160px);
+  overflow-y: auto;
+  opacity: 0;
+  transform: translateX(-10px);
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.page-settings-panel.show {
+  opacity: 1;
+  transform: translateX(0);
+}
+.page-settings-panel::-webkit-scrollbar { width: 4px; }
+.page-settings-panel::-webkit-scrollbar-thumb { background: #ccc; border-radius: 4px; }
+.page-settings-panel h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 12px 16px 8px;
+  color: #333;
+  position: sticky;
+  top: 0;
+  background: #fff;
+  border-radius: 10px 10px 0 0;
+  border-bottom: 1px solid #f0f0f0;
+  z-index: 1;
+}
+.page-settings-panel .prop-section {
+  padding: 8px 16px;
+}
+.page-settings-panel .property-row {
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.page-settings-panel .property-row label {
+  margin-right: 0;
+  flex: 0 0 auto;
+  min-width: 90px;
+  color: #666;
+  font-size: 11px;
+}
+.page-settings-panel .property-row input[type="number"] {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  border: 1px solid #e5e5e5;
+  border-radius: 6px;
+  padding: 0 8px;
+  font-size: 12px;
+  background: #fafafa;
+  transition: border-color 0.15s;
+}
+.page-settings-panel .property-row input[type="number"]:focus {
+  border-color: #29ccb1;
+  outline: none;
+  background: #fff;
+}
+.page-settings-panel .property-row input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+  border: 1px solid #e5e5e5;
+  border-radius: 6px;
+  padding: 0 8px;
+  font-size: 12px;
+  background: #fafafa;
+}
+.page-settings-panel .property-row input[type="text"]:focus {
+  border-color: #29ccb1;
+  outline: none;
+  background: #fff;
+}
+.page-settings-panel .property-row input[type="color"] {
+  width: 50px;
+  height: 28px;
+  border: 1px solid #e5e5e5;
+  border-radius: 6px;
+  padding: 2px;
+  cursor: pointer;
+  flex: 0 0 50px;
+}
+
+/* ── Save / Export floating bar ── */
+.save-export-bar {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1e1e1e;
+  border-radius: 12px;
+  padding: 6px 12px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  z-index: var(--z-layer-context-menu);
+  box-shadow: 0 8px 32px rgba(0,0,0,0.2), 0 0 1px rgba(0,0,0,0.1);
+}
+.save-export-bar button {
+  background: none;
+  border: none;
+  color: #ccc;
+  padding: 8px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.15s;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.save-export-bar button svg {
+  display: inline-block;
+  vertical-align: middle;
+  stroke: currentColor;
+  flex-shrink: 0;
+}
+.save-export-bar button:hover {
+  background: rgba(255,255,255,0.1);
+  color: #fff;
+}
+.save-export-bar button:hover svg {
+  stroke: #fff;
+}
+.save-export-bar button:focus-visible {
+  outline: 2px solid #29ccb1;
+  outline-offset: 1px;
+}
+.save-export-bar .seb-sep {
+  width: 1px;
+  height: 20px;
+  background: rgba(255,255,255,0.15);
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+.save-export-bar .seb-label {
+  color: #666;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 0 4px;
+}
+
+/* Figma-like top toolbar */
+.figma-toolbar {
+  position: fixed;
+  /* Position below the site header to avoid overlap */
+  top: 80px;
+  left: 0;
+  right: 0;
+  height: 40px;
+  background: #ffffff;
+  border-bottom: 1px solid #ddd;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  gap: 2px;
+  z-index: var(--z-layer-context-menu);
+}
+.figma-toolbar button {
+  border: none;
+  background: none;
+  padding: 6px 8px;
+  font-size: 16px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background 0.15s ease, box-shadow 0.15s ease;
+  position: relative;
+  color: #333;
+}
+.figma-toolbar button svg {
+  display: inline-block;
+  vertical-align: middle;
+  stroke: currentColor;
+}
+.figma-toolbar button:hover {
+  background: #f2f2f2;
+  color: #29ccb1;
+}
+.figma-toolbar button:hover svg {
+  stroke: #29ccb1;
+}
+.figma-toolbar button.active {
+  background: #e0f7f3;
+  color: #29ccb1;
+  box-shadow: inset 0 -2px 0 #29ccb1;
+}
+.figma-toolbar button.active svg {
+  stroke: #29ccb1;
+}
+.figma-toolbar button:focus-visible {
+  outline: 2px solid #29ccb1;
+  outline-offset: 1px;
+  box-shadow: 0 0 0 3px rgba(41,204,177,0.25);
+}
+.figma-toolbar select:focus-visible {
+  outline: 2px solid #29ccb1;
+  outline-offset: 1px;
+  box-shadow: 0 0 0 3px rgba(41,204,177,0.25);
+}
+.figma-toolbar .tb-sep {
+  width: 1px;
+  height: 20px;
+  background: #ddd;
+  margin: 0 4px;
+  flex-shrink: 0;
+}
+
+ /* Offset body content to account for fixed header and toolbar */
+ body {
+   padding-top: 120px;
+ }
+
+/* =====================================================================
+   RESPONSIVE — unified-preview panels on tablet & mobile
+   ===================================================================== */
+
+/* ── Tablet (≤1024px) ── */
+@media (max-width: 1024px) {
+  .property-panel {
+    width: 260px;
+    left: 8px;
+    top: 110px;
+    max-height: calc(100vh - 120px);
+  }
+
+  .page-settings-panel {
+    left: 284px;
+    width: 260px;
+    top: 110px;
+    max-height: calc(100vh - 120px);
+  }
+
+  .figma-toolbar {
+    top: 60px;
+  }
+
+  body {
+    padding-top: 100px;
+  }
+}
+
+/* ── Narrow laptop (1000px–1200px) ── */
+@media (max-width: 1200px) and (min-width: 1000px) {
+  .property-panel {
+    width: 250px;
+    left: 8px;
+  }
+
+  .page-settings-panel {
+    width: 250px;
+    left: 272px;
+  }
+}
+
+/* ── Mobile (≤768px) ── */
+@media (max-width: 768px) {
+  /* Property panel: full-width bottom sheet */
+  .property-panel {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    width: 100%;
+    max-width: 100%;
+    max-height: 60vh;
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
+    transform: none;
+    z-index: 10000;
+  }
+  .property-panel.show {
+    transform: none;
+  }
+
+  /* Page settings panel: also full-width bottom sheet */
+  .page-settings-panel {
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    width: 100%;
+    max-width: 100%;
+    max-height: 60vh;
+    border-radius: 16px 16px 0 0;
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.15);
+    transform: none;
+  }
+  .page-settings-panel.show {
+    transform: none;
+  }
+
+  /* Figma toolbar: sits right below header */
+  .figma-toolbar {
+    top: 48px;
+    height: 34px;
+  }
+
+  /* Save-export bar: full-width */
+  .save-export-bar {
+    left: 8px;
+    right: 8px;
+    transform: none;
+    padding: 4px 6px;
+    gap: 2px;
+  }
+  .save-export-bar button {
+    padding: 6px 6px;
+    font-size: 11px;
+    gap: 4px;
+  }
+  .save-export-bar .seb-sep {
+    margin: 0 2px;
+  }
+
+  body {
+    padding-top: 82px;
+  }
+
+  /* Inline toolbar (floating selection) adapts to viewport */
+  .inline-toolbar {
+    max-width: calc(100vw - 16px);
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* ── Small mobile (≤480px) ── */
+@media (max-width: 480px) {
+  /* Save-export bar: icon-only buttons.
+     All buttons carry aria-label so text remains accessible. */
+  .save-export-bar button {
+    padding: 8px;
+    overflow: hidden;
+    max-width: 36px;
+    max-height: 36px;
+  }
+  .save-export-bar button svg {
+    flex-shrink: 0;
+  }
+  .save-export-bar .seb-label {
+    display: none;
+  }
+}

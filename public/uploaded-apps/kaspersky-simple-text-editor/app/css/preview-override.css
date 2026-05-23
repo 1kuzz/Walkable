@@ -1,0 +1,42 @@
+/*----------------------------------------------------------------
+ * Unified preview styles
+ *
+ * The preview panel becomes the only visible representation of the
+ * email. Remove internal scroll containers and visual chrome so that
+ * the canvas itself is the exported preview. Disable the live
+ * preview header and mode toggle, and expand the preview frame to
+ * occupy the full width of the canvas. These overrides ensure that
+ * users scroll the page itself rather than an inner panel.
+ *----------------------------------------------------------------*/
+/* Hide the “Live Preview” header and mobile/desktop toggle */
+.preview-header,
+#previewModeToggle {
+    display: none !important;
+}
+
+/* Remove box shadows and backgrounds from the preview panel */
+.preview-panel {
+    background: none !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+/* Make the preview content scroll with the page instead of within its own container */
+.preview-content {
+    overflow: visible !important;
+    background: none !important;
+    padding: 0 !important;
+}
+
+/* Expand the preview frame to full width and remove decorative box */
+.preview-frame {
+    width: 100% !important;
+    border: none !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+    min-height: auto !important;
+}
+

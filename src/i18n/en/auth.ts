@@ -1,0 +1,35 @@
+import type { Messages } from '../types';
+
+export const enAuthMessages = {
+  'auth.login.title': 'MOPS Portal',
+  'auth.login.subtitle': 'Sign in with your Kaspersky domain account',
+  'auth.login.signIn': 'Sign in',
+  'auth.login.signingIn': 'Signing in…',
+  'auth.login.redirecting': 'Redirecting…',
+  'auth.login.ssoButton': 'Sign in with Kaspersky SSO',
+  'auth.login.hideManual': 'Hide manual login',
+  'auth.login.useLocal': 'Use local account instead',
+  'auth.login.loginLabel': 'Login',
+  'auth.login.passwordLabel': 'Password',
+  'auth.login.passwordPlaceholder': '••••••••',
+  'auth.login.usernamePlaceholder': 'username or KL\\Username',
+  'auth.login.usernameRequired': 'Username is required.',
+  'auth.login.enterPassword': 'Enter your password.',
+  'auth.login.authFailed': 'Authentication failed. Please try again.',
+  'auth.login.ssoFailed': 'SSO sign-in failed. Please try again.',
+  'auth.login.devLogin': 'Dev Admin Login',
+  'auth.login.devLoginFailed': 'Dev login failed.',
+  'auth.login.ssoAvailableHint':
+    'SSO (Single Sign-On) is available as a login option. Ask your administrator to configure it, or set your preference in Settings after logging in.',
+  'auth.login.enableSsoHint': 'To enable SSO, configure VITE_OIDC_AUTHORITY in your environment.',
+  'auth.callback.signInFailed': 'Sign-in failed',
+  'auth.callback.backToSignIn': '← Back to sign-in',
+  'auth.callback.signingIn': 'Signing in…',
+  'auth.callback.completing': 'Completing authentication, please wait.',
+  'auth.callback.loadingAria': 'Loading',
+  'auth.callback.idpError': 'Identity provider returned an error: {{description}}',
+  'auth.callback.missingCode': 'Missing authorization code or state parameter. Please try signing in again.',
+  'auth.callback.accessHintPrefix':
+    "Seems that you don't have an access to the MOPS Portal. Please request it",
+  'auth.callback.here': 'here',
+} satisfies Messages;

@@ -1,0 +1,68 @@
+# docker-compose v1 (1.29+) compatible.
+# The frontend SPA is built and served by nginx.
+# The backend API runs as a separate Node.js service.
+# PostgreSQL stores all shared state.
+
+services:
+  postgres:
+    image: "${DOCKER_REGISTRY:-}postgres:16-alpine"
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: portal
+      POSTGRES_USER: portal
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-portal_secret}"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U portal"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    image: "${BACKEND_IMAGE:-showcase-backend:local}"
+    build:
+      context: ./backend
+      args:
+        DOCKER_REGISTRY: "${DOCKER_REGISTRY:-}"
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: "postgresql://portal:${POSTGRES_PASSWORD:-portal_secret}@postgres:5432/portal"
+      PORT: "3001"
+      UPLOADS_DIR: /app/uploads
+      CORS_ORIGIN: "${CORS_ORIGIN:-http://localhost}"
+      GITHUB_TOKEN: "${GITHUB_TOKEN:-}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-}"
+    volumes:
+      - uploads_data:/app/uploads
+    expose:
+      - "3001"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+  portal:
+    image: "${PORTAL_IMAGE:-showcase-portal:local}"
+    build:
+      context: .
+      args:
+        DOCKER_REGISTRY: "${DOCKER_REGISTRY:-}"
+        VITE_APP_VERSION: "${VITE_APP_VERSION:-dev}"
+    ports:
+      - "${PORT:-80}:80"
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
+  uploads_data:

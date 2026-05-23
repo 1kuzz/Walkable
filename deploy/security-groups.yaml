@@ -1,0 +1,104 @@
+heat_template_version: 2018-08-31
+
+description: >
+  OpenStack Heat template for MOPS Portal security groups.
+  Implements firewall rules per NET 08 requirements:
+  all service hosts must have a firewall enabled with exportable rules.
+
+parameters:
+  management_cidr:
+    type: string
+    description: CIDR of the management/admin subnet
+    default: 10.0.0.0/24
+
+  internal_cidr:
+    type: string
+    description: CIDR of the internal corporate network
+    default: 10.0.0.0/8
+
+resources:
+
+  # --- Portal application security group ---
+  portal_sg:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      name: mopsportal-app-sg
+      description: >
+        Security group for MOPS Portal application tier.
+        NET 08: firewall enabled, rules exportable.
+      rules:
+        # HTTPS — inbound from internal network only
+        - direction: ingress
+          protocol: tcp
+          port_range_min: 443
+          port_range_max: 443
+          remote_ip_prefix: { get_param: internal_cidr }
+
+        # HTTP — inbound from internal network (redirect to HTTPS)
+        - direction: ingress
+          protocol: tcp
+          port_range_min: 80
+          port_range_max: 80
+          remote_ip_prefix: { get_param: internal_cidr }
+
+        # SSH — inbound from management subnet only
+        - direction: ingress
+          protocol: tcp
+          port_range_min: 22
+          port_range_max: 22
+          remote_ip_prefix: { get_param: management_cidr }
+
+        # ICMP — allow ping from internal network for monitoring
+        - direction: ingress
+          protocol: icmp
+          remote_ip_prefix: { get_param: internal_cidr }
+
+        # Outbound TCP — allow all (egress firewall at network level)
+        - direction: egress
+          protocol: tcp
+          remote_ip_prefix: 0.0.0.0/0
+
+        # Outbound UDP — DNS + NTP
+        - direction: egress
+          protocol: udp
+          port_range_min: 53
+          port_range_max: 53
+          remote_ip_prefix: 0.0.0.0/0
+
+        - direction: egress
+          protocol: udp
+          port_range_min: 123
+          port_range_max: 123
+          remote_ip_prefix: 0.0.0.0/0
+
+  # --- Monitoring / health-check security group ---
+  monitoring_sg:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      name: mopsportal-monitoring-sg
+      description: >
+        Security group for monitoring probes (health checks, metrics scraping).
+        Allows Prometheus/health-check scraper from the management subnet.
+      rules:
+        # Health check endpoint (port 80)
+        - direction: ingress
+          protocol: tcp
+          port_range_min: 80
+          port_range_max: 80
+          remote_ip_prefix: { get_param: management_cidr }
+
+        # Metrics endpoint (port 9090 — Prometheus scrape)
+        - direction: ingress
+          protocol: tcp
+          port_range_min: 9090
+          port_range_max: 9090
+          remote_ip_prefix: { get_param: management_cidr }
+
+outputs:
+  portal_sg_id:
+    description: ID of the MOPS Portal application security group
+    value: { get_resource: portal_sg }
+
+  monitoring_sg_id:
+    description: ID of the MOPS Portal monitoring security group
+    value: { get_resource: monitoring_sg }

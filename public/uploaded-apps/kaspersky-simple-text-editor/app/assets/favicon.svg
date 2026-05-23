@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <!--
+    Newsletter Constructor Pro — App Icon
+    Kaspersky 2026 Internal Utility Style
+
+    Design rationale:
+      • Deep Kaspersky green (#006D5B) rounded-square background — on-brand,
+        authoritative, consistent with the app's header colour.
+      • Bold white "N" letterform (N = Newsletter) as the primary symbol.
+        The diagonal stroke of the N subtly echoes the diagonal of the
+        Kaspersky shield, tying the mark to the parent brand.
+      • Thin accent line in #29CCB1 (the UI highlight colour) separates the
+        letter zone from the envelope below, providing visual rhythm.
+      • Minimal white envelope icon reinforces the "email / newsletter" context
+        without competing with the letter.
+      • Flat design, no gradients, no drop-shadows — correct for a 2026
+        Microsoft-ecosystem internal utility and legible at 16 px.
+  -->
+
+  <!-- Rounded-square background (radius ≈ 22 %) -->
+  <rect x="0" y="0" width="256" height="256" rx="56" ry="56" fill="#006D5B"/>
+
+  <!-- Bold "N" letterform (white, centred in upper 60 % of the tile) -->
+  <g stroke="#FFFFFF" stroke-width="22" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <!-- Left vertical bar -->
+    <line x1="72"  y1="56"  x2="72"  y2="152"/>
+    <!-- Right vertical bar -->
+    <line x1="184" y1="56"  x2="184" y2="152"/>
+    <!-- Diagonal stroke -->
+    <line x1="72"  y1="56"  x2="184" y2="152"/>
+  </g>
+
+  <!-- Accent separator line (#29CCB1) -->
+  <line x1="46" y1="164" x2="210" y2="164" stroke="#29CCB1" stroke-width="6" stroke-linecap="round"/>
+
+  <!-- Envelope outline (white) -->
+  <g stroke="#FFFFFF" stroke-width="10" stroke-linecap="round" stroke-linejoin="round" fill="none">
+    <!-- Envelope body -->
+    <rect x="72" y="178" width="112" height="56" rx="4" ry="4"/>
+    <!-- Flap V -->
+    <polyline points="72,178 128,213 184,178"/>
+  </g>
+</svg>

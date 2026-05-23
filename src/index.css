@@ -1,0 +1,176 @@
+/* ──────────────────────────────────────────────────
+   MOPS Portal — Global Styles
+   Kaspersky corporate design system (2025)
+   ────────────────────────────────────────────────── */
+
+/* ── Kaspersky Sans Display ── */
+@font-face {
+  font-family: 'Kaspersky Sans Display';
+  src: url('./assets/brand/fonts/Kaspersky_Sans_Display_Light.woff2') format('woff2');
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Kaspersky Sans Display';
+  src: url('./assets/brand/fonts/Kaspersky_Sans_Display_Regular.woff2') format('woff2'),
+       url('./assets/brand/fonts/Kaspersky_Sans_Display_Regular.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Kaspersky Sans Display';
+  src: url('./assets/brand/fonts/Kaspersky_Sans_Display_Medium.woff2') format('woff2'),
+       url('./assets/brand/fonts/Kaspersky_Sans_Display_Medium.woff') format('woff');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Kaspersky Sans Display';
+  src: url('./assets/brand/fonts/Kaspersky_Sans_Display_SemiBold.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Kaspersky Sans Display';
+  src: url('./assets/brand/fonts/Kaspersky_Sans_Display_Bold.woff2') format('woff2'),
+       url('./assets/brand/fonts/Kaspersky_Sans_Display_Bold.woff') format('woff');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Kaspersky Sans Display';
+  src: url('./assets/brand/fonts/Kaspersky_Sans_Display_ExtraBold.woff2') format('woff2');
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ── Kaspersky Sans Mono ── */
+@font-face {
+  font-family: 'Kaspersky Sans Mono';
+  src: url('./assets/brand/fonts/Kaspersky_Sans_Mono_Regular.woff2') format('woff2'),
+       url('./assets/brand/fonts/Kaspersky_Sans_Mono_Regular.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Kaspersky Sans Mono';
+  src: url('./assets/brand/fonts/Kaspersky_Sans_Mono_Bold.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* Brand colors — Kaspersky corporate palette */
+  --color-teal:        #29CCB1;
+  --color-teal-dark:   #23B89E;
+  --color-teal-light:  #E8FAF7;
+  --color-teal-border: #29CCB1;
+
+  /* Neutrals */
+  --color-white:       #ffffff;
+  --color-bg:          #f5f7f8;
+  --color-surface:     #ffffff;
+  --color-border:      #d0dde5;
+  --color-text:        #1D1D1B;
+  --color-text-muted:  #6b7f8e;
+
+  /* Status */
+  --color-success: #27ae60;
+  --color-warning: #f39c12;
+  --color-danger:  #e74c3c;
+
+  /* Layout */
+  --header-height: 56px;
+  --sidebar-width: 280px;
+
+  /* Typography */
+  --font-display: 'Kaspersky Sans Display', system-ui, -apple-system, sans-serif;
+  --font-mono: 'Kaspersky Sans Mono', 'Consolas', monospace;
+
+  font-family: var(--font-display);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--color-text);
+  background-color: var(--color-bg);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
+}
+
+a {
+  color: var(--color-teal);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+  color: var(--color-teal-dark);
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  margin-top: 0;
+  font-family: var(--font-display);
+  color: var(--color-text);
+}
+
+ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* ── Dark Theme ──
+   Activated manually via .theme-dark class on :root.
+   Dark palette follows Kaspersky corporate guidelines:
+   - Background: #1D1D1B (Kaspersky Near-Black)
+   - Surface: #2A2A28
+   - Text: #FFFFFF / #A0A0A0
+   - Accent: Kaspersky Green #29CCB1
+   ────────────────────────────────────────────────── */
+
+.theme-dark {
+  --color-bg:          #1D1D1B;
+  --color-surface:     #2A2A28;
+  --color-border:      #3D3D3B;
+  --color-text:        #FFFFFF;
+  --color-text-muted:  #A0A0A0;
+  --color-white:       #FFFFFF;
+  --color-teal-light:  rgba(41, 204, 177, 0.12);
+  --color-teal-dark:   #34E0C3;
+
+  color-scheme: dark;
+}

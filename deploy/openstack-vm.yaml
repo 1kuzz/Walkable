@@ -1,0 +1,112 @@
+heat_template_version: 2018-08-31
+
+description: >
+  OpenStack Heat template for the MOPS Portal VM.
+  Deploys a single VM with Secure Boot metadata, correct flavor, network,
+  and security group per infrastructure requirements.
+
+parameters:
+  image_id:
+    type: string
+    description: ID of the OS image (must have Secure Boot metadata pre-configured)
+    default: WindowsServer2022SERVERSTANDARD
+
+  flavor:
+    type: string
+    description: VM flavor (CPU / RAM / disk)
+    default: m1.medium
+
+  network_id:
+    type: string
+    description: ID of the project network (VLAN)
+
+  key_name:
+    type: string
+    description: SSH key pair name for Linux-based VMs
+    default: ""
+
+  vm_name:
+    type: string
+    description: Display name for the portal VM
+    default: mopsportal-vm
+
+resources:
+
+  # Security group for the portal VM (references the dedicated stack output)
+  portal_security_group:
+    type: OS::Neutron::SecurityGroup
+    properties:
+      name: mopsportal-sg
+      description: Security group for MOPS Portal VM — see security-groups.yaml
+      rules:
+        # Allow HTTPS inbound from internal network
+        - direction: ingress
+          protocol: tcp
+          port_range_min: 443
+          port_range_max: 443
+          remote_ip_prefix: 10.0.0.0/8
+        # Allow HTTP inbound (internal only, redirected to HTTPS by reverse proxy)
+        - direction: ingress
+          protocol: tcp
+          port_range_min: 80
+          port_range_max: 80
+          remote_ip_prefix: 10.0.0.0/8
+        # Allow SSH from management subnet only
+        - direction: ingress
+          protocol: tcp
+          port_range_min: 22
+          port_range_max: 22
+          remote_ip_prefix: 10.0.0.0/24
+        # Allow all outbound traffic
+        - direction: egress
+          protocol: tcp
+          remote_ip_prefix: 0.0.0.0/0
+        - direction: egress
+          protocol: udp
+          remote_ip_prefix: 0.0.0.0/0
+
+  portal_port:
+    type: OS::Neutron::Port
+    properties:
+      network_id: { get_param: network_id }
+      security_groups:
+        - { get_resource: portal_security_group }
+
+  portal_vm:
+    type: OS::Nova::Server
+    properties:
+      name: { get_param: vm_name }
+      image: { get_param: image_id }
+      flavor: { get_param: flavor }
+      key_name: { get_param: key_name }
+      networks:
+        - port: { get_resource: portal_port }
+      metadata:
+        # Secure Boot image metadata (per openstack.md requirements)
+        hw_machine_type: q35
+        hw_firmware_type: uefi
+        os_secure_boot: required
+        # Windows-specific metadata
+        disk_bus: virtio
+        hw_qemu_guest_agent: "True"
+        os_require_quiesce: "yes"
+        os_type: windows
+      user_data_format: RAW
+      user_data: |
+        #cloud-config
+        # cloudbase-init / cloud-init bootstrap for MOPS Portal
+        runcmd:
+          - echo "MOPS Portal VM provisioned"
+
+outputs:
+  vm_id:
+    description: ID of the deployed portal VM
+    value: { get_attr: [portal_vm, show, id] }
+
+  vm_ip:
+    description: Private IP address of the portal VM
+    value: { get_attr: [portal_port, fixed_ips, 0, ip_address] }
+
+  security_group_id:
+    description: ID of the portal security group
+    value: { get_resource: portal_security_group }

@@ -1,0 +1,149 @@
+.page {
+  padding: 24px;
+  max-width: 900px;
+}
+
+.pageHeader { margin-bottom: 28px; }
+
+.pageTitle {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--color-teal-dark);
+  margin: 0 0 4px;
+}
+
+.pageSubtitle {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  margin: 0;
+}
+
+.loading, .errorMsg {
+  font-size: 14px;
+  color: var(--color-text-muted);
+  padding: 16px 0;
+}
+.errorMsg { color: var(--color-danger); }
+
+/* ── Total card ── */
+.totalCard {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  background: var(--color-teal-light);
+  border: 1px solid var(--color-teal-border);
+  border-radius: 16px;
+  padding: 24px 40px;
+  margin-bottom: 32px;
+}
+
+.totalNumber {
+  font-size: 48px;
+  font-weight: 800;
+  color: var(--color-teal-dark);
+  line-height: 1;
+}
+
+.totalLabel {
+  font-size: 14px;
+  color: var(--color-text-muted);
+  margin-top: 4px;
+}
+
+/* ── Tables ── */
+.tables {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 24px;
+}
+
+@media (max-width: 680px) {
+  .tables { grid-template-columns: 1fr; }
+}
+
+.tableSection {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.sectionTitle {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-text);
+  margin: 0;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.table {
+  border-collapse: collapse;
+  width: 100%;
+}
+
+.th {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 8px 16px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg);
+}
+.thNum { text-align: right; }
+
+.row {
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.row:hover { background: var(--color-teal-light); }
+.row:focus { outline: 2px solid var(--color-teal); outline-offset: -2px; }
+
+.tdRank {
+  padding: 10px 12px 10px 16px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  font-weight: 600;
+  width: 32px;
+  white-space: nowrap;
+}
+
+.tdName {
+  padding: 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.td {
+  padding: 10px 16px;
+  font-size: 13px;
+  color: var(--color-text);
+}
+.tdNum { text-align: right; white-space: nowrap; }
+
+.projectName {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+  display: block;
+}
+
+.ownerName {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+
+.emptyRow {
+  padding: 20px 16px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+  text-align: center;
+}

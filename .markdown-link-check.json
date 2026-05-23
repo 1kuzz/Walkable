@@ -1,0 +1,37 @@
+{
+  "ignorePatterns": [
+    {
+      "pattern": "^mailto:"
+    },
+    {
+      "pattern": "^http://localhost"
+    },
+    {
+      "pattern": "^http://<"
+    },
+    {
+      "pattern": "^https://<"
+    },
+    {
+      "pattern": "^https://img\\.shields\\.io/"
+    },
+    {
+      "pattern": "^https://keepachangelog\\.com/"
+    },
+    {
+      "pattern": "^https://semver\\.org/"
+    },
+    {
+      "pattern": "^https://cognitect\\.com/"
+    },
+    {
+      "comment": "Internal corporate domains — only reachable inside the corporate network.",
+      "pattern": "^https?://[a-zA-Z0-9._-]+\\.kaspersky\\.com(/|$)"
+    }
+  ],
+  "timeout": "20s",
+  "retryOn429": true,
+  "retryCount": 2,
+  "fallbackRetryDelay": "3s",
+  "aliveStatusCodes": [200, 206]
+}

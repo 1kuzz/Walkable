@@ -1,0 +1,21 @@
+/** Shared TypeScript types used across the backend. */
+
+declare module 'express-session' {
+  interface SessionData {
+    githubToken?: string;
+    githubUser?: { login: string; avatar_url: string; name: string | null };
+  }
+}
+
+export interface AuthenticatedUser {
+  login: string;
+  displayName: string;
+  isAdmin: boolean;
+}
+
+/** Express Request extended with the decoded user. */
+import type { Request } from 'express';
+
+export interface AuthRequest extends Request {
+  authUser: AuthenticatedUser;
+}

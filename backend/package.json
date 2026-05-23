@@ -1,0 +1,41 @@
+{
+  "name": "portal-backend",
+  "version": "1.5.0",
+  "private": true,
+  "description": "PrivatePortal backend API server",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "migrate": "node dist/db/migrate.js"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.17",
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^17.4.0",
+    "express": "^4.21.2",
+    "express-rate-limit": "^8.3.2",
+    "express-session": "^1.19.0",
+    "jose": "^6.2.2",
+    "multer": "^2.1.1",
+    "pg": "^8.13.3",
+    "sharp": "^0.33.5"
+  },
+  "devDependencies": {
+    "@types/adm-zip": "^0.5.8",
+    "@types/bcrypt": "^6.0.0",
+    "@types/cors": "^2.8.17",
+    "@types/express": "^5.0.0",
+    "@types/express-session": "^1.19.0",
+    "@types/multer": "^1.4.12",
+    "@types/node": "^20.17.0",
+    "@types/pg": "^8.11.11",
+    "tsx": "^4.19.2",
+    "typescript": "~5.7.0"
+  }
+}
