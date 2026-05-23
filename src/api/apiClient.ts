@@ -14,6 +14,11 @@ export async function apiFetch<T>(
     ...(options.headers as Record<string, string> | undefined ?? {}),
   };
 
+  const token = sessionStorage.getItem('mops_auth_token');
+  if (token && !headers['Authorization']) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+
   if (!(options.body instanceof FormData) && !headers['Content-Type']) {
     headers['Content-Type'] = 'application/json';
   }

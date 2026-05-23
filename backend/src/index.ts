@@ -4,6 +4,7 @@ import cors from 'cors';
 import path from 'path';
 import rateLimit from 'express-rate-limit';
 import session from 'express-session';
+import connectPgSimple from 'connect-pg-simple';
 import { pool, runMigrations } from './db/client';
 import { logger } from './utils/logger';
 import { requestTimeout } from './middleware/requestTimeout';
@@ -40,7 +41,9 @@ const generalLimiter = rateLimit({
 
 app.use(requestTimeout);
 
+const PgStore = connectPgSimple(session);
 app.use(session({
+  store: new PgStore({ pool, tableName: 'session', createTableIfMissing: true }),
   secret: process.env.SESSION_SECRET ?? 'dev-session-secret-change-in-production',
   resave: false,
   saveUninitialized: false,

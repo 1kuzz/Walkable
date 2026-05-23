@@ -127,22 +127,6 @@ export function UpdatesPage() {
             <h2 className={styles.pageTitle}>{t('page.updates.title')}</h2>
             <p className={styles.pageSubtitle}>{t('page.updates.subtitle')}</p>
           </div>
-          {false && (
-            <div className={styles.headerActions}>
-              <button
-                className={styles.tagsBtn}
-                onClick={() => setTagManagerOpen(true)}
-              >
-                {t('page.updates.manageTags')}
-              </button>
-              <button
-                className={styles.addBtn}
-                onClick={() => setEditor({ open: true, update: null })}
-              >
-                {t('page.updates.addUpdate')}
-              </button>
-            </div>
-          )}
         </div>
 
         {/* Filter bar */}

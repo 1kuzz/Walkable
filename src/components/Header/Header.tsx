@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useUnreadCount } from '../../services/updates';
 import { Icon } from '../Icon/Icon';
-import { useGitHubAuth } from '../../contexts/GitHubAuthContext';
+import { useGitHubAuth } from '../../contexts/useGitHubAuth';
 import styles from './Header.module.css';
 import { useI18n } from '../../i18n';
 

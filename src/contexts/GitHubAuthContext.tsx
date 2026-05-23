@@ -1,19 +1,6 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { getMe, logout as apiLogout, startGitHubLogin, type GitHubUser } from '../api/authClient';
-
-interface AuthContextValue {
-  user: GitHubUser | null;
-  loading: boolean;
-  login: () => void;
-  logout: () => Promise<void>;
-}
-
-const AuthContext = createContext<AuthContextValue>({
-  user: null,
-  loading: true,
-  login: startGitHubLogin,
-  logout: async () => {},
-});
+import { AuthContext } from './useGitHubAuth';
 
 export function GitHubAuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<GitHubUser | null>(null);
@@ -40,8 +27,4 @@ export function GitHubAuthProvider({ children }: { children: ReactNode }) {
       {children}
     </AuthContext.Provider>
   );
-}
-
-export function useGitHubAuth() {
-  return useContext(AuthContext);
 }
