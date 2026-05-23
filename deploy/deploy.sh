@@ -38,7 +38,9 @@ for i in $(seq 1 15); do
 done
 
 echo "[deploy] Reloading nginx..."
-nginx -t && systemctl reload nginx
+# Use sudo if available (non-root SSH users); fall back to direct call (root)
+SUDO=$(command -v sudo 2>/dev/null && echo "sudo" || echo "")
+$SUDO nginx -t && $SUDO systemctl reload nginx
 
 echo "[deploy] Done. Health:"
 curl -s http://localhost/api/health | python3 -m json.tool
