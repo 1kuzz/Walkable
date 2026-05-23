@@ -9,6 +9,7 @@ import { initializeTheme } from './services/themeService';
 import { GitHubAuthProvider } from './contexts/GitHubAuthContext';
 import styles from './App.module.css';
 
+const AppsPage = lazy(() => import('./pages/AppsPage/AppsPage').then(m => ({ default: m.AppsPage })));
 const GalleryPage = lazy(() => import('./pages/GalleryPage/GalleryPage').then(m => ({ default: m.GalleryPage })));
 const AppLaunchPage = lazy(() => import('./pages/AppLaunchPage/AppLaunchPage').then(m => ({ default: m.AppLaunchPage })));
 const UpdatesPage = lazy(() => import('./pages/UpdatesPage/UpdatesPage').then(m => ({ default: m.UpdatesPage })));
@@ -30,7 +31,8 @@ function AppShell() {
             <Suspense fallback={<LoadingFallback />}>
               <Routes>
                 <Route path="/" element={<Navigate to="/gallery" replace />} />
-                <Route path="/gallery" element={<GalleryPage />} />
+                <Route path="/gallery" element={<AppsPage />} />
+                <Route path="/projects" element={<GalleryPage />} />
                 <Route path="/apps/:id" element={<AppLaunchPage />} />
                 <Route path="/updates" element={<UpdatesPage />} />
                 <Route path="/content" element={<ContentUploadPage />} />

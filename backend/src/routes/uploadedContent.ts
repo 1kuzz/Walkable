@@ -425,6 +425,82 @@ router.get('/:id/render', renderLimiter, async (req: Request, res: Response): Pr
 });
 
 /**
+ * GET /api/content/:id/versions — list version snapshots for an app.
+ * Returns an array ordered oldest-first. The current live version is NOT included.
+ */
+router.get('/:id/versions', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params as { id: string };
+    if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
+      res.status(400).json({ error: 'Invalid content ID.' });
+      return;
+    }
+    const result = await pool.query<{ id: number; version_num: number; label: string | null; created_at: string }>(
+      `SELECT id, version_num, label, created_at FROM app_versions WHERE content_id = $1 ORDER BY version_num ASC`,
+      [id],
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[content] GET /:id/versions error:', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+/**
+ * GET /api/content/:id/render?version=N — serve a historical version snapshot.
+ * Falls through to the live render when no version param is given (handled above).
+ */
+router.get('/:id/render/version/:versionNum', renderLimiter, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = getUser(req);
+    const { id, versionNum } = req.params as { id: string; versionNum: string };
+    if (!/^[a-zA-Z0-9_-]+$/.test(id)) { res.status(400).json({ error: 'Invalid content ID.' }); return; }
+
+    const vNum = parseInt(versionNum, 10);
+    if (isNaN(vNum)) { res.status(400).json({ error: 'Invalid version number.' }); return; }
+
+    // Access-control: check visibility on the parent content row
+    const parentResult = await pool.query<{ visibility: string; allowed_users: string }>(
+      `SELECT visibility, allowed_users FROM uploaded_content WHERE id = $1`,
+      [id],
+    );
+    if (parentResult.rows.length === 0) { res.status(404).json({ error: 'Content not found.' }); return; }
+    const parent = parentResult.rows[0];
+    if (!user.isAdmin && parent.visibility === 'specific') {
+      const allowed = (parent.allowed_users ?? '').split(',').map((s: string) => s.trim().toLowerCase());
+      if (!allowed.includes(user.login.toLowerCase())) { res.status(403).json({ error: 'Access denied.' }); return; }
+    }
+
+    const vResult = await pool.query<{ html_content: string; project_path: string | null }>(
+      `SELECT html_content, project_path FROM app_versions WHERE content_id = $1 AND version_num = $2`,
+      [id, vNum],
+    );
+    if (vResult.rows.length === 0) { res.status(404).json({ error: 'Version not found.' }); return; }
+
+    const row = vResult.rows[0];
+    if (row.project_path) { res.redirect(302, row.project_path); return; }
+
+    let rawHtml = (row.html_content ?? '').replace(/^[﻿\s]+/, '');
+    if (!rawHtml.toLowerCase().startsWith('<!doctype')) rawHtml = '<!DOCTYPE html>\n' + rawHtml;
+    const watermarked = injectWatermark(rawHtml, user.login, `${id}@v${vNum}`);
+    const theme = req.query['theme'] === 'dark' ? 'dark' : 'light';
+    const themed = injectTheme(watermarked, theme);
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Cache-Control', 'no-store, no-cache');
+    res.setHeader('Content-Security-Policy',
+      "sandbox allow-scripts allow-forms allow-same-origin allow-modals allow-popups allow-downloads; default-src 'self' 'unsafe-inline' data:; font-src 'self' https://fonts.gstatic.com data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; frame-ancestors 'self';",
+    );
+    res.status(200).send(themed);
+  } catch (err) {
+    console.error('[content] GET /:id/render/version/:versionNum error:', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+/**
  * POST /api/content — upload new content (admin only).
  * Accepts multipart/form-data with fields: name, description, visibility, allowedUsers
  * and either:
@@ -839,6 +915,26 @@ router.put(
         res.status(400).json({ error: 'Invalid content ID: path escapes uploads directory.' });
         return;
       }
+
+      // Snapshot the current version before replacing
+      try {
+        const snap = await pool.query<{ html_content: string; project_path: string | null }>(
+          'SELECT html_content, project_path FROM uploaded_content WHERE id = $1',
+          [safeId],
+        );
+        if (snap.rows.length > 0) {
+          const maxVer = await pool.query<{ max: number | null }>(
+            'SELECT MAX(version_num) AS max FROM app_versions WHERE content_id = $1',
+            [safeId],
+          );
+          const nextVer = (maxVer.rows[0].max ?? 0) + 1;
+          await pool.query(
+            `INSERT INTO app_versions (content_id, version_num, html_content, project_path)
+             VALUES ($1, $2, $3, $4)`,
+            [safeId, nextVer, snap.rows[0].html_content ?? '', snap.rows[0].project_path],
+          );
+        }
+      } catch { /* non-critical — snapshot failure must not block the update */ }
 
       // Back up the existing directory before replacing so we can recover on failure.
       if (fs.existsSync(appDir)) {
