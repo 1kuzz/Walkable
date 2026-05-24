@@ -5,6 +5,34 @@ import { listContent, submitForReview, deleteContent, uploadFromGitHub } from '.
 import type { UploadedContent } from '../../services/uploadedContent';
 import styles from './MyProjectsPage.module.css';
 
+function uploadZipWithProgress(
+  fd: FormData,
+  onProgress: (pct: number) => void,
+): Promise<{ id: string; buildLog?: string | null }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/content');
+    xhr.withCredentials = true;
+    xhr.upload.addEventListener('progress', (e) => {
+      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+    });
+    xhr.addEventListener('load', () => {
+      try {
+        const json = JSON.parse(xhr.responseText) as { id?: string; error?: string; buildLog?: string };
+        if (xhr.status >= 200 && xhr.status < 300 && json.id) {
+          resolve({ id: json.id, buildLog: json.buildLog });
+        } else {
+          reject(Object.assign(new Error(json.error ?? 'Upload failed.'), { buildLog: json.buildLog }));
+        }
+      } catch {
+        reject(new Error('Upload failed.'));
+      }
+    });
+    xhr.addEventListener('error', () => reject(new Error('Network error during upload.')));
+    xhr.send(fd);
+  });
+}
+
 const STATUS_LABEL: Record<string, string> = {
   draft: 'Draft',
   pending_review: 'Under Review',
@@ -23,6 +51,7 @@ interface UploadModalProps {
 }
 
 function UploadModal({ onClose, onUploaded }: UploadModalProps) {
+  const navigate = useNavigate();
   const [tab, setTab] = useState<'zip' | 'github'>('zip');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
@@ -30,6 +59,9 @@ function UploadModal({ onClose, onUploaded }: UploadModalProps) {
   const [gitUrl, setGitUrl] = useState('');
   const [build, setBuild] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [buildPhase, setBuildPhase] = useState(false);
+  const [uploadedId, setUploadedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [buildLog, setBuildLog] = useState<string | null>(null);
 
@@ -49,7 +81,13 @@ function UploadModal({ onClose, onUploaded }: UploadModalProps) {
     if (!name.trim()) { setError('Name is required.'); return; }
 
     setSubmitting(true);
+    setUploadProgress(0);
+    setBuildPhase(false);
+
     try {
+      let id: string;
+      let log: string | null = null;
+
       if (tab === 'zip') {
         if (!file) { setError('Please select a ZIP file.'); setSubmitting(false); return; }
         const fd = new FormData();
@@ -58,32 +96,64 @@ function UploadModal({ onClose, onUploaded }: UploadModalProps) {
         fd.append('description', description.trim());
         if (build) fd.append('build', 'true');
 
-        const res = await fetch('/api/content', {
-          method: 'POST',
-          body: fd,
-          credentials: 'include',
+        const result = await uploadZipWithProgress(fd, (pct) => {
+          setUploadProgress(pct);
+          if (pct >= 100 && build) setBuildPhase(true);
         });
-        const json = await res.json() as { id?: string; error?: string; buildLog?: string };
-        if (!res.ok) {
-          setBuildLog(json.buildLog ?? null);
-          setError(json.error ?? 'Upload failed.');
-          setSubmitting(false);
-          return;
-        }
-        setBuildLog(json.buildLog ?? null);
-        onUploaded(json.id!);
+        id = result.id;
+        log = result.buildLog ?? null;
       } else {
         if (!gitUrlValid) { setError('Enter a valid GitHub URL (https://github.com/owner/repo).'); setSubmitting(false); return; }
         const result = await uploadFromGitHub(gitUrl.trim(), name.trim(), description.trim() || undefined, build);
-        setBuildLog(result.buildLog ?? null);
-        onUploaded(result.id);
+        id = result.id;
+        log = result.buildLog ?? null;
       }
+
+      setBuildLog(log);
+      setUploadedId(id);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Upload failed.');
+      const e = err as Error & { buildLog?: string };
+      setBuildLog(e.buildLog ?? null);
+      setError(e.message ?? 'Upload failed.');
     } finally {
       setSubmitting(false);
+      setBuildPhase(false);
     }
   };
+
+  if (uploadedId) {
+    return (
+      <div className={styles.modalBackdrop} onClick={(e) => { if (e.target === e.currentTarget) { onUploaded(uploadedId); } }}>
+        <div className={styles.modal} role="dialog" aria-modal="true" aria-label="Upload successful">
+          <div className={styles.successScreen}>
+            <div className={styles.successIcon}>✓</div>
+            <h3 className={styles.successTitle}>Uploaded successfully!</h3>
+            <p className={styles.successMsg}>Your project is ready to preview. Submit it for review when you're happy with it.</p>
+            {buildLog && (
+              <details className={styles.buildLogDetails}>
+                <summary>Build log</summary>
+                <pre className={styles.buildLog}>{buildLog}</pre>
+              </details>
+            )}
+            <div className={styles.successActions}>
+              <button
+                className={styles.uploadBtn}
+                onClick={() => { onUploaded(uploadedId); navigate(`/apps/${uploadedId}`); }}
+              >
+                Preview project
+              </button>
+              <button
+                className={styles.cancelBtn}
+                onClick={() => onUploaded(uploadedId)}
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={styles.modalBackdrop} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
@@ -173,6 +243,21 @@ function UploadModal({ onClose, onUploaded }: UploadModalProps) {
             </p>
           )}
 
+          {submitting && (
+            <div className={styles.progressWrap}>
+              {buildPhase ? (
+                <span className={styles.progressLabel}>Building… this may take a few minutes</span>
+              ) : (
+                <>
+                  <div className={styles.progressBar}>
+                    <div className={styles.progressFill} style={{ width: `${uploadProgress}%` }} />
+                  </div>
+                  <span className={styles.progressLabel}>{uploadProgress}%</span>
+                </>
+              )}
+            </div>
+          )}
+
           {error && <p className={styles.errorMsg}>{error}</p>}
           {buildLog && (
             <details className={styles.buildLogDetails} open={!!error}>
@@ -257,11 +342,9 @@ function ProjectCard({ item, onAction }: ProjectCardProps) {
         )}
       </div>
       <div className={styles.cardActions}>
-        {status === 'approved' && (
-          <button className={styles.actionBtn} onClick={() => navigate(`/apps/${item.id}`)}>
-            View
-          </button>
-        )}
+        <button className={styles.actionBtn} onClick={() => navigate(`/apps/${item.id}`)}>
+          {status === 'approved' ? 'Open' : 'Preview'}
+        </button>
         {(status === 'draft' || status === 'rejected') && (
           <button className={`${styles.actionBtn} ${styles.actionPrimary}`} onClick={() => void handleSubmitReview()} disabled={acting}>
             {status === 'rejected' ? 'Re-submit' : 'Submit for Review'}

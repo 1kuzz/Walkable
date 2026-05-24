@@ -34,14 +34,17 @@ export function AppLaunchPage() {
   const [accessStatus, setAccessStatus] = useState<AccessStatus>('checking');
   const [versions, setVersions] = useState<AppVersion[]>([]);
   const [compareMode, setCompareMode] = useState(false);
+  const [renderError, setRenderError] = useState<string | null>(null);
+  const [retryKey, setRetryKey] = useState(0);
 
   const appId = (id ?? '').trim();
   const isValidId = /^[a-zA-Z0-9_-]+$/.test(appId);
 
   useEffect(() => {
     if (!isValidId) return;
-    getAllUploadedContent()
-      .then((items) => {
+    void (async () => {
+      try {
+        const items = await getAllUploadedContent();
         const item = items.find((c) => c.id === appId);
         if (item) {
           trackEvent('app_click', item.name);
@@ -49,17 +52,35 @@ export function AppLaunchPage() {
             navigate(item.portalRoute, { replace: true });
             return;
           }
+          try {
+            const probe = await fetch(`/api/content/${encodeURIComponent(appId)}/render`, {
+              method: 'HEAD',
+              credentials: 'include',
+              redirect: 'follow',
+            });
+            if (!probe.ok) {
+              setRenderError(
+                probe.status === 404
+                  ? 'Project files are missing. Try re-uploading the project.'
+                  : probe.status === 403
+                  ? 'You do not have permission to view this project.'
+                  : `Project returned HTTP ${probe.status}. Try re-uploading or contact support.`,
+              );
+            }
+          } catch {
+            // Network error — still try the iframe
+          }
           setAccessStatus('ok');
           void fetchVersions(appId).then(setVersions);
         } else {
           setAccessStatus('denied');
         }
-      })
-      .catch(() => {
+      } catch {
         trackEvent('app_click', appId);
         setAccessStatus('ok');
         void fetchVersions(appId).then(setVersions);
-      });
+      }
+    })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -113,21 +134,43 @@ export function AppLaunchPage() {
         </div>
       )}
 
-      {(accessStatus === 'checking' || iframeLoading) && !compareMode && (
+      {(accessStatus === 'checking' || iframeLoading) && !compareMode && !renderError && (
         <div className={styles.loadingOverlay} aria-live="polite">
           Loading app…
         </div>
       )}
 
       {accessStatus === 'ok' && !compareMode && (
-        <iframe
-          className={styles.frame}
-          src={`/api/content/${encodeURIComponent(appId)}/render`}
-          title={`App ${appId}`}
-          sandbox={APP_IFRAME_SANDBOX}
-          allow="autoplay"
-          onLoad={() => setIframeLoading(false)}
-        />
+        renderError ? (
+          <div className={styles.renderErrorBox}>
+            <div className={styles.renderErrorIcon}>⚠️</div>
+            <h2 className={styles.renderErrorTitle}>Project could not load</h2>
+            <p className={styles.renderErrorMsg}>{renderError}</p>
+            <div className={styles.renderErrorActions}>
+              <button
+                className={styles.renderErrorRetry}
+                onClick={() => { setRenderError(null); setIframeLoading(true); setRetryKey((k) => k + 1); }}
+              >
+                Try again
+              </button>
+              <Link to="/my-projects" className={styles.renderErrorBack}>Back to My Projects</Link>
+            </div>
+          </div>
+        ) : (
+          <iframe
+            key={retryKey}
+            className={styles.frame}
+            src={`/api/content/${encodeURIComponent(appId)}/render`}
+            title={`App ${appId}`}
+            sandbox={APP_IFRAME_SANDBOX}
+            allow="autoplay"
+            onLoad={() => setIframeLoading(false)}
+            onError={() => {
+              setIframeLoading(false);
+              setRenderError('Failed to load the project. The files may be missing or corrupted.');
+            }}
+          />
+        )
       )}
 
       {accessStatus === 'ok' && compareMode && oldestVersion && (

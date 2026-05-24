@@ -364,6 +364,30 @@ function serveInlineHtml(res: Response, rawHtml: string, user: AuthenticatedUser
   res.status(200).send(themed);
 }
 
+function sendHtmlError(res: Response, code: number, title: string, detail: string): void {
+  const icon = code === 404 ? '📭' : code === 403 ? '🔒' : '⚠️';
+  res.status(code);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Cache-Control', 'no-store');
+  res.send(`<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${title}</title>
+<style>
+  body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;
+       min-height:100vh;margin:0;background:#0a0a0a;color:#d1d5db}
+  .box{text-align:center;padding:40px 24px;max-width:400px}
+  .icon{font-size:48px;margin-bottom:16px}
+  h1{font-size:18px;font-weight:700;margin:0 0 8px;color:#f9fafb}
+  p{font-size:14px;margin:0;color:#9ca3af}
+</style></head>
+<body><div class="box">
+<div class="icon">${icon}</div>
+<h1>${title}</h1><p>${detail}</p>
+</div></body></html>`);
+}
+
 // ── Routes ────────────────────────────────────────────────────────────────────
 
 /**
@@ -618,6 +642,16 @@ router.post(
           buildLog,
         ],
       );
+
+      // Verify the entry file actually landed on disk before declaring success
+      if (projectPath) {
+        const pathParts = projectPath.split('/').slice(2);
+        const absolutePath = path.join(UPLOADS_DIR, ...pathParts);
+        if (!fs.existsSync(absolutePath)) {
+          res.status(500).json({ error: 'Project was uploaded but the entry file could not be verified. Try re-uploading.' });
+          return;
+        }
+      }
 
       res.status(201).json({ id: safeContentId, buildLog });
     } catch (err) {
@@ -874,7 +908,7 @@ router.get('/:id/render', renderLimiter, async (req: Request, res: Response): Pr
     const { id } = req.params as { id: string };
 
     if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
-      res.status(400).json({ error: 'Invalid content ID.' });
+      sendHtmlError(res, 400, 'Invalid Request', 'The project link is malformed.');
       return;
     }
 
@@ -894,7 +928,7 @@ router.get('/:id/render', renderLimiter, async (req: Request, res: Response): Pr
     );
 
     if (result.rows.length === 0) {
-      res.status(404).json({ error: 'Content not found.' });
+      sendHtmlError(res, 404, 'Project Not Found', 'This project does not exist or may have been removed.');
       return;
     }
 
@@ -904,14 +938,14 @@ router.get('/:id/render', renderLimiter, async (req: Request, res: Response): Pr
     if (!user.isAdmin) {
       const isOwner = row.uploaded_by === user.login;
       if (!isOwner && row.status !== 'approved') {
-        res.status(403).json({ error: 'Access denied.' });
+        sendHtmlError(res, 403, 'Access Denied', 'You do not have permission to view this project.');
         return;
       }
       // For approved items with specific visibility, check allowed_users
       if (!isOwner && row.status === 'approved' && row.visibility === 'specific') {
         const allowed = (row.allowed_users ?? '').split(',').map((s: string) => s.trim().toLowerCase());
         if (!allowed.includes(user.login.toLowerCase())) {
-          res.status(403).json({ error: 'Access denied.' });
+          sendHtmlError(res, 403, 'Access Denied', 'You do not have permission to view this project.');
           return;
         }
       }
@@ -932,7 +966,7 @@ router.get('/:id/render', renderLimiter, async (req: Request, res: Response): Pr
     serveInlineHtml(res, row.html_content ?? '', user, id, (req.query['theme'] as string) ?? 'light');
   } catch (err) {
     console.error('[content] GET /:id/render error:', err);
-    res.status(500).json({ error: 'Internal server error.' });
+    sendHtmlError(res, 500, 'Server Error', 'Something went wrong loading this project. Please try again later.');
   }
 });
 
@@ -964,10 +998,10 @@ router.get('/:id/render/version/:versionNum', renderLimiter, async (req: Request
   try {
     const user = getUser(req);
     const { id, versionNum } = req.params as { id: string; versionNum: string };
-    if (!/^[a-zA-Z0-9_-]+$/.test(id)) { res.status(400).json({ error: 'Invalid content ID.' }); return; }
+    if (!/^[a-zA-Z0-9_-]+$/.test(id)) { sendHtmlError(res, 400, 'Invalid Request', 'The project link is malformed.'); return; }
 
     const vNum = parseInt(versionNum, 10);
-    if (isNaN(vNum)) { res.status(400).json({ error: 'Invalid version number.' }); return; }
+    if (isNaN(vNum)) { sendHtmlError(res, 400, 'Invalid Request', 'The version number is invalid.'); return; }
 
     const parentResult = await pool.query<{
       visibility: string;
@@ -978,17 +1012,17 @@ router.get('/:id/render/version/:versionNum', renderLimiter, async (req: Request
       `SELECT visibility, allowed_users, status, uploaded_by FROM uploaded_content WHERE id = $1`,
       [id],
     );
-    if (parentResult.rows.length === 0) { res.status(404).json({ error: 'Content not found.' }); return; }
+    if (parentResult.rows.length === 0) { sendHtmlError(res, 404, 'Project Not Found', 'This project does not exist or may have been removed.'); return; }
 
     const parent = parentResult.rows[0];
     if (!user.isAdmin) {
       const isOwner = parent.uploaded_by === user.login;
       if (!isOwner && parent.status !== 'approved') {
-        res.status(403).json({ error: 'Access denied.' }); return;
+        sendHtmlError(res, 403, 'Access Denied', 'You do not have permission to view this project.'); return;
       }
       if (!isOwner && parent.status === 'approved' && parent.visibility === 'specific') {
         const allowed = (parent.allowed_users ?? '').split(',').map((s: string) => s.trim().toLowerCase());
-        if (!allowed.includes(user.login.toLowerCase())) { res.status(403).json({ error: 'Access denied.' }); return; }
+        if (!allowed.includes(user.login.toLowerCase())) { sendHtmlError(res, 403, 'Access Denied', 'You do not have permission to view this project.'); return; }
       }
     }
 
@@ -996,7 +1030,7 @@ router.get('/:id/render/version/:versionNum', renderLimiter, async (req: Request
       `SELECT html_content, project_path FROM app_versions WHERE content_id = $1 AND version_num = $2`,
       [id, vNum],
     );
-    if (vResult.rows.length === 0) { res.status(404).json({ error: 'Version not found.' }); return; }
+    if (vResult.rows.length === 0) { sendHtmlError(res, 404, 'Version Not Found', 'This version does not exist.'); return; }
 
     const row = vResult.rows[0];
     if (row.project_path) { res.redirect(302, row.project_path); return; }
