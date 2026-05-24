@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGitHubAuth } from '../../contexts/useGitHubAuth';
-import { listContent, submitForReview, deleteContent, uploadFromGitHub } from '../../api/contentClient';
+import { listContent, submitForReview, deleteContent, uploadFromGitHub, listGitHubRepos } from '../../api/contentClient';
+import type { GitHubRepo } from '../../api/contentClient';
 import type { UploadedContent } from '../../services/uploadedContent';
 import styles from './MyProjectsPage.module.css';
 
@@ -64,15 +65,39 @@ function UploadModal({ onClose, onUploaded }: UploadModalProps) {
   const [uploadedId, setUploadedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [buildLog, setBuildLog] = useState<string | null>(null);
+  const [repos, setRepos] = useState<GitHubRepo[]>([]);
+  const [reposLoading, setReposLoading] = useState(false);
+  const [repoSearch, setRepoSearch] = useState('');
+  const [reposLoaded, setReposLoaded] = useState(false);
+  const [hasMoreRepos, setHasMoreRepos] = useState(false);
+  const [repoPage, setRepoPage] = useState(1);
 
   const repoLabel = tab === 'github' ? parseGitHubRepo(gitUrl) : null;
   const gitUrlValid = tab !== 'github' || !!repoLabel;
 
-  const handleNameFromUrl = (url: string) => {
-    const repo = parseGitHubRepo(url);
-    if (repo && !name) {
-      setName(repo.split('/')[1] ?? '');
-    }
+  useEffect(() => {
+    if (tab !== 'github' || reposLoaded) return;
+    setReposLoading(true);
+    void listGitHubRepos(1).then((r) => {
+      setRepos(r);
+      setHasMoreRepos(r.length === 50);
+      setReposLoaded(true);
+    }).finally(() => setReposLoading(false));
+  }, [tab, reposLoaded]);
+
+  const filteredRepos = repos.filter((r) =>
+    !repoSearch ||
+    r.full_name.toLowerCase().includes(repoSearch.toLowerCase()) ||
+    (r.description ?? '').toLowerCase().includes(repoSearch.toLowerCase()),
+  );
+
+  const loadMoreRepos = () => {
+    const nextPage = repoPage + 1;
+    setRepoPage(nextPage);
+    void listGitHubRepos(nextPage).then((r) => {
+      setRepos((prev) => [...prev, ...r]);
+      setHasMoreRepos(r.length === 50);
+    });
   };
 
   const handleSubmit = async () => {
@@ -191,18 +216,67 @@ function UploadModal({ onClose, onUploaded }: UploadModalProps) {
               <span className={styles.fieldHint}>Upload your built project (HTML/CSS/JS) or source code with package.json.</span>
             </label>
           ) : (
-            <label className={styles.field}>
-              <span className={styles.fieldLabel}>GitHub URL</span>
-              <input
-                type="url"
-                placeholder="https://github.com/owner/repo"
-                className={`${styles.textInput} ${gitUrl && !gitUrlValid ? styles.inputError : ''}`}
-                value={gitUrl}
-                onChange={(e) => { setGitUrl(e.target.value); handleNameFromUrl(e.target.value); }}
-              />
-              {repoLabel && <span className={styles.fieldHint}>Repo: {repoLabel}</span>}
-              {gitUrl && !gitUrlValid && <span className={styles.fieldError}>Enter a valid https://github.com/owner/repo URL.</span>}
-            </label>
+            <div className={styles.field}>
+              <span className={styles.fieldLabel}>Repository</span>
+              {gitUrl ? (
+                <div className={styles.repoSelected}>
+                  <span className={styles.repoSelectedName}>{repoLabel ?? gitUrl}</span>
+                  <button
+                    type="button"
+                    className={styles.repoSelectedClear}
+                    onClick={() => setGitUrl('')}
+                    aria-label="Clear selection"
+                  >✕</button>
+                </div>
+              ) : (
+                <div className={styles.repoPickerWrap}>
+                  <input
+                    className={styles.repoSearch}
+                    placeholder="Search your repositories…"
+                    value={repoSearch}
+                    onChange={(e) => setRepoSearch(e.target.value)}
+                  />
+                  {reposLoading && <span className={styles.reposStatus}>Loading repositories…</span>}
+                  {!reposLoading && reposLoaded && filteredRepos.length === 0 && (
+                    <span className={styles.reposStatus}>No repositories found.</span>
+                  )}
+                  {!reposLoading && !reposLoaded && repos.length === 0 && (
+                    <span className={styles.reposStatus}>Sign in with GitHub to browse your repos.</span>
+                  )}
+                  {filteredRepos.length > 0 && (
+                    <div className={styles.repoList}>
+                      {filteredRepos.map((repo) => (
+                        <button
+                          key={repo.full_name}
+                          type="button"
+                          className={styles.repoItem}
+                          onClick={() => {
+                            setGitUrl(repo.html_url);
+                            if (!name) setName(repo.name);
+                          }}
+                        >
+                          <div className={styles.repoItemTop}>
+                            <span className={styles.repoName}>{repo.full_name}</span>
+                            {repo.private && <span className={styles.repoBadge}>Private</span>}
+                          </div>
+                          {repo.description && (
+                            <span className={styles.repoDesc}>{repo.description}</span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {hasMoreRepos && (
+                    <button type="button" className={styles.loadMoreBtn} onClick={loadMoreRepos}>
+                      Load more
+                    </button>
+                  )}
+                </div>
+              )}
+              {gitUrl && !gitUrlValid && (
+                <span className={styles.fieldError}>Enter a valid https://github.com/owner/repo URL.</span>
+              )}
+            </div>
           )}
 
           <label className={styles.field}>

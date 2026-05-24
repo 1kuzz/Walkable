@@ -22,6 +22,7 @@ import updateTagsRouter from './routes/updateTags';
 import quickButtonsRouter from './routes/quickButtons';
 import projectsRouter from './routes/projects';
 import githubAuthRouter from './routes/githubAuth';
+import githubProxyRouter from './routes/githubProxy';
 
 if (
   process.env.NODE_ENV === 'production' &&
@@ -114,6 +115,7 @@ app.use('/api/update-tags', generalLimiter, updateTagsRouter);
 app.use('/api/quick-buttons', generalLimiter, quickButtonsRouter);
 app.use('/api/projects', generalLimiter, projectsRouter);
 app.use('/api/auth', generalLimiter, githubAuthRouter);
+app.use('/api/github', generalLimiter, githubProxyRouter);
 
 // ── Health checks ─────────────────────────────────────────────────────────────
 

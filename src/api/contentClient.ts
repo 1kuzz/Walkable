@@ -57,3 +57,18 @@ export function deleteContent(id: string): Promise<{ success: boolean }> {
     method: 'DELETE',
   });
 }
+
+export interface GitHubRepo {
+  full_name: string;
+  name: string;
+  private: boolean;
+  description: string | null;
+  updated_at: string;
+  html_url: string;
+}
+
+export async function listGitHubRepos(page = 1): Promise<GitHubRepo[]> {
+  const res = await fetch(`/api/github/repos?page=${page}`, { credentials: 'include' });
+  if (!res.ok) return [];
+  return res.json() as Promise<GitHubRepo[]>;
+}

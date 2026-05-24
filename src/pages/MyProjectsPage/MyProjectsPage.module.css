@@ -530,3 +530,128 @@
   justify-content: center;
   margin-top: 8px;
 }
+
+/* ── GitHub repo picker ── */
+.repoPickerWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.repoSearch {
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.15s;
+  width: 100%;
+  box-sizing: border-box;
+}
+.repoSearch:focus { border-color: var(--color-teal); }
+
+.reposStatus {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  padding: 4px 2px;
+}
+
+.repoList {
+  max-height: 220px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+}
+
+.repoItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 9px 12px;
+  text-align: left;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--color-border);
+  cursor: pointer;
+  width: 100%;
+  transition: background 0.1s;
+}
+.repoItem:last-child { border-bottom: none; }
+.repoItem:hover { background: var(--color-bg); }
+
+.repoItemTop {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.repoName {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.repoBadge {
+  font-size: 10px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--color-border);
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.repoDesc {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.loadMoreBtn {
+  background: none;
+  border: none;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-teal-dark);
+  cursor: pointer;
+  padding: 6px;
+  text-align: center;
+}
+.loadMoreBtn:hover { text-decoration: underline; }
+
+.repoSelected {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--color-teal-border);
+  background: var(--color-teal-light);
+  border-radius: 8px;
+  padding: 9px 12px;
+}
+
+.repoSelectedName {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-teal-dark);
+  word-break: break-all;
+}
+
+.repoSelectedClear {
+  background: none;
+  border: none;
+  font-size: 14px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 3px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.repoSelectedClear:hover { background: var(--color-border); color: var(--color-text); }

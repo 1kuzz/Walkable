@@ -86,9 +86,7 @@ function extractZipToDir(buffer: Buffer, targetDir: string): number {
     }
 
     const segments = entryName.split('/');
-    if (segments.some((seg) => seg.startsWith('.') && seg !== '.')) {
-      throw new Error(`Archive contains a hidden file or dot-prefixed entry: "${entryName}".`);
-    }
+    if (segments.includes('.git')) continue; // skip git objects silently
 
     totalBytes += entry.header.size;
     if (totalBytes > ZIP_MAX_EXTRACTED_BYTES) {
@@ -101,6 +99,8 @@ function extractZipToDir(buffer: Buffer, targetDir: string): number {
     if (entry.isDirectory) continue;
 
     const entryName = entry.entryName;
+    if (entryName.split('/').includes('.git')) continue; // skip git objects
+
     const resolvedEntry = path.resolve(targetDir, entryName);
 
     const entryDir = path.dirname(resolvedEntry);
