@@ -185,7 +185,18 @@ function UploadModal({ onClose, onUploaded }: UploadModalProps) {
       <div className={styles.modal} role="dialog" aria-modal="true" aria-label="Upload project">
         <div className={styles.modalHeader}>
           <h2 className={styles.modalTitle}>Upload Project</h2>
-          <button className={styles.modalClose} onClick={onClose} aria-label="Close">✕</button>
+          <div className={styles.modalHeaderActions}>
+            <a
+              href="/help"
+              target="_blank"
+              rel="noopener noreferrer"
+              className={styles.helpLink}
+              title="Upload guide & requirements"
+            >
+              ? Help
+            </a>
+            <button className={styles.modalClose} onClick={onClose} aria-label="Close">✕</button>
+          </div>
         </div>
 
         <div className={styles.tabBar}>

@@ -105,6 +105,10 @@ export function Header() {
         <NavLink to="/statistics" className={navLinkClass}>
           {t('nav.statistics') || 'Stats'}
         </NavLink>
+        <span className={styles.separator}>|</span>
+        <NavLink to="/help" className={navLinkClass}>
+          Help
+        </NavLink>
         {user && (
           <>
             <span className={styles.separator}>|</span>
@@ -137,6 +141,13 @@ export function Header() {
             onClick={() => setMobileMenuOpen(false)}
           >
             {t('nav.statistics') || 'Stats'}
+          </NavLink>
+          <NavLink
+            to="/help"
+            className={mobileNavLinkClass}
+            onClick={() => setMobileMenuOpen(false)}
+          >
+            Help
           </NavLink>
           {user && (
             <NavLink

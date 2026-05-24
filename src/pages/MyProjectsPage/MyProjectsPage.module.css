@@ -248,6 +248,24 @@
   margin: 0;
 }
 
+.modalHeaderActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.helpLink {
+  font-size: 12px;
+  color: var(--color-teal);
+  text-decoration: none;
+  padding: 3px 8px;
+  border: 1px solid var(--color-teal);
+  border-radius: 4px;
+  opacity: 0.8;
+  transition: opacity 0.15s;
+}
+.helpLink:hover { opacity: 1; }
+
 .modalClose {
   background: none;
   border: none;

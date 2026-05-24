@@ -20,6 +20,7 @@ const SettingsPage = lazy(() => import('./pages/SettingsPage/SettingsPage').then
 const ProjectDetailPage = lazy(() => import('./pages/ProjectDetailPage/ProjectDetailPage').then(m => ({ default: m.ProjectDetailPage })));
 const MyProjectsPage = lazy(() => import('./pages/MyProjectsPage/MyProjectsPage').then(m => ({ default: m.MyProjectsPage })));
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage/NotFoundPage').then(m => ({ default: m.NotFoundPage })));
+const HelpPage = lazy(() => import('./pages/HelpPage/HelpPage').then(m => ({ default: m.HelpPage })));
 
 initializeTheme();
 
@@ -44,6 +45,7 @@ function AppShell() {
                 <Route path="/statistics" element={<RequireAuth><StatisticsPage /></RequireAuth>} />
                 <Route path="/my-projects" element={<RequireAuth><MyProjectsPage /></RequireAuth>} />
                 <Route path="/settings" element={<RequireAuth><SettingsPage /></RequireAuth>} />
+                <Route path="/help" element={<HelpPage />} />
                 <Route path="*" element={<NotFoundPage />} />
               </Routes>
             </Suspense>
