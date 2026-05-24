@@ -7,6 +7,7 @@ interface GithubUser {
   login: string;
   displayName: string;
   avatarUrl: string;
+  isAdmin: boolean;
   firstSeen: string;
   lastSeen: string;
 }
@@ -109,12 +110,19 @@ function ActivityGraph({ activity }: { activity: DayActivity[] }) {
   );
 }
 
+async function toggleAdmin(login: string): Promise<{ isAdmin: boolean }> {
+  const res = await fetch(`/api/auth/users/${encodeURIComponent(login)}/admin`, { method: 'PATCH' });
+  if (!res.ok) throw new Error('Failed to update admin status');
+  return res.json() as Promise<{ isAdmin: boolean }>;
+}
+
 export function StatisticsPage() {
   const { user } = useGitHubAuth();
   const [activity, setActivity] = useState<DayActivity[]>([]);
   const [overview, setOverview] = useState<Overview | null>(null);
   const [users, setUsers] = useState<GithubUser[]>([]);
   const [loading, setLoading] = useState(true);
+  const [togglingLogin, setTogglingLogin] = useState<string | null>(null);
 
   useEffect(() => {
     const p1 = fetch('/api/usage/stats/my-activity')
@@ -167,7 +175,10 @@ export function StatisticsPage() {
                   <img src={u.avatarUrl} alt={u.login} className={styles.userAvatar} />
                 )}
                 <div className={styles.userInfo}>
-                  <span className={styles.userLogin}>{u.login}</span>
+                  <div className={styles.userLoginRow}>
+                    <span className={styles.userLogin}>{u.login}</span>
+                    {u.isAdmin && <span className={styles.adminBadge}>Admin</span>}
+                  </div>
                   {u.displayName && u.displayName !== u.login && (
                     <span className={styles.userDisplay}>{u.displayName}</span>
                   )}
@@ -175,6 +186,23 @@ export function StatisticsPage() {
                 <span className={styles.userSeen}>
                   Last seen {new Date(u.lastSeen).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                 </span>
+                {user?.isAdmin && u.login !== user.login && (
+                  <button
+                    className={`${styles.adminToggle} ${u.isAdmin ? styles.adminToggleRemove : ''}`}
+                    disabled={togglingLogin === u.login}
+                    onClick={() => {
+                      setTogglingLogin(u.login);
+                      toggleAdmin(u.login)
+                        .then(({ isAdmin }) => {
+                          setUsers((prev) => prev.map((x) => x.login === u.login ? { ...x, isAdmin } : x));
+                        })
+                        .catch(() => {})
+                        .finally(() => setTogglingLogin(null));
+                    }}
+                  >
+                    {togglingLogin === u.login ? '…' : u.isAdmin ? 'Remove admin' : 'Make admin'}
+                  </button>
+                )}
               </div>
             ))}
           </div>

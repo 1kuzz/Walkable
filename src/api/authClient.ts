@@ -4,6 +4,7 @@ export interface GitHubUser {
   login: string;
   avatar_url: string;
   name: string | null;
+  isAdmin?: boolean;
 }
 
 export function getMe(): Promise<GitHubUser | null> {

@@ -480,7 +480,7 @@ router.get('/:id/render/version/:versionNum', renderLimiter, async (req: Request
     const row = vResult.rows[0];
     if (row.project_path) { res.redirect(302, row.project_path); return; }
 
-    let rawHtml = (row.html_content ?? '').replace(/^[﻿\s]+/, '');
+    let rawHtml = (row.html_content ?? '').replace(/^[\uFEFF\s]+/, '');
     if (!rawHtml.toLowerCase().startsWith('<!doctype')) rawHtml = '<!DOCTYPE html>\n' + rawHtml;
     const watermarked = injectWatermark(rawHtml, user.login, `${id}@v${vNum}`);
     const theme = req.query['theme'] === 'dark' ? 'dark' : 'light';

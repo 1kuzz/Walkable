@@ -76,17 +76,14 @@ app.use(cors({
 app.use(express.json({ limit: '100mb' }));
 
 // Populate req.authUser from session on every request.
-// Unauthenticated requests get an anonymous user with isAdmin=false.
+// isAdmin is stored in the session (set during OAuth callback) — no DB hit per request.
 app.use((req, _res, next) => {
   const githubUser = req.session?.githubUser;
-  const adminLogins = (process.env.ADMIN_LOGINS ?? '')
-    .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
   if (githubUser?.login) {
-    const isAdmin = adminLogins.length === 0 || adminLogins.includes(githubUser.login.toLowerCase());
     (req as unknown as AuthRequest).authUser = {
       login: githubUser.login,
       displayName: githubUser.name ?? githubUser.login,
-      isAdmin,
+      isAdmin: githubUser.isAdmin === true,
     };
   } else {
     (req as unknown as AuthRequest).authUser = {

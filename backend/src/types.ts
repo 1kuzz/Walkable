@@ -3,7 +3,7 @@
 declare module 'express-session' {
   interface SessionData {
     githubToken?: string;
-    githubUser?: { login: string; avatar_url: string; name: string | null };
+    githubUser?: { login: string; avatar_url: string; name: string | null; isAdmin?: boolean };
   }
 }
 

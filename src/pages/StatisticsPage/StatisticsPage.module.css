@@ -208,10 +208,29 @@
   min-width: 0;
 }
 
+.userLoginRow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
 .userLogin {
   font-size: 13px;
   font-weight: 600;
   color: var(--color-text);
+}
+
+.adminBadge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  background: var(--color-teal-light);
+  color: var(--color-teal-dark);
+  border: 1px solid var(--color-teal-border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  flex-shrink: 0;
 }
 
 .userDisplay {
@@ -224,4 +243,41 @@
   color: var(--color-text-muted);
   white-space: nowrap;
   flex-shrink: 0;
+}
+
+.adminToggle {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 5px;
+  border: 1px solid var(--color-teal-border);
+  background: var(--color-teal-light);
+  color: var(--color-teal-dark);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background-color 0.15s, opacity 0.15s;
+}
+
+.adminToggle:hover {
+  background: var(--color-teal);
+  color: #fff;
+  border-color: var(--color-teal);
+}
+
+.adminToggle:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.adminToggleRemove {
+  border-color: var(--color-border);
+  background: none;
+  color: var(--color-text-muted);
+}
+
+.adminToggleRemove:hover {
+  background: #fee2e2;
+  border-color: #f87171;
+  color: #b91c1c;
 }
