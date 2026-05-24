@@ -16,7 +16,7 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci --prefer-offline
-      - run: npm run lint || true
+      - run: npm run lint
       - run: npx tsc --noEmit
 
   backend-build:

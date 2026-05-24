@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { pool } from '../db/client';
+import { requireAuth } from '../middleware/requireAuth';
 
 const router = Router();
 
@@ -18,7 +19,7 @@ router.get('/', async (_req, res) => {
 });
 
 /** POST /api/promoted-apps/:id/toggle — toggle promotion (admin only) */
-router.post('/:id/toggle', async (req, res) => {
+router.post('/:id/toggle', requireAuth, async (req, res) => {
   try {
     const appId = parseInt(String(req.params.id), 10);
     if (isNaN(appId)) {

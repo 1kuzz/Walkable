@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { pool } from '../db/client';
+import { requireAuth } from '../middleware/requireAuth';
 
 const router = Router();
 
@@ -19,7 +20,7 @@ router.get('/', async (_req, res): Promise<void> => {
 });
 
 /** POST /api/apps — create a new app (admin only) */
-router.post('/', async (req, res): Promise<void> => {
+router.post('/', requireAuth, async (req, res): Promise<void> => {
   try {
     const { name, description, category, color, promoted, url } = req.body as {
       name: string;
@@ -50,7 +51,7 @@ router.post('/', async (req, res): Promise<void> => {
 });
 
 /** PATCH /api/apps/:id — update an app (admin only) */
-router.patch('/:id', async (req, res): Promise<void> => {
+router.patch('/:id', requireAuth, async (req, res): Promise<void> => {
   try {
     const id = parseInt(req.params.id as string, 10);
     const { name, description, category, color, promoted, url } = req.body as {
@@ -82,7 +83,7 @@ router.patch('/:id', async (req, res): Promise<void> => {
 });
 
 /** DELETE /api/apps/:id — delete an app (admin only) */
-router.delete('/:id', async (req, res): Promise<void> => {
+router.delete('/:id', requireAuth, async (req, res): Promise<void> => {
   try {
     const id = parseInt(req.params.id as string, 10);
     await pool.query('DELETE FROM apps WHERE id = $1', [id]);

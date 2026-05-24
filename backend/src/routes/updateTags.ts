@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { pool } from '../db/client';
+import { requireAuth } from '../middleware/requireAuth';
 import type { AuthenticatedUser } from '../types';
 import type { Request } from 'express';
 
@@ -24,7 +25,7 @@ router.get('/', async (_req, res) => {
 });
 
 /** POST /api/update-tags — create (admin only) */
-router.post('/', async (req, res) => {
+router.post('/', requireAuth, async (req, res) => {
   try {
     const user = getUser(req);
     const { id, label, color } = req.body as { id: string; label: string; color: string };
@@ -47,7 +48,7 @@ router.post('/', async (req, res) => {
 });
 
 /** PUT /api/update-tags/:id — edit label/color (admin only) */
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const { label, color } = req.body as { label: string; color: string };
@@ -71,7 +72,7 @@ router.put('/:id', async (req, res) => {
 });
 
 /** DELETE /api/update-tags/:id — delete (admin only) */
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const result = await pool.query(`DELETE FROM update_tags WHERE id=$1`, [id]);

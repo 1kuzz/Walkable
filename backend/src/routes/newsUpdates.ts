@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { pool } from '../db/client';
+import { requireAuth } from '../middleware/requireAuth';
 import type { AuthenticatedUser } from '../types';
 import type { Request } from 'express';
 
@@ -25,7 +26,7 @@ router.get('/', async (_req, res) => {
 });
 
 /** POST /api/news-updates — create (admin only) */
-router.post('/', async (req, res) => {
+router.post('/', requireAuth, async (req, res) => {
   try {
     const user = getUser(req);
     const { id, title, description, date, tag } = req.body as {
@@ -55,7 +56,7 @@ router.post('/', async (req, res) => {
 });
 
 /** PUT /api/news-updates/:id — update title/description/date (admin only) */
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const { title, description, date, tag } = req.body as {
@@ -89,7 +90,7 @@ router.put('/:id', async (req, res) => {
 });
 
 /** DELETE /api/news-updates/:id — delete (admin only) */
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
 

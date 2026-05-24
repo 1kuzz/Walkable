@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { pool } from '../db/client';
+import { requireAuth } from '../middleware/requireAuth';
 import type { AuthenticatedUser } from '../types';
 import type { Request } from 'express';
 
@@ -103,7 +104,7 @@ router.get('/unread-count', async (req, res) => {
 });
 
 /** POST /api/updates — create (admin only) */
-router.post('/', async (req, res) => {
+router.post('/', requireAuth, async (req, res) => {
   try {
     const user = getUser(req);
     const { id, title, description, date, type, appName, version, tagId } = req.body as {
@@ -130,7 +131,7 @@ router.post('/', async (req, res) => {
 });
 
 /** PUT /api/updates/:id — edit (admin only) */
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const { title, description, date, type, appName, version, tagId } = req.body as {
@@ -159,7 +160,7 @@ router.put('/:id', async (req, res) => {
 });
 
 /** DELETE /api/updates/:id — delete (admin only) */
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const result = await pool.query(`DELETE FROM updates WHERE id=$1`, [id]);
@@ -172,7 +173,7 @@ router.delete('/:id', async (req, res) => {
 });
 
 /** POST /api/updates/:id/pin — toggle pin (admin only) */
-router.post('/:id/pin', async (req, res) => {
+router.post('/:id/pin', requireAuth, async (req, res) => {
   try {
     const { id } = req.params;
     const result = await pool.query<{ is_pinned: boolean }>(

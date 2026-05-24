@@ -15,7 +15,6 @@ import usageTrackerRouter from './routes/usageTracker';
 import versionHistoryRouter from './routes/versionHistory';
 import uploadedContentRouter from './routes/uploadedContent';
 import promotedAppsRouter from './routes/promotedApps';
-import migrateRouter from './routes/migrate';
 import appsRouter from './routes/apps';
 import newsUpdatesRouter from './routes/newsUpdates';
 import updatesRouter from './routes/updates';
@@ -23,6 +22,14 @@ import updateTagsRouter from './routes/updateTags';
 import quickButtonsRouter from './routes/quickButtons';
 import projectsRouter from './routes/projects';
 import githubAuthRouter from './routes/githubAuth';
+
+if (
+  process.env.NODE_ENV === 'production' &&
+  (!process.env.SESSION_SECRET || process.env.SESSION_SECRET === 'dev-session-secret-change-in-production')
+) {
+  console.error('[FATAL] SESSION_SECRET must be set to a strong random value in production');
+  process.exit(1);
+}
 
 const app = express();
 app.set('trust proxy', 1);
@@ -102,7 +109,6 @@ app.use('/api/usage', generalLimiter, usageTrackerRouter);
 app.use('/api/versions', generalLimiter, versionHistoryRouter);
 app.use('/api/content', generalLimiter, uploadedContentRouter);
 app.use('/api/promoted-apps', generalLimiter, promotedAppsRouter);
-app.use('/api/migrate', generalLimiter, migrateRouter);
 app.use('/api/apps', generalLimiter, appsRouter);
 app.use('/api/news-updates', generalLimiter, newsUpdatesRouter);
 app.use('/api/updates', generalLimiter, updatesRouter);
