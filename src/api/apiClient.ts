@@ -23,7 +23,7 @@ export async function apiFetch<T>(
     headers['Content-Type'] = 'application/json';
   }
 
-  const response = await fetch(path, { ...options, headers });
+  const response = await fetch(path, { ...options, headers, credentials: 'include' });
 
   if (!response.ok) {
     const text = await response.text().catch(() => '');
