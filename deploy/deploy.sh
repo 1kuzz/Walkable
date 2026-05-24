@@ -5,6 +5,12 @@ set -euo pipefail
 APP=/var/www/walkable/app
 cd "$APP"
 
+# Use sudo for privileged commands when not already root
+SUDO=""
+if [ "$(id -u)" != "0" ]; then
+  SUDO="sudo"
+fi
+
 echo "[deploy] Pulling latest code..."
 git pull origin main
 
@@ -25,7 +31,7 @@ mkdir -p backend/dist/db/migrations
 cp backend/src/db/migrations/*.sql backend/dist/db/migrations/
 
 echo "[deploy] Restarting backend..."
-pm2 restart showcase-backend
+$SUDO pm2 restart showcase-backend
 
 echo "[deploy] Waiting for backend to be healthy..."
 for i in $(seq 1 15); do
@@ -38,8 +44,6 @@ for i in $(seq 1 15); do
 done
 
 echo "[deploy] Reloading nginx..."
-# Use sudo if available (non-root SSH users); fall back to direct call (root)
-SUDO=$(command -v sudo 2>/dev/null && echo "sudo" || echo "")
 $SUDO nginx -t && $SUDO systemctl reload nginx
 
 echo "[deploy] Done. Health:"
