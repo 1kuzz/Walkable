@@ -345,7 +345,7 @@ async function auditContentAccess(login: string, contentId: string, ip: string |
 }
 
 function serveInlineHtml(res: Response, rawHtml: string, user: AuthenticatedUser, id: string, theme: string): void {
-  let html = rawHtml.replace(/^[﻿\s]+/, '');
+  let html = rawHtml.replace(/^[\uFEFF\s]+/, '');
   if (!html.toLowerCase().startsWith('<!doctype')) {
     html = '<!DOCTYPE html>\n' + html;
   }
