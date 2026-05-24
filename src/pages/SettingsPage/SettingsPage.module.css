@@ -56,3 +56,105 @@
   color: var(--color-teal-dark);
   font-weight: 600;
 }
+
+/* ── Account ── */
+.accountRow {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.accountAvatar {
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  border: 2px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.accountInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.accountLogin {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.accountName {
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.accountProvider {
+  font-size: 11px;
+  color: var(--color-text-muted);
+  margin-top: 2px;
+}
+
+.signOutBtn {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  padding: 6px 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+
+.signOutBtn:hover {
+  border-color: var(--color-teal);
+  color: var(--color-text);
+}
+
+/* ── Deployment ── */
+.deployInfo {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.deployRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.deployLabel {
+  color: var(--color-text-muted);
+  width: 120px;
+  flex-shrink: 0;
+}
+
+.deployValue {
+  color: var(--color-text);
+}
+
+.deployLink {
+  color: var(--color-teal);
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.deployLink:hover {
+  text-decoration: underline;
+}
+
+.code {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  color: var(--color-text);
+}

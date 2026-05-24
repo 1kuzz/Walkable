@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import type { Request, Response } from 'express';
+import { pool } from '../db/client';
 
 const router = Router();
 
@@ -58,6 +59,17 @@ router.get('/github/callback', async (req: Request, res: Response) => {
     req.session.githubToken = tokenData.access_token;
     req.session.githubUser  = { login: user.login, avatar_url: user.avatar_url, name: user.name };
 
+    // Persist (or refresh) user record so backend always knows who has logged in
+    await pool.query(
+      `INSERT INTO github_users (login, display_name, avatar_url, last_seen)
+       VALUES ($1, $2, $3, NOW())
+       ON CONFLICT (login) DO UPDATE
+         SET display_name = EXCLUDED.display_name,
+             avatar_url   = EXCLUDED.avatar_url,
+             last_seen    = NOW()`,
+      [user.login, user.name ?? user.login, user.avatar_url],
+    );
+
     res.redirect(`${FRONTEND_URL()}/?auth=success`);
   } catch {
     res.redirect(`${FRONTEND_URL()}/?auth=error`);
@@ -72,6 +84,26 @@ router.get('/me', (req: Request, res: Response) => {
 /** POST /api/auth/logout */
 router.post('/logout', (req: Request, res: Response) => {
   req.session.destroy(() => res.json({ ok: true }));
+});
+
+/** GET /api/auth/users — list all users who have ever logged in (requires auth) */
+router.get('/users', async (req: Request, res: Response) => {
+  if (!req.session.githubUser) {
+    res.status(401).json({ error: 'Not authenticated.' });
+    return;
+  }
+  try {
+    const result = await pool.query(
+      `SELECT login, display_name AS "displayName", avatar_url AS "avatarUrl",
+              first_seen AS "firstSeen", last_seen AS "lastSeen"
+       FROM github_users
+       ORDER BY last_seen DESC`,
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[auth] GET /users error:', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
 });
 
 export default router;

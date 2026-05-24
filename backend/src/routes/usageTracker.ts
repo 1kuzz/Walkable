@@ -437,6 +437,26 @@ router.get('/events/export', async (req, res) => {
   }
 });
 
+/** GET /api/usage/stats/my-activity — daily event counts for current user, last 365 days */
+router.get('/stats/my-activity', async (req: Request, res: Response) => {
+  try {
+    const user = getUser(req);
+    const result = await pool.query(
+      `SELECT DATE(timestamp AT TIME ZONE 'UTC') AS day, COUNT(*)::int AS count
+       FROM usage_events
+       WHERE user_login = $1
+         AND timestamp >= NOW() - INTERVAL '365 days'
+       GROUP BY day
+       ORDER BY day ASC`,
+      [user.login],
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[usage] GET /stats/my-activity error:', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 /** GET /api/usage/stats/trend — time-series event counts (admin only) */
 router.get('/stats/trend', async (req: Request, res: Response) => {
   try {

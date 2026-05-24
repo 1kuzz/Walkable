@@ -5,6 +5,7 @@ import { MainContent } from './components/MainContent';
 import { CollapsibleSidebar } from './components/CollapsibleSidebar';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { LoadingFallback } from './components/LoadingFallback';
+import { RequireAuth } from './components/RequireAuth/RequireAuth';
 import { initializeTheme } from './services/themeService';
 import { GitHubAuthProvider } from './contexts/GitHubAuthContext';
 import styles from './App.module.css';
@@ -31,14 +32,16 @@ function AppShell() {
             <Suspense fallback={<LoadingFallback />}>
               <Routes>
                 <Route path="/" element={<Navigate to="/gallery" replace />} />
+                {/* Public */}
                 <Route path="/gallery" element={<AppsPage />} />
-                <Route path="/projects" element={<GalleryPage />} />
                 <Route path="/apps/:id" element={<AppLaunchPage />} />
-                <Route path="/updates" element={<UpdatesPage />} />
-                <Route path="/content" element={<ContentUploadPage />} />
-                <Route path="/statistics" element={<StatisticsPage />} />
-                <Route path="/settings" element={<SettingsPage />} />
-                <Route path="/projects/:id" element={<ProjectDetailPage />} />
+                {/* Auth-gated */}
+                <Route path="/projects" element={<RequireAuth><GalleryPage /></RequireAuth>} />
+                <Route path="/projects/:id" element={<RequireAuth><ProjectDetailPage /></RequireAuth>} />
+                <Route path="/updates" element={<RequireAuth><UpdatesPage /></RequireAuth>} />
+                <Route path="/content" element={<RequireAuth><ContentUploadPage /></RequireAuth>} />
+                <Route path="/statistics" element={<RequireAuth><StatisticsPage /></RequireAuth>} />
+                <Route path="/settings" element={<RequireAuth><SettingsPage /></RequireAuth>} />
                 <Route path="*" element={<NotFoundPage />} />
               </Routes>
             </Suspense>
