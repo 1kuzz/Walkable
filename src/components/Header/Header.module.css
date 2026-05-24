@@ -360,9 +360,9 @@
   background-color: rgba(255, 255, 255, 0.15);
 }
 
-/* ── Mobile Menu Panel (hidden on desktop) ── */
+/* ── Mobile Menu Panel (rendered by React when open) ── */
 .mobileMenu {
-  display: none;
+  display: flex;
   position: fixed;
   top: var(--header-height);
   left: 0;
@@ -564,10 +564,6 @@
   }
 
   .menuToggle {
-    display: flex;
-  }
-
-  .mobileMenu {
     display: flex;
   }
 }

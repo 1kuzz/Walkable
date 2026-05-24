@@ -83,6 +83,68 @@ export function Header() {
           </button>
         )}
       </nav>
+
+      {mobileMenuOpen && (
+        <div className={styles.mobileMenu} role="navigation" aria-label={t('nav.mainNavigation')}>
+          <NavLink
+            to="/gallery"
+            className={({ isActive }) => isActive ? `${styles.mobileNavLink} ${styles.mobileNavLinkActive}` : styles.mobileNavLink}
+            onClick={() => setMobileMenuOpen(false)}
+          >
+            {t('nav.gallery')}
+          </NavLink>
+          <NavLink
+            to="/content"
+            className={({ isActive }) => isActive ? `${styles.mobileNavLink} ${styles.mobileNavLinkActive}` : styles.mobileNavLink}
+            onClick={() => setMobileMenuOpen(false)}
+          >
+            Submit
+          </NavLink>
+          <NavLink
+            to="/updates"
+            className={({ isActive }) => isActive ? `${styles.mobileNavLink} ${styles.mobileNavLinkActive}` : styles.mobileNavLink}
+            onClick={() => setMobileMenuOpen(false)}
+          >
+            {t('nav.updates')}
+            {unreadCount > 0 && (
+              <span className={styles.unreadDot} aria-label={t('nav.unread', { count: unreadCount })} />
+            )}
+          </NavLink>
+          <NavLink
+            to="/statistics"
+            className={({ isActive }) => isActive ? `${styles.mobileNavLink} ${styles.mobileNavLinkActive}` : styles.mobileNavLink}
+            onClick={() => setMobileMenuOpen(false)}
+          >
+            {t('nav.statistics') || 'Stats'}
+          </NavLink>
+          <NavLink
+            to="/settings"
+            className={({ isActive }) => isActive ? `${styles.mobileNavLink} ${styles.mobileNavLinkActive}` : styles.mobileNavLink}
+            onClick={() => setMobileMenuOpen(false)}
+          >
+            Settings
+          </NavLink>
+          <hr className={styles.mobileDivider} />
+          {user ? (
+            <div className={styles.mobileUserRow}>
+              {user.avatar_url && (
+                <img src={user.avatar_url} alt={user.login} className={styles.avatar} />
+              )}
+              <span className={styles.mobileNavLink} style={{ flex: 1, padding: 0 }}>{user.login}</span>
+              <button className={styles.logoutBtn} onClick={() => { void logout(); setMobileMenuOpen(false); }}>
+                Sign out
+              </button>
+            </div>
+          ) : (
+            <button
+              className={styles.mobileNavLink}
+              onClick={() => { login(); setMobileMenuOpen(false); }}
+            >
+              Sign in with GitHub
+            </button>
+          )}
+        </div>
+      )}
     </header>
   );
 }
