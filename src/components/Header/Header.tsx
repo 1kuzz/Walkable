@@ -6,12 +6,62 @@ import { useGitHubAuth } from '../../contexts/useGitHubAuth';
 import styles from './Header.module.css';
 import { useI18n } from '../../i18n';
 
+function AuthSection({ compact = false }: { compact?: boolean }) {
+  const { user, loading, login, logout } = useGitHubAuth();
+  const navigate = useNavigate();
+
+  if (loading) {
+    return <span className={styles.authPlaceholder} />;
+  }
+
+  if (!user) {
+    return (
+      <button
+        className={compact ? styles.mobileNavLink : styles.githubBtn}
+        onClick={login}
+      >
+        Sign in with GitHub
+      </button>
+    );
+  }
+
+  if (compact) {
+    return (
+      <div className={styles.mobileUserRow}>
+        {user.avatar_url && (
+          <img src={user.avatar_url} alt={user.login} className={styles.avatar} />
+        )}
+        <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: 'var(--color-white)' }}>
+          {user.login}
+        </span>
+        <button className={styles.logoutBtn} onClick={() => void logout()}>
+          Sign out
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      className={styles.accountBtn}
+      onClick={() => navigate('/settings')}
+      title={`${user.login} — Settings`}
+    >
+      {user.avatar_url ? (
+        <img src={user.avatar_url} alt={user.login} className={styles.accountAvatar} />
+      ) : (
+        <span className={styles.accountInitial}>{user.login[0].toUpperCase()}</span>
+      )}
+      <span className={styles.accountLogin}>{user.login}</span>
+    </button>
+  );
+}
+
 export function Header() {
   const { t } = useI18n();
   const navigate = useNavigate();
   const unreadCount = useUnreadCount();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const { user, login, logout } = useGitHubAuth();
 
   return (
     <header className={styles.header}>
@@ -62,26 +112,7 @@ export function Header() {
           {t('nav.statistics') || 'Stats'}
         </NavLink>
         <span className={styles.separator}>|</span>
-        <NavLink
-          to="/settings"
-          className={({ isActive }) => isActive ? `${styles.navLink} ${styles.navLinkActive}` : styles.navLink}
-        >
-          Settings
-        </NavLink>
-        <span className={styles.separator}>|</span>
-        {user ? (
-          <span className={styles.authGroup}>
-            {user.avatar_url && (
-              <img src={user.avatar_url} alt={user.login} className={styles.avatar} />
-            )}
-            <span className={styles.navLink}>{user.login}</span>
-            <button className={styles.logoutBtn} onClick={() => void logout()}>Sign out</button>
-          </span>
-        ) : (
-          <button className={styles.githubBtn} onClick={login}>
-            Sign in with GitHub
-          </button>
-        )}
+        <AuthSection />
       </nav>
 
       {mobileMenuOpen && (
@@ -125,24 +156,7 @@ export function Header() {
             Settings
           </NavLink>
           <hr className={styles.mobileDivider} />
-          {user ? (
-            <div className={styles.mobileUserRow}>
-              {user.avatar_url && (
-                <img src={user.avatar_url} alt={user.login} className={styles.avatar} />
-              )}
-              <span className={styles.mobileNavLink} style={{ flex: 1, padding: 0 }}>{user.login}</span>
-              <button className={styles.logoutBtn} onClick={() => { void logout(); setMobileMenuOpen(false); }}>
-                Sign out
-              </button>
-            </div>
-          ) : (
-            <button
-              className={styles.mobileNavLink}
-              onClick={() => { login(); setMobileMenuOpen(false); }}
-            >
-              Sign in with GitHub
-            </button>
-          )}
+          <AuthSection compact />
         </div>
       )}
     </header>

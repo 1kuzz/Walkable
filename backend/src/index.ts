@@ -49,7 +49,8 @@ app.use(session({
   secret: process.env.SESSION_SECRET ?? 'dev-session-secret-change-in-production',
   resave: false,
   saveUninitialized: false,
-  cookie: { httpOnly: true, sameSite: 'lax', secure: true, maxAge: 7 * 24 * 60 * 60 * 1000 },
+  rolling: true, // refresh cookie expiry on every response → stays logged in while active
+  cookie: { httpOnly: true, sameSite: 'lax', secure: true, maxAge: 30 * 24 * 60 * 60 * 1000 },
 }));
 
 app.use(cors({
