@@ -959,11 +959,23 @@ router.get('/:id/render', renderLimiter, async (req: Request, res: Response): Pr
     }
 
     if (row.project_path) {
+      const pathParts = row.project_path.split('/').slice(2); // strip '' and 'uploads'
+      const absolutePath = path.join(UPLOADS_DIR, ...pathParts);
+      if (!fs.existsSync(absolutePath)) {
+        sendHtmlError(res, 404, 'Project Files Missing',
+          'The project files were not found on disk. Try re-uploading the project.');
+        return;
+      }
       res.redirect(302, row.project_path);
       return;
     }
 
-    serveInlineHtml(res, row.html_content ?? '', user, id, (req.query['theme'] as string) ?? 'light');
+    if (!row.html_content) {
+      sendHtmlError(res, 404, 'Project Is Empty', 'This project has no content. Try re-uploading.');
+      return;
+    }
+
+    serveInlineHtml(res, row.html_content, user, id, (req.query['theme'] as string) ?? 'light');
   } catch (err) {
     console.error('[content] GET /:id/render error:', err);
     sendHtmlError(res, 500, 'Server Error', 'Something went wrong loading this project. Please try again later.');
