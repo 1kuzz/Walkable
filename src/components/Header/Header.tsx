@@ -6,6 +6,11 @@ import { useGitHubAuth } from '../../contexts/useGitHubAuth';
 import styles from './Header.module.css';
 import { useI18n } from '../../i18n';
 
+const navLinkClass = ({ isActive }: { isActive: boolean }) =>
+  isActive ? `${styles.navLink} ${styles.navLinkActive}` : styles.navLink;
+const mobileNavLinkClass = ({ isActive }: { isActive: boolean }) =>
+  isActive ? `${styles.mobileNavLink} ${styles.mobileNavLinkActive}` : styles.mobileNavLink;
+
 function AuthSection({ compact = false }: { compact?: boolean }) {
   const { user, loading, login, logout } = useGitHubAuth();
   const navigate = useNavigate();
@@ -62,6 +67,7 @@ export function Header() {
   const navigate = useNavigate();
   const unreadCount = useUnreadCount();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const { user } = useGitHubAuth();
 
   return (
     <header className={styles.header}>
@@ -79,24 +85,15 @@ export function Header() {
       </button>
 
       <nav className={styles.nav} aria-label={t('nav.mainNavigation')}>
-        <NavLink
-          to="/gallery"
-          className={({ isActive }) => isActive ? `${styles.navLink} ${styles.navLinkActive}` : styles.navLink}
-        >
+        <NavLink to="/gallery" className={navLinkClass}>
           {t('nav.gallery')}
         </NavLink>
         <span className={styles.separator}>|</span>
-        <NavLink
-          to="/content"
-          className={({ isActive }) => isActive ? `${styles.navLink} ${styles.navLinkActive}` : styles.navLink}
-        >
+        <NavLink to="/content" className={navLinkClass}>
           Submit
         </NavLink>
         <span className={styles.separator}>|</span>
-        <NavLink
-          to="/updates"
-          className={({ isActive }) => isActive ? `${styles.navLink} ${styles.navLinkActive}` : styles.navLink}
-        >
+        <NavLink to="/updates" className={navLinkClass}>
           <span className={styles.navLinkInner}>
             {t('nav.updates')}
             {unreadCount > 0 && (
@@ -105,37 +102,30 @@ export function Header() {
           </span>
         </NavLink>
         <span className={styles.separator}>|</span>
-        <NavLink
-          to="/statistics"
-          className={({ isActive }) => isActive ? `${styles.navLink} ${styles.navLinkActive}` : styles.navLink}
-        >
+        <NavLink to="/statistics" className={navLinkClass}>
           {t('nav.statistics') || 'Stats'}
         </NavLink>
+        {user && (
+          <>
+            <span className={styles.separator}>|</span>
+            <NavLink to="/my-projects" className={navLinkClass}>
+              My Projects
+            </NavLink>
+          </>
+        )}
         <span className={styles.separator}>|</span>
         <AuthSection />
       </nav>
 
       {mobileMenuOpen && (
         <div className={styles.mobileMenu} role="navigation" aria-label={t('nav.mainNavigation')}>
-          <NavLink
-            to="/gallery"
-            className={({ isActive }) => isActive ? `${styles.mobileNavLink} ${styles.mobileNavLinkActive}` : styles.mobileNavLink}
-            onClick={() => setMobileMenuOpen(false)}
-          >
+          <NavLink to="/gallery" className={mobileNavLinkClass} onClick={() => setMobileMenuOpen(false)}>
             {t('nav.gallery')}
           </NavLink>
-          <NavLink
-            to="/content"
-            className={({ isActive }) => isActive ? `${styles.mobileNavLink} ${styles.mobileNavLinkActive}` : styles.mobileNavLink}
-            onClick={() => setMobileMenuOpen(false)}
-          >
+          <NavLink to="/content" className={mobileNavLinkClass} onClick={() => setMobileMenuOpen(false)}>
             Submit
           </NavLink>
-          <NavLink
-            to="/updates"
-            className={({ isActive }) => isActive ? `${styles.mobileNavLink} ${styles.mobileNavLinkActive}` : styles.mobileNavLink}
-            onClick={() => setMobileMenuOpen(false)}
-          >
+          <NavLink to="/updates" className={mobileNavLinkClass} onClick={() => setMobileMenuOpen(false)}>
             {t('nav.updates')}
             {unreadCount > 0 && (
               <span className={styles.unreadDot} aria-label={t('nav.unread', { count: unreadCount })} />
@@ -143,16 +133,21 @@ export function Header() {
           </NavLink>
           <NavLink
             to="/statistics"
-            className={({ isActive }) => isActive ? `${styles.mobileNavLink} ${styles.mobileNavLinkActive}` : styles.mobileNavLink}
+            className={mobileNavLinkClass}
             onClick={() => setMobileMenuOpen(false)}
           >
             {t('nav.statistics') || 'Stats'}
           </NavLink>
-          <NavLink
-            to="/settings"
-            className={({ isActive }) => isActive ? `${styles.mobileNavLink} ${styles.mobileNavLinkActive}` : styles.mobileNavLink}
-            onClick={() => setMobileMenuOpen(false)}
-          >
+          {user && (
+            <NavLink
+              to="/my-projects"
+              className={mobileNavLinkClass}
+              onClick={() => setMobileMenuOpen(false)}
+            >
+              My Projects
+            </NavLink>
+          )}
+          <NavLink to="/settings" className={mobileNavLinkClass} onClick={() => setMobileMenuOpen(false)}>
             Settings
           </NavLink>
           <hr className={styles.mobileDivider} />

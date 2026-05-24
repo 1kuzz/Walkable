@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '../api/apiClient';
 
 export type ContentVisibility = 'all' | 'specific';
+export type ContentStatus = 'draft' | 'pending_review' | 'approved' | 'rejected';
 
 export interface UploadedContent {
   id: string;
@@ -39,6 +40,14 @@ export interface UploadedContent {
    * instead of opening an iframe preview.
    */
   portalRoute?: string | null;
+  /** Review workflow status */
+  status?: ContentStatus;
+  /** Admin note left when rejecting */
+  reviewNote?: string | null;
+  /** When the item was submitted for review */
+  submittedAt?: string | null;
+  /** GitHub URL if imported from GitHub */
+  gitUrl?: string | null;
 }
 
 /**

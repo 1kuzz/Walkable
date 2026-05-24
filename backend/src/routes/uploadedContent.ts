@@ -2,26 +2,21 @@ import { Router } from 'express';
 import multer from 'multer';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as cp from 'child_process';
 import AdmZip from 'adm-zip';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import sharp from 'sharp';
 import { pool } from '../db/client';
 import type { AuthenticatedUser } from '../types';
 import type { Request, Response } from 'express';
+import { requireAuth } from '../middleware/requireAuth';
+import { requireAdmin } from '../middleware/requireAdmin';
 
 const router = Router();
 
-/** Directory where multi-file uploads are stored on disk. */
 const UPLOADS_DIR = process.env.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads');
-
-/** Directory where app thumbnails are stored. */
 const THUMBNAILS_DIR = path.join(UPLOADS_DIR, 'thumbnails');
 
-/**
- * Per-user rate limiter for the content render endpoint.
- * Keyed by authenticated user login after the authenticate middleware runs.
- * Falls back to IP address if no user is available.
- */
 const renderLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 60,
@@ -34,23 +29,20 @@ const renderLimiter = rateLimit({
   message: { error: 'Too many content requests, please try again later.' },
 });
 
-/** Ensure the uploads directory exists. */
 function ensureUploadsDir(): void {
   if (!fs.existsSync(UPLOADS_DIR)) {
     fs.mkdirSync(UPLOADS_DIR, { recursive: true });
   }
 }
 
-/** Multer storage: disk storage for multi-file uploads, memory for single HTML files. */
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024 }, // 50 MB per file
+  limits: { fileSize: 50 * 1024 * 1024 },
 });
 
-/** Multer instance for ZIP archive uploads — up to 200 MB. */
 const zipUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 200 * 1024 * 1024 }, // 200 MB
+  limits: { fileSize: 200 * 1024 * 1024 },
   fileFilter: (_req, file, cb) => {
     if (
       file.mimetype === 'application/zip' ||
@@ -65,21 +57,9 @@ const zipUpload = multer({
   },
 });
 
-/** Hard limits applied during ZIP extraction to prevent resource exhaustion. */
 const ZIP_MAX_FILES = 5_000;
-const ZIP_MAX_EXTRACTED_BYTES = 500 * 1024 * 1024; // 500 MB
+const ZIP_MAX_EXTRACTED_BYTES = 500 * 1024 * 1024;
 
-/**
- * Extract a ZIP archive buffer safely into a target directory.
- * Returns the number of extracted files.
- *
- * Safety guarantees:
- * - Blocks zip-slip / path traversal entries.
- * - Blocks symlinks and non-file entries (devices, sockets, etc.).
- * - Enforces per-archive file count and total extracted size limits.
- * - All entries are written only after all validation passes; on any error the
- *   caller is responsible for cleaning up the target directory.
- */
 function extractZipToDir(buffer: Buffer, targetDir: string): number {
   const zip = new AdmZip(buffer);
   const entries = zip.getEntries();
@@ -92,25 +72,19 @@ function extractZipToDir(buffer: Buffer, targetDir: string): number {
   const resolvedTarget = path.resolve(targetDir);
 
   for (const entry of entries) {
-    // Skip directory-only entries
     if (entry.isDirectory) continue;
 
     const entryName = entry.entryName;
 
-    // Reject paths that contain null bytes or are empty
     if (!entryName || entryName.includes('\0')) {
       throw new Error(`Archive contains an entry with an invalid name.`);
     }
 
-    // Reject entries that reference parent directories (zip-slip).
-    // Also covers the edge case where resolvedEntry equals the target dir itself.
     const resolvedEntry = path.resolve(targetDir, entryName);
     if (!resolvedEntry.startsWith(resolvedTarget + path.sep) && resolvedEntry !== resolvedTarget) {
       throw new Error(`Archive contains a path traversal entry: "${entryName}".`);
     }
 
-    // Reject dot-starting filenames in any path segment.
-    // Allow '.' (current-directory notation in relative paths) but block '..' and '.hidden' etc.
     const segments = entryName.split('/');
     if (segments.some((seg) => seg.startsWith('.') && seg !== '.')) {
       throw new Error(`Archive contains a hidden file or dot-prefixed entry: "${entryName}".`);
@@ -122,7 +96,6 @@ function extractZipToDir(buffer: Buffer, targetDir: string): number {
     }
   }
 
-  // All entries validated — extract
   let count = 0;
   for (const entry of entries) {
     if (entry.isDirectory) continue;
@@ -139,12 +112,6 @@ function extractZipToDir(buffer: Buffer, targetDir: string): number {
   return count;
 }
 
-/**
- * Search a directory tree for index.html / index.htm (case-insensitive).
- * Prefers the shallowest match; when multiple files share the same depth the
- * first one in sorted order wins for determinism.
- * Returns the path relative to rootDir, using forward slashes.
- */
 function findIndexHtml(rootDir: string): string | null {
   const candidates: { depth: number; rel: string }[] = [];
 
@@ -173,12 +140,10 @@ function findIndexHtml(rootDir: string): string | null {
   walk(rootDir, 0);
 
   if (candidates.length === 0) return null;
-  // Shallowest wins; ties broken lexicographically for determinism.
   candidates.sort((a, b) => a.depth - b.depth || a.rel.localeCompare(b.rel));
   return candidates[0].rel;
 }
 
-/** Multer for thumbnail uploads — images only, 5 MB limit. */
 const thumbnailUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
@@ -195,60 +160,139 @@ function getUser(req: Request): AuthenticatedUser {
   return (req as unknown as { authUser: AuthenticatedUser }).authUser;
 }
 
-/**
- * GET /api/content
- * Admin: all items.
- * Regular user: only items with visibility='all' or where login is in allowedUsers.
- */
-router.get('/', async (req, res) => {
+function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
+  const match = url.trim().match(/^https?:\/\/github\.com\/([a-zA-Z0-9_.-]+)\/([a-zA-Z0-9_.-]+?)(\.git)?\/?$/);
+  if (!match) return null;
+  return { owner: match[1], repo: match[2] };
+}
+
+// ── Build pipeline ────────────────────────────────────────────────────────────
+
+const BUILD_TIMEOUT_MS = 5 * 60 * 1000;
+const BUILD_LOG_MAX_BYTES = 200 * 1024;
+
+interface BuildResult {
+  projectPath: string;
+  buildLog: string;
+  fileCount: number;
+}
+
+function runCommand(cmd: string, args: string[], cwd: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const chunks: Buffer[] = [];
+    let totalBytes = 0;
+
+    const child = cp.spawn(cmd, args, {
+      cwd,
+      env: {
+        PATH: process.env['PATH'] ?? '/usr/local/bin:/usr/bin:/bin',
+        HOME: process.env['HOME'] ?? '/root',
+        NODE_ENV: 'production',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    const onData = (chunk: Buffer) => {
+      if (totalBytes < BUILD_LOG_MAX_BYTES) {
+        const space = BUILD_LOG_MAX_BYTES - totalBytes;
+        chunks.push(chunk.slice(0, space));
+        totalBytes += Math.min(chunk.length, space);
+      }
+    };
+
+    child.stdout?.on('data', onData);
+    child.stderr?.on('data', onData);
+
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(new Error(`"${cmd} ${args.join(' ')}" timed out after ${BUILD_TIMEOUT_MS / 1000}s`));
+    }, BUILD_TIMEOUT_MS);
+
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      const log = Buffer.concat(chunks).toString('utf8');
+      if (code === 0) {
+        resolve(log);
+      } else {
+        reject(Object.assign(new Error(`Command exited with code ${String(code)}`), { log }));
+      }
+    });
+
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+  });
+}
+
+async function runProjectBuild(sourceDir: string, contentId: string): Promise<BuildResult> {
+  let buildLog = '';
+
   try {
-    const user = getUser(req);
-    let query: string;
-    let params: unknown[];
-
-    if (user.isAdmin) {
-      query = `SELECT id, name, description, uploaded_at AS "uploadedAt",
-                      uploaded_by AS "uploadedBy", visibility, allowed_users AS "allowedUsers",
-                      file_count AS "fileCount", project_path AS "projectPath",
-                      (html_content <> '') AS "hasContent",
-                      thumbnail_path AS "thumbnailPath",
-                      portal_route AS "portalRoute"
-               FROM uploaded_content
-               ORDER BY uploaded_at DESC`;
-      params = [];
-    } else {
-      query = `SELECT id, name, description, uploaded_at AS "uploadedAt",
-                      uploaded_by AS "uploadedBy", visibility, allowed_users AS "allowedUsers",
-                      file_count AS "fileCount", project_path AS "projectPath",
-                      (html_content <> '') AS "hasContent",
-                      thumbnail_path AS "thumbnailPath",
-                      portal_route AS "portalRoute"
-               FROM uploaded_content
-               WHERE visibility = 'all'
-                  OR (visibility = 'specific' AND lower($1) = ANY(
-                        SELECT lower(trim(val))
-                        FROM unnest(string_to_array(allowed_users, ',')) AS val
-                      ))
-               ORDER BY uploaded_at DESC`;
-      params = [user.login];
-    }
-
-    const result = await pool.query(query, params);
-    res.json(result.rows);
-  } catch (err) {
-    console.error('[content] GET / error:', err);
-    res.status(500).json({ error: 'Internal server error.' });
+    const installLog = await runCommand('npm', ['install', '--prefer-offline', '--no-audit'], sourceDir);
+    buildLog += '=== npm install ===\n' + installLog + '\n';
+  } catch (err: unknown) {
+    const errLog = (err instanceof Error && 'log' in err) ? String((err as unknown as Record<string, unknown>)['log']) : '';
+    buildLog += '=== npm install FAILED ===\n' + errLog + '\n' + (err instanceof Error ? err.message : String(err));
+    throw Object.assign(new Error('npm install failed'), { buildLog });
   }
-});
 
-/**
- * Inject a user-specific watermark into an HTML document.
- * A hidden, invisible element is inserted just before </body>.
- * This enables forensic identification if the content is exfiltrated.
- */
+  try {
+    const buildOutput = await runCommand('npm', ['run', 'build'], sourceDir);
+    buildLog += '=== npm run build ===\n' + buildOutput + '\n';
+  } catch (err: unknown) {
+    const errLog = (err instanceof Error && 'log' in err) ? String((err as unknown as Record<string, unknown>)['log']) : '';
+    buildLog += '=== npm run build FAILED ===\n' + errLog + '\n' + (err instanceof Error ? err.message : String(err));
+    throw Object.assign(new Error('npm run build failed'), { buildLog });
+  }
+
+  const outputDirs = ['dist', 'build', 'out', 'public'];
+  let outputDir: string | null = null;
+  for (const d of outputDirs) {
+    const candidate = path.join(sourceDir, d);
+    if (fs.existsSync(candidate) && fs.statSync(candidate).isDirectory()) {
+      outputDir = candidate;
+      break;
+    }
+  }
+
+  if (!outputDir) {
+    buildLog += '\nCould not find output directory (checked: dist, build, out, public).';
+    throw Object.assign(new Error('Build output directory not found'), { buildLog });
+  }
+
+  const indexRel = findIndexHtml(outputDir);
+  if (!indexRel) {
+    buildLog += `\nNo index.html found in ${path.basename(outputDir)}/`;
+    throw Object.assign(new Error('No index.html in build output'), { buildLog });
+  }
+
+  ensureUploadsDir();
+  const finalDir = path.join(UPLOADS_DIR, contentId);
+  if (fs.existsSync(finalDir)) {
+    fs.rmSync(finalDir, { recursive: true, force: true });
+  }
+  fs.cpSync(outputDir, finalDir, { recursive: true });
+
+  let fileCount = 0;
+  function countFiles(dir: string) {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (entry.isDirectory()) countFiles(path.join(dir, entry.name));
+      else fileCount++;
+    }
+  }
+  countFiles(finalDir);
+
+  const projectPath = `/uploads/${contentId}/${indexRel}`;
+  buildLog += `\nBuild succeeded. Output: ${path.basename(outputDir)}/ (${fileCount} files)`;
+
+  return { projectPath, buildLog, fileCount };
+}
+
+// ── Watermark / theme helpers ─────────────────────────────────────────────────
+
 function injectWatermark(html: string, login: string, contentId: string): string {
   const timestamp = new Date().toISOString();
-  // Encode login to prevent any HTML injection from the login value
   const safeLogin = login
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -265,16 +309,6 @@ function injectWatermark(html: string, login: string, contentId: string): string
   return html + watermark;
 }
 
-/**
- * Inject a minimal theme style block into an inline HTML app.
- * For dark theme, sets color-scheme and overrides body colours.
- * For light theme, only resets color-scheme (a no-op for most apps).
- * Inserted before the first </head> when present; if no </head>, inserted after
- * the DOCTYPE declaration (to preserve Standards Mode) or prepended as a fallback.
- * We use indexOf (first match) rather than lastIndexOf to avoid being misled by
- * </head> substrings that appear inside JavaScript string literals in minified
- * libraries (e.g. the SheetJS template string in NormalizerCSV).
- */
 function injectTheme(html: string, theme: 'dark' | 'light'): string {
   const compatMeta = `<meta http-equiv="X-UA-Compatible" content="IE=edge">`;
   const style =
@@ -287,10 +321,6 @@ function injectTheme(html: string, theme: 'dark' | 'light'): string {
   if (headIdx !== -1) {
     return html.slice(0, headIdx) + inject + html.slice(headIdx);
   }
-  // No </head>: inject immediately after the DOCTYPE declaration (if present)
-  // so the DOCTYPE remains the very first content and Standards Mode is preserved.
-  // Since rawHtml is guaranteed to start with <!doctype after BOM-stripping, we
-  // simply locate the first '>' which is the closing angle bracket of the declaration.
   if (lower.startsWith('<!doctype')) {
     const doctypeEnd = html.indexOf('>');
     if (doctypeEnd !== -1) {
@@ -300,10 +330,6 @@ function injectTheme(html: string, theme: 'dark' | 'light'): string {
   return inject + html;
 }
 
-/**
- * Fire-and-forget audit log entry for content access.
- * Errors are swallowed so audit failures never block serving content.
- */
 async function auditContentAccess(login: string, contentId: string, ip: string | undefined): Promise<void> {
   try {
     const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -314,228 +340,115 @@ async function auditContentAccess(login: string, contentId: string, ip: string |
       [id, login, `Accessed content: ${contentId} from IP ${ip ?? 'unknown'}`],
     );
   } catch {
-    // Non-critical — audit failures must not break content delivery
+    // Non-critical
   }
 }
 
+function serveInlineHtml(res: Response, rawHtml: string, user: AuthenticatedUser, id: string, theme: string): void {
+  let html = rawHtml.replace(/^[﻿\s]+/, '');
+  if (!html.toLowerCase().startsWith('<!doctype')) {
+    html = '<!DOCTYPE html>\n' + html;
+  }
+  const watermarked = injectWatermark(html, user.login, id);
+  const themed = injectTheme(watermarked, theme === 'dark' ? 'dark' : 'light');
+
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Cache-Control', 'no-store, no-cache');
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+  res.setHeader(
+    'Content-Security-Policy',
+    "sandbox allow-scripts allow-forms allow-same-origin allow-modals allow-popups allow-downloads; default-src 'self' 'unsafe-inline' data:; font-src 'self' https://fonts.gstatic.com data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; frame-ancestors 'self';",
+  );
+  res.status(200).send(themed);
+}
+
+// ── Routes ────────────────────────────────────────────────────────────────────
+
 /**
- * GET /api/content/:id/render
- * Serves the HTML content of an uploaded item to the authenticated user.
- * – Inline HTML apps: served as text/html with security headers and a user watermark.
- * – Multi-file apps: issues a redirect to the nginx-served /uploads/ path.
- *   The nginx auth_request gate and the mops_session cookie protect that path.
- * Every access is recorded in the audit_log table.
+ * GET /api/content
+ * Admin: all items.
+ * User: own items (any status) + publicly approved items.
  */
-router.get('/:id/render', renderLimiter, async (req: Request, res: Response): Promise<void> => {
+router.get('/', async (req, res) => {
   try {
     const user = getUser(req);
-    const { id } = req.params as { id: string };
+    let query: string;
+    let params: unknown[];
 
-    // Validate ID to prevent path traversal
-    if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
-      res.status(400).json({ error: 'Invalid content ID.' });
-      return;
+    const cols = `id, name, description, uploaded_at AS "uploadedAt",
+                  uploaded_by AS "uploadedBy", visibility, allowed_users AS "allowedUsers",
+                  file_count AS "fileCount", project_path AS "projectPath",
+                  (COALESCE(html_content,'') <> '') AS "hasContent",
+                  thumbnail_path AS "thumbnailPath", portal_route AS "portalRoute",
+                  status, review_note AS "reviewNote", submitted_at AS "submittedAt",
+                  git_url AS "gitUrl"`;
+
+    if (user.isAdmin) {
+      query = `SELECT ${cols} FROM uploaded_content ORDER BY uploaded_at DESC`;
+      params = [];
+    } else {
+      query = `SELECT ${cols} FROM uploaded_content
+               WHERE (uploaded_by = $1)
+                  OR (status = 'approved' AND visibility = 'all')
+                  OR (status = 'approved' AND visibility = 'specific'
+                      AND lower($1) = ANY(
+                            SELECT lower(trim(val))
+                            FROM unnest(string_to_array(allowed_users, ',')) AS val
+                          ))
+               ORDER BY uploaded_at DESC`;
+      params = [user.login];
     }
 
-    // Fetch the content row — include html_content only here (never in the list endpoint)
-    const result = await pool.query<{
-      id: string;
-      visibility: string;
-      allowed_users: string;
-      html_content: string;
-      project_path: string | null;
-      portal_route: string | null;
-    }>(
-      `SELECT id, visibility, allowed_users, html_content, project_path, portal_route
-       FROM uploaded_content WHERE id = $1`,
-      [id],
-    );
-
-    if (result.rows.length === 0) {
-      res.status(404).json({ error: 'Content not found.' });
-      return;
-    }
-
-    const row = result.rows[0];
-
-    // Access control: admin sees everything; others must be in allowedUsers for specific visibility
-    if (!user.isAdmin && row.visibility === 'specific') {
-      const allowed = (row.allowed_users ?? '')
-        .split(',')
-        .map((s: string) => s.trim().toLowerCase());
-      if (!allowed.includes(user.login.toLowerCase())) {
-        res.status(403).json({ error: 'Access denied.' });
-        return;
-      }
-    }
-
-    // Fire-and-forget audit entry
-    void auditContentAccess(user.login, id, req.ip);
-
-    if (row.portal_route) {
-      // Portal-link app: redirect directly to the internal portal page.
-      res.redirect(302, row.portal_route);
-      return;
-    }
-
-    if (row.project_path) {
-      // Multi-file app: redirect to nginx-served path.
-      // The mops_session cookie satisfies nginx's auth_request gate for /uploads/.
-      res.redirect(302, row.project_path);
-      return;
-    }
-
-    // Inline HTML: serve directly with security headers and watermark
-    let rawHtml = row.html_content ?? '';
-
-    // Strip UTF-8 BOM (\uFEFF) and leading whitespace so that the DOCTYPE
-    // is the very first byte sequence the browser sees.  A BOM or any
-    // whitespace before <!DOCTYPE html> causes browsers to switch to
-    // Quirks Mode even when a DOCTYPE is present.
-    rawHtml = rawHtml.replace(/^[\uFEFF\s]+/, '');
-
-    // Ensure the document is served in Standards Mode.
-    // If the stored HTML lacks a DOCTYPE (e.g. it was seeded as an empty
-    // placeholder while project_path migration is pending), inject one so
-    // browsers do not fall back to Quirks Mode.
-    if (!rawHtml.toLowerCase().startsWith('<!doctype')) {
-      rawHtml = '<!DOCTYPE html>\n' + rawHtml;
-    }
-
-    const watermarked = injectWatermark(rawHtml, user.login, id);
-
-    // Apply the requested theme (dark / light) to inline HTML content
-    const theme = req.query['theme'] === 'dark' ? 'dark' : 'light';
-    const themed = injectTheme(watermarked, theme);
-
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Cache-Control', 'no-store, no-cache');
-    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
-    res.setHeader(
-      'Content-Security-Policy',
-      "sandbox allow-scripts allow-forms allow-same-origin allow-modals allow-popups allow-downloads; default-src 'self' 'unsafe-inline' data:; font-src 'self' https://fonts.gstatic.com data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; frame-ancestors 'self';",
-    );
-    res.status(200).send(themed);
+    const result = await pool.query(query, params);
+    res.json(result.rows);
   } catch (err) {
-    console.error('[content] GET /:id/render error:', err);
+    console.error('[content] GET / error:', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
 /**
- * GET /api/content/:id/versions — list version snapshots for an app.
- * Returns an array ordered oldest-first. The current live version is NOT included.
+ * GET /api/content/pending — admin: list items awaiting review.
+ * Must be registered before /:id routes.
  */
-router.get('/:id/versions', async (req: Request, res: Response): Promise<void> => {
+router.get('/pending', requireAdmin, async (_req, res) => {
   try {
-    const { id } = req.params as { id: string };
-    if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
-      res.status(400).json({ error: 'Invalid content ID.' });
-      return;
-    }
-    const result = await pool.query<{ id: number; version_num: number; label: string | null; created_at: string }>(
-      `SELECT id, version_num, label, created_at FROM app_versions WHERE content_id = $1 ORDER BY version_num ASC`,
-      [id],
+    const result = await pool.query(
+      `SELECT id, name, description,
+              uploaded_by AS "uploadedBy", submitted_at AS "submittedAt",
+              thumbnail_path AS "thumbnailPath", status,
+              review_note AS "reviewNote", git_url AS "gitUrl"
+       FROM uploaded_content
+       WHERE status = 'pending_review'
+       ORDER BY submitted_at ASC`,
     );
     res.json(result.rows);
   } catch (err) {
-    console.error('[content] GET /:id/versions error:', err);
+    console.error('[content] GET /pending error:', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
 /**
- * GET /api/content/:id/render?version=N — serve a historical version snapshot.
- * Falls through to the live render when no version param is given (handled above).
- */
-router.get('/:id/render/version/:versionNum', renderLimiter, async (req: Request, res: Response): Promise<void> => {
-  try {
-    const user = getUser(req);
-    const { id, versionNum } = req.params as { id: string; versionNum: string };
-    if (!/^[a-zA-Z0-9_-]+$/.test(id)) { res.status(400).json({ error: 'Invalid content ID.' }); return; }
-
-    const vNum = parseInt(versionNum, 10);
-    if (isNaN(vNum)) { res.status(400).json({ error: 'Invalid version number.' }); return; }
-
-    // Access-control: check visibility on the parent content row
-    const parentResult = await pool.query<{ visibility: string; allowed_users: string }>(
-      `SELECT visibility, allowed_users FROM uploaded_content WHERE id = $1`,
-      [id],
-    );
-    if (parentResult.rows.length === 0) { res.status(404).json({ error: 'Content not found.' }); return; }
-    const parent = parentResult.rows[0];
-    if (!user.isAdmin && parent.visibility === 'specific') {
-      const allowed = (parent.allowed_users ?? '').split(',').map((s: string) => s.trim().toLowerCase());
-      if (!allowed.includes(user.login.toLowerCase())) { res.status(403).json({ error: 'Access denied.' }); return; }
-    }
-
-    const vResult = await pool.query<{ html_content: string; project_path: string | null }>(
-      `SELECT html_content, project_path FROM app_versions WHERE content_id = $1 AND version_num = $2`,
-      [id, vNum],
-    );
-    if (vResult.rows.length === 0) { res.status(404).json({ error: 'Version not found.' }); return; }
-
-    const row = vResult.rows[0];
-    if (row.project_path) { res.redirect(302, row.project_path); return; }
-
-    let rawHtml = (row.html_content ?? '').replace(/^[\uFEFF\s]+/, '');
-    if (!rawHtml.toLowerCase().startsWith('<!doctype')) rawHtml = '<!DOCTYPE html>\n' + rawHtml;
-    const watermarked = injectWatermark(rawHtml, user.login, `${id}@v${vNum}`);
-    const theme = req.query['theme'] === 'dark' ? 'dark' : 'light';
-    const themed = injectTheme(watermarked, theme);
-
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Cache-Control', 'no-store, no-cache');
-    res.setHeader('Content-Security-Policy',
-      "sandbox allow-scripts allow-forms allow-same-origin allow-modals allow-popups allow-downloads; default-src 'self' 'unsafe-inline' data:; font-src 'self' https://fonts.gstatic.com data:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; frame-ancestors 'self';",
-    );
-    res.status(200).send(themed);
-  } catch (err) {
-    console.error('[content] GET /:id/render/version/:versionNum error:', err);
-    res.status(500).json({ error: 'Internal server error.' });
-  }
-});
-
-/**
- * POST /api/content — upload new content (admin only).
- * Accepts multipart/form-data with fields: name, description, visibility, allowedUsers
- * and either:
- *   – one or more files in the `files` field (existing behaviour), or
- *   – a single ZIP archive in the `archive` field (new: full project upload).
- *
- * ZIP upload flow:
- *  1. Extract the archive into a temporary directory under UPLOADS_DIR.
- *  2. Validate every entry (path traversal, hidden files, limits).
- *  3. Discover the entry page (index.html / index.htm) automatically.
- *  4. Move the temp directory to the final app directory atomically.
- *  5. Store project_path pointing at the discovered index file.
- *
- * The `files` flow is unchanged: multiple files → disk + fixed index.html path;
- * single file → inline HTML stored in the database.
+ * POST /api/content — upload new content (any authenticated user).
+ * Creates with status='draft'. Non-admins cannot set visibility/allowedUsers.
+ * Supports optional server-side build (field build=true) for source ZIP uploads.
  */
 router.post(
   '/',
+  requireAuth,
   (req, res, next) => {
-    // Dispatch to the appropriate multer handler based on what the client sends.
-    // The Content-Type boundary reveals which field the client uses.
-    // We run both parsers in sequence: zipUpload first (it validates MIME/ext),
-    // then fall back to the general upload parser.
     zipUpload.single('archive')(req, res, (zipErr) => {
       if (zipErr) {
-        // If multer rejected the file (wrong type), propagate the error as a 400.
         res.status(400).json({ error: zipErr.message ?? 'Invalid archive file.' });
         return;
       }
       if ((req as { file?: unknown }).file) {
-        // ZIP was accepted — skip the general files parser
         next();
         return;
       }
-      // No archive field — try the general files parser
       upload.array('files')(req, res, next);
     });
   },
@@ -543,53 +456,55 @@ router.post(
     const user = getUser(req);
     const rawBody = req.body as Record<string, unknown>;
 
-    // Coerce multipart fields — they may arrive as string[] when form has duplicate keys
-    const name = Array.isArray(rawBody.name) ? rawBody.name[0] : (rawBody.name as string | undefined);
-    const description = Array.isArray(rawBody.description) ? rawBody.description[0] : (rawBody.description as string | undefined);
-    const visibility = Array.isArray(rawBody.visibility) ? rawBody.visibility[0] : (rawBody.visibility as string | undefined);
-    const allowedUsers = Array.isArray(rawBody.allowedUsers) ? rawBody.allowedUsers[0] : (rawBody.allowedUsers as string | undefined);
-    const providedId = Array.isArray(rawBody.id) ? rawBody.id[0] : (rawBody.id as string | undefined);
-    const portalRoute = Array.isArray(rawBody.portalRoute) ? rawBody.portalRoute[0] : (rawBody.portalRoute as string | undefined);
+    const name = Array.isArray(rawBody['name']) ? rawBody['name'][0] : (rawBody['name'] as string | undefined);
+    const description = Array.isArray(rawBody['description']) ? rawBody['description'][0] : (rawBody['description'] as string | undefined);
+    const providedId = Array.isArray(rawBody['id']) ? rawBody['id'][0] : (rawBody['id'] as string | undefined);
+    const portalRoute = Array.isArray(rawBody['portalRoute']) ? rawBody['portalRoute'][0] : (rawBody['portalRoute'] as string | undefined);
+    const buildFlag = Array.isArray(rawBody['build']) ? rawBody['build'][0] : (rawBody['build'] as string | undefined);
+    const wantsBuild = buildFlag === 'true';
+
+    // Admins can set visibility; regular users default to draft/specific
+    const rawVis = Array.isArray(rawBody['visibility']) ? rawBody['visibility'][0] : (rawBody['visibility'] as string | undefined);
+    const rawAllowed = Array.isArray(rawBody['allowedUsers']) ? rawBody['allowedUsers'][0] : (rawBody['allowedUsers'] as string | undefined);
+    const vis: 'all' | 'specific' = user.isAdmin
+      ? (rawVis === 'specific' ? 'specific' : 'all')
+      : 'specific';
+    const allowedUsers = user.isAdmin
+      ? (rawAllowed?.trim() ?? '')
+      : user.login;
 
     if (!name?.trim()) {
       res.status(400).json({ error: 'name is required.' });
       return;
     }
 
-    const vis = (visibility === 'specific' ? 'specific' : 'all') as 'all' | 'specific';
-
     const contentId = providedId?.trim() || `upload_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-
-    // Sanitize contentId to prevent path traversal — allow only safe characters
     if (!/^[a-zA-Z0-9_-]+$/.test(contentId)) {
       res.status(400).json({ error: 'Invalid content ID: only alphanumeric characters, hyphens, and underscores are allowed.' });
       return;
     }
-    // Re-apply the same filter so the safe value is explicitly constructed for
-    // static-analysis tools even though the check above already guarantees this.
     const safeContentId = contentId.replace(/[^a-zA-Z0-9_-]/g, '');
+
+    // Non-admins always start as draft; admins can optionally set approved directly
+    const status = user.isAdmin ? 'approved' : 'draft';
 
     let htmlContent = '';
     let projectPath: string | null = null;
     let portalRouteValue: string | null = null;
     let fileCount = 0;
-
-    /** Temporary directory used during ZIP extraction; cleaned up on any error. */
+    let buildLog: string | null = null;
     let tempDir: string | null = null;
 
     try {
       const archiveFile = (req as { file?: Express.Multer.File }).file;
 
       if (archiveFile) {
-        // ── ZIP archive upload path ──────────────────────────────────────────        ensureUploadsDir();
-
-        // Extract into a temp directory first so we can validate before committing
+        ensureUploadsDir();
         tempDir = fs.mkdtempSync(path.join(UPLOADS_DIR, 'tmp-zip-'));
 
         try {
           fileCount = extractZipToDir(archiveFile.buffer, tempDir);
         } catch (extractErr) {
-          // Extraction / validation failed — clean up and return a user-friendly error
           fs.rmSync(tempDir, { recursive: true, force: true });
           tempDir = null;
           const msg = extractErr instanceof Error ? extractErr.message : 'Failed to extract archive.';
@@ -604,29 +519,50 @@ router.post(
           return;
         }
 
-        // Auto-discover the entry point
-        const indexRel = findIndexHtml(tempDir);
-        if (!indexRel) {
-          fs.rmSync(tempDir, { recursive: true, force: true });
+        const hasPkgJson = fs.existsSync(path.join(tempDir, 'package.json'));
+
+        if (wantsBuild && hasPkgJson) {
+          // Server-side build: run npm install + npm run build
+          try {
+            const buildResult = await runProjectBuild(tempDir, safeContentId);
+            projectPath = buildResult.projectPath;
+            fileCount = buildResult.fileCount;
+            buildLog = buildResult.buildLog;
+          } catch (buildErr: unknown) {
+            const log = (buildErr instanceof Error && 'buildLog' in buildErr)
+              ? String((buildErr as unknown as Record<string, unknown>)['buildLog'])
+              : (buildErr instanceof Error ? buildErr.message : String(buildErr));
+            fs.rmSync(tempDir, { recursive: true, force: true });
+            tempDir = null;
+            res.status(422).json({ error: 'Build failed.', buildLog: log });
+            return;
+          } finally {
+            // Clean up source dir (build already copied output to uploads/{id}/)
+            if (tempDir && fs.existsSync(tempDir)) {
+              fs.rmSync(tempDir, { recursive: true, force: true });
+              tempDir = null;
+            }
+          }
+        } else {
+          const indexRel = findIndexHtml(tempDir);
+          if (!indexRel) {
+            fs.rmSync(tempDir, { recursive: true, force: true });
+            tempDir = null;
+            res.status(400).json({ error: 'No index.html or index.htm found in the archive. Please include an entry page.' });
+            return;
+          }
+
+          const appDir = path.join(UPLOADS_DIR, safeContentId);
+          if (fs.existsSync(appDir)) {
+            fs.rmSync(appDir, { recursive: true, force: true });
+          }
+          fs.renameSync(tempDir, appDir);
           tempDir = null;
-          res.status(400).json({ error: 'No index.html or index.htm found in the archive. Please include an entry page.' });
-          return;
-        }
 
-        // Move to final location (rename is atomic on the same filesystem)
-        const appDir = path.join(UPLOADS_DIR, safeContentId);
-        // Guard against a race where the directory already exists
-        if (fs.existsSync(appDir)) {
-          fs.rmSync(appDir, { recursive: true, force: true });
+          projectPath = `/uploads/${safeContentId}/${indexRel}`;
         }
-        fs.renameSync(tempDir, appDir);
-        tempDir = null;
-
-        projectPath = `/uploads/${safeContentId}/${indexRel}`;
       } else if (portalRoute?.trim()) {
-        // ── Portal-link mode: no file upload — just store the internal route ──
         const trimmedRoute = portalRoute.trim();
-        // Validate: must start with '/' and contain only safe URL characters.
         if (!/^\/[a-zA-Z0-9/_-]*$/.test(trimmedRoute)) {
           res.status(400).json({ error: 'Invalid portal route: must start with / and contain only letters, digits, /, _ and -.' });
           return;
@@ -634,62 +570,57 @@ router.post(
         portalRouteValue = trimmedRoute;
         fileCount = 0;
       } else {
-        // ── Individual files upload path (existing behaviour) ────────────────
         const files = (req.files ?? []) as Express.Multer.File[];
         fileCount = files.length || 1;
 
         if (files.length > 1) {
-          // Multi-file: save to disk
           ensureUploadsDir();
           const appDir = path.join(UPLOADS_DIR, safeContentId);
           fs.mkdirSync(appDir, { recursive: true });
 
           for (const file of files) {
-            // Sanitize filename: remove path separators and non-safe characters;
-            // reject names that start with a dot, contain sequences of dots, or path separators.
             const baseName = path.basename(file.originalname);
             const safeName = baseName.replace(/[^a-zA-Z0-9._-]/g, '_');
-            // Block names that begin with a dot, are purely dots, or contain '..'
             if (!safeName || safeName.startsWith('.') || safeName.includes('..') || safeName === '') {
-              continue; // skip dangerous filenames
+              continue;
             }
             const targetPath = path.join(appDir, safeName);
-            // Ensure the resolved path stays within appDir
             const resolvedTarget = path.resolve(targetPath);
             const resolvedAppDir = path.resolve(appDir);
             if (!resolvedTarget.startsWith(resolvedAppDir + path.sep) && resolvedTarget !== resolvedAppDir) {
-              continue; // skip if path escapes the app directory
+              continue;
             }
             fs.writeFileSync(resolvedTarget, file.buffer);
           }
           projectPath = `/uploads/${safeContentId}/index.html`;
         } else if (files.length === 1) {
-          // Single-file: store content inline
           htmlContent = files[0].buffer.toString('utf8');
         }
       }
 
       await pool.query(
         `INSERT INTO uploaded_content
-           (id, name, description, uploaded_at, uploaded_by, visibility, allowed_users, file_count, html_content, project_path, portal_route)
-         VALUES ($1, $2, $3, NOW(), $4, $5, $6, $7, $8, $9, $10)`,
+           (id, name, description, uploaded_at, uploaded_by, visibility, allowed_users,
+            file_count, html_content, project_path, portal_route, status, build_log)
+         VALUES ($1, $2, $3, NOW(), $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
         [
           safeContentId,
           name.trim(),
           description?.trim() ?? '',
           user.login,
           vis,
-          vis === 'specific' ? (allowedUsers?.trim() ?? '') : '',
+          vis === 'specific' ? allowedUsers : '',
           fileCount,
           htmlContent,
           projectPath,
           portalRouteValue,
+          status,
+          buildLog,
         ],
       );
 
-      res.status(201).json({ id: safeContentId });
+      res.status(201).json({ id: safeContentId, buildLog });
     } catch (err) {
-      // Clean up any leftover temp directory on unexpected errors
       if (tempDir) {
         try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* non-critical */ }
       }
@@ -699,344 +630,165 @@ router.post(
   },
 );
 
-/** PATCH /api/content/:id — update metadata (admin only) */
-router.patch('/:id', async (req, res) => {
+/**
+ * POST /api/content/github — import a project from a GitHub URL.
+ * Fetches the repo as a zipball (supports private repos via user session token).
+ * Must be registered before /:id routes.
+ */
+router.post('/github', requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
-    const { id } = req.params as { id: string };
-    const { name, description, visibility, allowedUsers } = req.body as {
+    const user = getUser(req);
+    const { gitUrl, name, description, build } = req.body as {
+      gitUrl?: string;
       name?: string;
       description?: string;
-      visibility?: string;
-      allowedUsers?: string;
+      build?: boolean;
     };
 
-    const vis = visibility === 'specific' ? 'specific' : (visibility === 'all' ? 'all' : undefined);
-
-    await pool.query(
-      `UPDATE uploaded_content SET
-         name          = COALESCE($1, name),
-         description   = COALESCE($2, description),
-         visibility    = COALESCE($3, visibility),
-         allowed_users = COALESCE($4, allowed_users)
-       WHERE id = $5`,
-      [
-        name?.trim() ?? null,
-        description?.trim() ?? null,
-        vis ?? null,
-        allowedUsers?.trim() ?? null,
-        id,
-      ],
-    );
-
-    res.json({ success: true });
-  } catch (err) {
-    console.error('[content] PATCH /:id error:', err);
-    res.status(500).json({ error: 'Internal server error.' });
-  }
-});
-
-/** PATCH /api/content/:id/rename — change the URL slug / ID of an app (admin only) */
-router.patch('/:id/rename', async (req, res) => {
-  try {
-    const { id } = req.params as { id: string };
-    const { newId } = req.body as { newId?: string };
-
-    if (!newId?.trim()) {
-      res.status(400).json({ error: 'newId is required.' });
+    if (!gitUrl?.trim() || !name?.trim()) {
+      res.status(400).json({ error: 'gitUrl and name are required.' });
       return;
     }
 
-    const trimmedNewId = newId.trim();
-
-    if (!/^[a-zA-Z0-9_-]+$/.test(trimmedNewId)) {
-      res.status(400).json({ error: 'Invalid slug: only letters, digits, hyphens, and underscores are allowed.' });
+    const parsed = parseGitHubUrl(gitUrl.trim());
+    if (!parsed) {
+      res.status(400).json({ error: 'Invalid GitHub URL. Use: https://github.com/owner/repo' });
       return;
     }
 
-    if (trimmedNewId === id) {
-      res.json({ success: true });
-      return;
+    const { owner, repo } = parsed;
+    const zipballUrl = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/zipball/HEAD`;
+
+    const headers: Record<string, string> = {
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+      'User-Agent': 'Walkable-Portal/1.0',
+    };
+    const token = req.session?.githubToken;
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
     }
 
-    // Check new ID is not already taken
-    const existing = await pool.query('SELECT id FROM uploaded_content WHERE id = $1', [trimmedNewId]);
-    if ((existing.rowCount ?? 0) > 0) {
-      res.status(409).json({ error: 'This slug is already in use.' });
-      return;
-    }
-
-    // Rename on-disk app directory if it exists
-    const oldAppDir = path.resolve(UPLOADS_DIR, id);
-    const newAppDir = path.resolve(UPLOADS_DIR, trimmedNewId);
-    const resolvedUploadsDir = path.resolve(UPLOADS_DIR);
-    if (
-      oldAppDir.startsWith(resolvedUploadsDir + path.sep) &&
-      newAppDir.startsWith(resolvedUploadsDir + path.sep) &&
-      fs.existsSync(oldAppDir)
-    ) {
-      fs.renameSync(oldAppDir, newAppDir);
-    }
-
-    // Rename thumbnail if it exists
-    const oldThumb = path.join(THUMBNAILS_DIR, `${id}.jpg`);
-    const newThumb = path.join(THUMBNAILS_DIR, `${trimmedNewId}.jpg`);
-    if (fs.existsSync(oldThumb)) {
-      fs.renameSync(oldThumb, newThumb);
-    }
-
-    // Update project_path if it references the old ID
-    await pool.query(
-      `UPDATE uploaded_content
-         SET id           = $1,
-             project_path = CASE
-               WHEN project_path LIKE $2 THEN replace(project_path, $3, $1)
-               ELSE project_path
-             END
-       WHERE id = $4`,
-      [trimmedNewId, `/uploads/${id}/%`, id, id],
-    );
-
-    // Audit log
+    let zipBuffer: Buffer;
     try {
-      const auditId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      const user = (req as Request & { user?: AuthenticatedUser }).user;
-      await pool.query(
-        `INSERT INTO audit_log (id, timestamp, event_type, "user", detail)
-         VALUES ($1, NOW(), 'content_rename', $2, $3)
-         ON CONFLICT (id) DO NOTHING`,
-        [auditId, user?.login ?? 'unknown', `Renamed app slug: ${id} → ${trimmedNewId}`],
-      );
-    } catch { /* non-critical */ }
-
-    res.json({ success: true, newId: trimmedNewId });
-  } catch (err) {
-    console.error('[content] PATCH /:id/rename error:', err);
-    res.status(500).json({ error: 'Internal server error.' });
-  }
-});
-
-/**
- * PUT /api/content/:id/archive — replace the files of an existing user-uploaded hosted app (admin only).
- * Accepts a ZIP archive and atomically replaces the on-disk app directory.
- * Only works for apps whose project_path starts with '/uploads/' (not seeded public-dir apps).
- */
-router.put(
-  '/:id/archive',
-  (req, res, next) => {
-    zipUpload.single('archive')(req, res, (zipErr) => {
-      if (zipErr) {
-        res.status(400).json({ error: zipErr.message ?? 'Invalid archive file.' });
+      const fetchRes = await fetch(zipballUrl, { headers });
+      if (!fetchRes.ok) {
+        const status = fetchRes.status;
+        if (status === 404) {
+          res.status(400).json({ error: 'Repository not found or not accessible.' });
+        } else if (status === 401 || status === 403) {
+          res.status(400).json({ error: 'Access denied. For private repos you must be logged in.' });
+        } else {
+          res.status(400).json({ error: `GitHub returned status ${String(status)}.` });
+        }
         return;
       }
-      next();
-    });
-  },
-  async (req, res) => {
-    const user = getUser(req);
-    const { id } = req.params as { id: string };
-
-    if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
-      res.status(400).json({ error: 'Invalid content ID.' });
-      return;
-    }
-    // Re-apply the same filter so the safe value is explicitly constructed for
-    // static-analysis tools even though the regex check above already guarantees this.
-    const safeId = id.replace(/[^a-zA-Z0-9_-]/g, '');
-
-    const archiveFile = (req as { file?: Express.Multer.File }).file;
-    if (!archiveFile) {
-      res.status(400).json({ error: 'No archive file provided.' });
+      const ab = await fetchRes.arrayBuffer();
+      zipBuffer = Buffer.from(ab);
+    } catch {
+      res.status(502).json({ error: 'Failed to fetch repository from GitHub.' });
       return;
     }
 
-    let tempDir: string | null = null;
-    let backupDir: string | null = null;
+    const MAX_GITHUB_ZIP = 200 * 1024 * 1024;
+    if (zipBuffer.length > MAX_GITHUB_ZIP) {
+      res.status(400).json({ error: 'Repository archive exceeds 200 MB.' });
+      return;
+    }
+
+    const contentId = `gh_${owner}_${repo}_${Date.now()}`.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 60);
+    const safeContentId = contentId.replace(/[^a-zA-Z0-9_-]/g, '');
+
+    ensureUploadsDir();
+    let tempDir: string | null = fs.mkdtempSync(path.join(UPLOADS_DIR, 'tmp-zip-'));
+    let fileCount = 0;
 
     try {
-      // Verify the item exists and has a mutable project_path under /uploads/
-      const result = await pool.query<{ project_path: string | null }>(
-        'SELECT project_path FROM uploaded_content WHERE id = $1',
-        [safeId],
-      );
+      fileCount = extractZipToDir(zipBuffer, tempDir);
+    } catch (extractErr) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      tempDir = null;
+      const msg = extractErr instanceof Error ? extractErr.message : 'Failed to extract repository archive.';
+      res.status(400).json({ error: msg });
+      return;
+    }
 
-      if (result.rows.length === 0) {
-        res.status(404).json({ error: 'Content not found.' });
-        return;
-      }
+    if (fileCount === 0) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      tempDir = null;
+      res.status(400).json({ error: 'Repository archive appears to be empty.' });
+      return;
+    }
 
-      const { project_path } = result.rows[0];
-      if (!project_path?.startsWith('/uploads/')) {
-        res.status(400).json({
-          error:
-            'This app\'s files cannot be replaced this way — it is a seeded app served from the public directory. Delete it and re-upload a ZIP with the same ID instead.',
-        });
-        return;
-      }
+    let projectPath: string | null = null;
+    let buildLog: string | null = null;
+    const hasPkgJson = fs.existsSync(path.join(tempDir, 'package.json'));
 
-      ensureUploadsDir();
-
-      // Extract into a temp directory first so we can validate before committing
-      tempDir = fs.mkdtempSync(path.join(UPLOADS_DIR, 'tmp-zip-'));
-
-      let fileCount: number;
+    if (build && hasPkgJson) {
       try {
-        fileCount = extractZipToDir(archiveFile.buffer, tempDir);
-      } catch (extractErr) {
-        fs.rmSync(tempDir, { recursive: true, force: true });
-        tempDir = null;
-        const msg = extractErr instanceof Error ? extractErr.message : 'Failed to extract archive.';
-        res.status(400).json({ error: msg });
+        const buildResult = await runProjectBuild(tempDir, safeContentId);
+        projectPath = buildResult.projectPath;
+        fileCount = buildResult.fileCount;
+        buildLog = buildResult.buildLog;
+      } catch (buildErr: unknown) {
+        const log = (buildErr instanceof Error && 'buildLog' in buildErr)
+          ? String((buildErr as unknown as Record<string, unknown>)['buildLog'])
+          : (buildErr instanceof Error ? buildErr.message : String(buildErr));
+        if (tempDir && fs.existsSync(tempDir)) fs.rmSync(tempDir, { recursive: true, force: true });
+        res.status(422).json({ error: 'Build failed.', buildLog: log });
         return;
+      } finally {
+        if (tempDir && fs.existsSync(tempDir)) {
+          fs.rmSync(tempDir, { recursive: true, force: true });
+          tempDir = null;
+        }
       }
-
-      if (fileCount === 0) {
-        fs.rmSync(tempDir, { recursive: true, force: true });
-        tempDir = null;
-        res.status(400).json({ error: 'The archive is empty or contains no extractable files.' });
-        return;
-      }
-
+    } else {
+      // GitHub zipball has a top-level prefix dir (owner-repo-sha/) — findIndexHtml handles this recursively
       const indexRel = findIndexHtml(tempDir);
       if (!indexRel) {
         fs.rmSync(tempDir, { recursive: true, force: true });
         tempDir = null;
-        res.status(400).json({ error: 'No index.html or index.htm found in the archive. Please include an entry page.' });
+        // No index.html found — might be source-only repo; suggest build flag
+        const hint = hasPkgJson ? ' This looks like a source project — try importing with "Build this project" enabled.' : '';
+        res.status(400).json({ error: `No index.html found in the repository.${hint}` });
         return;
       }
 
-      // id is validated to [a-zA-Z0-9_-] so path.resolve is safe from traversal.
-      // Use path.relative as an extra guard to confirm appDir is inside UPLOADS_DIR.
-      const resolvedUploadsDir = path.resolve(UPLOADS_DIR);
-      const appDir = path.resolve(resolvedUploadsDir, safeId);
-      const rel = path.relative(resolvedUploadsDir, appDir);
-      if (rel.startsWith('..') || path.isAbsolute(rel)) {
-        fs.rmSync(tempDir, { recursive: true, force: true });
-        tempDir = null;
-        res.status(400).json({ error: 'Invalid content ID: path escapes uploads directory.' });
-        return;
-      }
-
-      // Snapshot the current version before replacing
-      try {
-        const snap = await pool.query<{ html_content: string; project_path: string | null }>(
-          'SELECT html_content, project_path FROM uploaded_content WHERE id = $1',
-          [safeId],
-        );
-        if (snap.rows.length > 0) {
-          const maxVer = await pool.query<{ max: number | null }>(
-            'SELECT MAX(version_num) AS max FROM app_versions WHERE content_id = $1',
-            [safeId],
-          );
-          const nextVer = (maxVer.rows[0].max ?? 0) + 1;
-          await pool.query(
-            `INSERT INTO app_versions (content_id, version_num, html_content, project_path)
-             VALUES ($1, $2, $3, $4)`,
-            [safeId, nextVer, snap.rows[0].html_content ?? '', snap.rows[0].project_path],
-          );
-        }
-      } catch { /* non-critical — snapshot failure must not block the update */ }
-
-      // Back up the existing directory before replacing so we can recover on failure.
-      if (fs.existsSync(appDir)) {
-        backupDir = `${appDir}.bak-${Date.now()}`;
-        fs.renameSync(appDir, backupDir);
-      }
-
-      // Move validated temp dir into place
+      const appDir = path.join(UPLOADS_DIR, safeContentId);
+      if (fs.existsSync(appDir)) fs.rmSync(appDir, { recursive: true, force: true });
       fs.renameSync(tempDir, appDir);
       tempDir = null;
 
-      // Remove backup only after the new directory is in place
-      if (backupDir && fs.existsSync(backupDir)) {
-        fs.rmSync(backupDir, { recursive: true, force: true });
-        backupDir = null;
-      }
-
-      const newProjectPath = `/uploads/${safeId}/${indexRel}`;
-      await pool.query(
-        'UPDATE uploaded_content SET project_path = $1, file_count = $2 WHERE id = $3',
-        [newProjectPath, fileCount, safeId],
-      );
-
-      // Audit log
-      try {
-        const auditId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-        await pool.query(
-          `INSERT INTO audit_log (id, timestamp, event_type, "user", detail)
-           VALUES ($1, NOW(), 'content_archive_replace', $2, $3)
-           ON CONFLICT (id) DO NOTHING`,
-          [auditId, user.login, `Replaced archive for app: ${safeId}`],
-        );
-      } catch { /* non-critical */ }
-
-      res.json({ success: true, projectPath: newProjectPath, fileCount });
-    } catch (err) {
-      // Clean up temp dir on unexpected error
-      if (tempDir) {
-        try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* non-critical */ }
-      }
-      // Restore from backup if it exists
-      if (backupDir && fs.existsSync(backupDir)) {
-        const appDir = path.resolve(UPLOADS_DIR, safeId);
-        try {
-          if (!fs.existsSync(appDir)) {
-            fs.renameSync(backupDir, appDir);
-          }
-        } catch { /* non-critical */ }
-      }
-      console.error('[content] PUT /:id/archive error:', err);
-      res.status(500).json({ error: 'Internal server error.' });
-    }
-  },
-);
-
-/** DELETE /api/content/:id — delete content (admin only) */
-router.delete('/:id', async (req, res) => {
-  try {
-    const { id } = req.params as { id: string };
-
-    // Validate ID to prevent path traversal
-    if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
-      res.status(400).json({ error: 'Invalid content ID.' });
-      return;
+      projectPath = `/uploads/${safeContentId}/${indexRel}`;
     }
 
-    // Remove on-disk files if they exist
-    const appDir = path.resolve(UPLOADS_DIR, id);
-    const resolvedUploadsDir = path.resolve(UPLOADS_DIR);
-    if (appDir.startsWith(resolvedUploadsDir + path.sep) && fs.existsSync(appDir)) {
-      fs.rmSync(appDir, { recursive: true, force: true });
-    }
-
-    // Remove thumbnail if it exists
-    const thumbPath = path.join(THUMBNAILS_DIR, `${id}.jpg`);
-    if (fs.existsSync(thumbPath)) {
-      fs.unlinkSync(thumbPath);
-    }
-
-    await pool.query('DELETE FROM uploaded_content WHERE id = $1', [id]);
-
-    // Record a tombstone so this ID is never re-seeded automatically.
-    // Use INSERT … ON CONFLICT DO NOTHING to handle repeated deletes gracefully.
-    const adminUser = getUser(req);
     await pool.query(
-      `INSERT INTO content_tombstones (id, deleted_at, deleted_by)
-       VALUES ($1, NOW(), $2)
-       ON CONFLICT (id) DO NOTHING`,
-      [id, adminUser.login],
+      `INSERT INTO uploaded_content
+         (id, name, description, uploaded_at, uploaded_by, visibility, allowed_users,
+          file_count, html_content, project_path, portal_route, status, git_url, build_log)
+       VALUES ($1, $2, $3, NOW(), $4, 'specific', $4, $5, '', $6, NULL, 'draft', $7, $8)`,
+      [
+        safeContentId,
+        name.trim(),
+        description?.trim() ?? `Imported from ${gitUrl}`,
+        user.login,
+        fileCount,
+        projectPath,
+        gitUrl.trim(),
+        buildLog,
+      ],
     );
 
-    res.json({ success: true });
+    res.status(201).json({ id: safeContentId, buildLog });
   } catch (err) {
-    console.error('[content] DELETE /:id error:', err);
+    console.error('[content] POST /github error:', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
 /**
- * POST /api/content/seed — insert seed content directly as JSON (admin only).
- * Used for pre-installed apps that have a projectPath or inline htmlContent
- * and don't go through multipart upload.
+ * POST /api/content/seed — insert seed content as JSON (admin only).
  */
 router.post('/seed', async (req, res) => {
   try {
@@ -1059,33 +811,22 @@ router.post('/seed', async (req, res) => {
       return;
     }
 
-    // Refuse to re-seed items that an admin explicitly deleted (tombstone check).
     const tombstone = await pool.query<{ id: string }>(
       'SELECT id FROM content_tombstones WHERE id = $1',
       [item.id],
     );
     if ((tombstone.rowCount ?? 0) > 0) {
-      // Item was deliberately deleted — silently succeed without reinserting.
       res.status(201).json({ id: item.id });
       return;
     }
 
     const vis = item.visibility === 'specific' ? 'specific' : 'all';
 
-    // The ON CONFLICT WHERE clause handles two migration scenarios:
-    // (1) inline → projectPath: existing record has no projectPath and either empty html or incoming has a projectPath.
-    // (2) projectPath → inline: existing record has a projectPath but empty html_content,
-    //     and the incoming seed now provides html_content instead of a projectPath.
-    // (3) portal route added/changed: incoming has a portalRoute that differs from the stored one.
-    // (4) portal route removed during migration to hosted app:
-    //     this specifically handles the legacy Email Center seed transition
-    //     from portal_route='/email-center' to project_path='/uploaded-apps/...'
-    //     by allowing an incoming NULL portalRoute when a hosted projectPath
-    //     is now provided.
     await pool.query(
       `INSERT INTO uploaded_content
-         (id, name, description, uploaded_at, uploaded_by, visibility, allowed_users, file_count, html_content, project_path, portal_route)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         (id, name, description, uploaded_at, uploaded_by, visibility, allowed_users,
+          file_count, html_content, project_path, portal_route, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'approved')
        ON CONFLICT (id) DO UPDATE
          SET project_path  = EXCLUDED.project_path,
              html_content  = EXCLUDED.html_content,
@@ -1124,9 +865,568 @@ router.post('/seed', async (req, res) => {
 });
 
 /**
- * GET /api/content/:id/thumbnail — serve thumbnail image (authenticated users).
- * Returns 404 if no thumbnail set.
+ * GET /api/content/:id/render — serve content to authenticated user.
+ * Status gate: non-owners can only view approved content.
  */
+router.get('/:id/render', renderLimiter, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = getUser(req);
+    const { id } = req.params as { id: string };
+
+    if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
+      res.status(400).json({ error: 'Invalid content ID.' });
+      return;
+    }
+
+    const result = await pool.query<{
+      id: string;
+      visibility: string;
+      allowed_users: string;
+      html_content: string;
+      project_path: string | null;
+      portal_route: string | null;
+      status: string;
+      uploaded_by: string;
+    }>(
+      `SELECT id, visibility, allowed_users, html_content, project_path, portal_route, status, uploaded_by
+       FROM uploaded_content WHERE id = $1`,
+      [id],
+    );
+
+    if (result.rows.length === 0) {
+      res.status(404).json({ error: 'Content not found.' });
+      return;
+    }
+
+    const row = result.rows[0];
+
+    // Status gate: draft/pending/rejected are only visible to owner and admin
+    if (!user.isAdmin) {
+      const isOwner = row.uploaded_by === user.login;
+      if (!isOwner && row.status !== 'approved') {
+        res.status(403).json({ error: 'Access denied.' });
+        return;
+      }
+      // For approved items with specific visibility, check allowed_users
+      if (!isOwner && row.status === 'approved' && row.visibility === 'specific') {
+        const allowed = (row.allowed_users ?? '').split(',').map((s: string) => s.trim().toLowerCase());
+        if (!allowed.includes(user.login.toLowerCase())) {
+          res.status(403).json({ error: 'Access denied.' });
+          return;
+        }
+      }
+    }
+
+    void auditContentAccess(user.login, id, req.ip);
+
+    if (row.portal_route) {
+      res.redirect(302, row.portal_route);
+      return;
+    }
+
+    if (row.project_path) {
+      res.redirect(302, row.project_path);
+      return;
+    }
+
+    serveInlineHtml(res, row.html_content ?? '', user, id, (req.query['theme'] as string) ?? 'light');
+  } catch (err) {
+    console.error('[content] GET /:id/render error:', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+/**
+ * GET /api/content/:id/versions — list version snapshots.
+ */
+router.get('/:id/versions', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params as { id: string };
+    if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
+      res.status(400).json({ error: 'Invalid content ID.' });
+      return;
+    }
+    const result = await pool.query<{ id: number; version_num: number; label: string | null; created_at: string }>(
+      `SELECT id, version_num, label, created_at FROM app_versions WHERE content_id = $1 ORDER BY version_num ASC`,
+      [id],
+    );
+    res.json(result.rows);
+  } catch (err) {
+    console.error('[content] GET /:id/versions error:', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+/**
+ * GET /api/content/:id/render/version/:versionNum — serve a historical version snapshot.
+ */
+router.get('/:id/render/version/:versionNum', renderLimiter, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = getUser(req);
+    const { id, versionNum } = req.params as { id: string; versionNum: string };
+    if (!/^[a-zA-Z0-9_-]+$/.test(id)) { res.status(400).json({ error: 'Invalid content ID.' }); return; }
+
+    const vNum = parseInt(versionNum, 10);
+    if (isNaN(vNum)) { res.status(400).json({ error: 'Invalid version number.' }); return; }
+
+    const parentResult = await pool.query<{
+      visibility: string;
+      allowed_users: string;
+      status: string;
+      uploaded_by: string;
+    }>(
+      `SELECT visibility, allowed_users, status, uploaded_by FROM uploaded_content WHERE id = $1`,
+      [id],
+    );
+    if (parentResult.rows.length === 0) { res.status(404).json({ error: 'Content not found.' }); return; }
+
+    const parent = parentResult.rows[0];
+    if (!user.isAdmin) {
+      const isOwner = parent.uploaded_by === user.login;
+      if (!isOwner && parent.status !== 'approved') {
+        res.status(403).json({ error: 'Access denied.' }); return;
+      }
+      if (!isOwner && parent.status === 'approved' && parent.visibility === 'specific') {
+        const allowed = (parent.allowed_users ?? '').split(',').map((s: string) => s.trim().toLowerCase());
+        if (!allowed.includes(user.login.toLowerCase())) { res.status(403).json({ error: 'Access denied.' }); return; }
+      }
+    }
+
+    const vResult = await pool.query<{ html_content: string; project_path: string | null }>(
+      `SELECT html_content, project_path FROM app_versions WHERE content_id = $1 AND version_num = $2`,
+      [id, vNum],
+    );
+    if (vResult.rows.length === 0) { res.status(404).json({ error: 'Version not found.' }); return; }
+
+    const row = vResult.rows[0];
+    if (row.project_path) { res.redirect(302, row.project_path); return; }
+
+    serveInlineHtml(res, row.html_content ?? '', user, `${id}@v${vNum}`, (req.query['theme'] as string) ?? 'light');
+  } catch (err) {
+    console.error('[content] GET /:id/render/version/:versionNum error:', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+/**
+ * POST /api/content/:id/submit-review — owner submits draft/rejected project for review.
+ */
+router.post('/:id/submit-review', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = getUser(req);
+    const { id } = req.params as { id: string };
+    if (!/^[a-zA-Z0-9_-]+$/.test(id)) { res.status(400).json({ error: 'Invalid content ID.' }); return; }
+
+    const result = await pool.query<{ uploaded_by: string; status: string }>(
+      `SELECT uploaded_by, status FROM uploaded_content WHERE id = $1`,
+      [id],
+    );
+    if (result.rows.length === 0) { res.status(404).json({ error: 'Content not found.' }); return; }
+
+    const row = result.rows[0];
+    if (row.uploaded_by !== user.login && !user.isAdmin) {
+      res.status(403).json({ error: 'Not your project.' }); return;
+    }
+    if (!['draft', 'rejected'].includes(row.status)) {
+      res.status(400).json({ error: `Cannot submit a project with status '${row.status}' for review.` }); return;
+    }
+
+    await pool.query(
+      `UPDATE uploaded_content SET status = 'pending_review', submitted_at = NOW() WHERE id = $1`,
+      [id],
+    );
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[content] POST /:id/submit-review error:', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+/**
+ * PATCH /api/content/:id/review — admin approves or rejects a pending project.
+ * On approve: sets visibility='all' so the project appears in the public gallery.
+ */
+router.patch('/:id/review', requireAdmin, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params as { id: string };
+    const { action, note } = req.body as { action?: string; note?: string };
+
+    if (!['approve', 'reject'].includes(action ?? '')) {
+      res.status(400).json({ error: "action must be 'approve' or 'reject'." }); return;
+    }
+    if (!/^[a-zA-Z0-9_-]+$/.test(id)) { res.status(400).json({ error: 'Invalid content ID.' }); return; }
+
+    const newStatus = action === 'approve' ? 'approved' : 'rejected';
+
+    const result = await pool.query<{ id: string; status: string }>(
+      `UPDATE uploaded_content
+         SET status      = $1,
+             visibility  = CASE WHEN $1 = 'approved' THEN 'all' ELSE visibility END,
+             allowed_users = CASE WHEN $1 = 'approved' THEN '' ELSE allowed_users END,
+             review_note = CASE WHEN $2::text IS NOT NULL THEN $2 ELSE review_note END
+       WHERE id = $3 AND status = 'pending_review'
+       RETURNING id, status`,
+      [newStatus, note ?? null, id],
+    );
+
+    if ((result.rowCount ?? 0) === 0) {
+      res.status(404).json({ error: 'Item not found or not pending review.' }); return;
+    }
+
+    res.json({ success: true, id, status: newStatus });
+  } catch (err) {
+    console.error('[content] PATCH /:id/review error:', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+/**
+ * PATCH /api/content/:id — update metadata (admin or owner of draft/rejected).
+ */
+router.patch('/:id', async (req, res) => {
+  try {
+    const user = getUser(req);
+    const { id } = req.params as { id: string };
+    if (!/^[a-zA-Z0-9_-]+$/.test(id)) { res.status(400).json({ error: 'Invalid content ID.' }); return; }
+
+    const rowResult = await pool.query<{ uploaded_by: string; status: string }>(
+      `SELECT uploaded_by, status FROM uploaded_content WHERE id = $1`,
+      [id],
+    );
+    if (rowResult.rows.length === 0) { res.status(404).json({ error: 'Content not found.' }); return; }
+    const row = rowResult.rows[0];
+
+    if (!user.isAdmin) {
+      if (row.uploaded_by !== user.login) { res.status(403).json({ error: 'Not your project.' }); return; }
+    }
+
+    const { name, description, visibility, allowedUsers } = req.body as {
+      name?: string;
+      description?: string;
+      visibility?: string;
+      allowedUsers?: string;
+    };
+
+    const vis = user.isAdmin
+      ? (visibility === 'specific' ? 'specific' : (visibility === 'all' ? 'all' : undefined))
+      : undefined;
+
+    await pool.query(
+      `UPDATE uploaded_content SET
+         name          = COALESCE($1, name),
+         description   = COALESCE($2, description),
+         visibility    = COALESCE($3, visibility),
+         allowed_users = COALESCE($4, allowed_users)
+       WHERE id = $5`,
+      [
+        name?.trim() ?? null,
+        description?.trim() ?? null,
+        vis ?? null,
+        user.isAdmin ? (allowedUsers?.trim() ?? null) : null,
+        id,
+      ],
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[content] PATCH /:id error:', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+/**
+ * PATCH /api/content/:id/rename — change the URL slug / ID (admin only).
+ */
+router.patch('/:id/rename', async (req, res) => {
+  try {
+    const { id } = req.params as { id: string };
+    const { newId } = req.body as { newId?: string };
+
+    if (!newId?.trim()) {
+      res.status(400).json({ error: 'newId is required.' });
+      return;
+    }
+
+    const trimmedNewId = newId.trim();
+
+    if (!/^[a-zA-Z0-9_-]+$/.test(trimmedNewId)) {
+      res.status(400).json({ error: 'Invalid slug: only letters, digits, hyphens, and underscores are allowed.' });
+      return;
+    }
+
+    if (trimmedNewId === id) {
+      res.json({ success: true });
+      return;
+    }
+
+    const existing = await pool.query('SELECT id FROM uploaded_content WHERE id = $1', [trimmedNewId]);
+    if ((existing.rowCount ?? 0) > 0) {
+      res.status(409).json({ error: 'This slug is already in use.' });
+      return;
+    }
+
+    const oldAppDir = path.resolve(UPLOADS_DIR, id);
+    const newAppDir = path.resolve(UPLOADS_DIR, trimmedNewId);
+    const resolvedUploadsDir = path.resolve(UPLOADS_DIR);
+    if (
+      oldAppDir.startsWith(resolvedUploadsDir + path.sep) &&
+      newAppDir.startsWith(resolvedUploadsDir + path.sep) &&
+      fs.existsSync(oldAppDir)
+    ) {
+      fs.renameSync(oldAppDir, newAppDir);
+    }
+
+    const oldThumb = path.join(THUMBNAILS_DIR, `${id}.jpg`);
+    const newThumb = path.join(THUMBNAILS_DIR, `${trimmedNewId}.jpg`);
+    if (fs.existsSync(oldThumb)) {
+      fs.renameSync(oldThumb, newThumb);
+    }
+
+    await pool.query(
+      `UPDATE uploaded_content
+         SET id           = $1,
+             project_path = CASE
+               WHEN project_path LIKE $2 THEN replace(project_path, $3, $1)
+               ELSE project_path
+             END
+       WHERE id = $4`,
+      [trimmedNewId, `/uploads/${id}/%`, id, id],
+    );
+
+    try {
+      const auditId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const user = (req as Request & { user?: AuthenticatedUser }).user;
+      await pool.query(
+        `INSERT INTO audit_log (id, timestamp, event_type, "user", detail)
+         VALUES ($1, NOW(), 'content_rename', $2, $3)
+         ON CONFLICT (id) DO NOTHING`,
+        [auditId, user?.login ?? 'unknown', `Renamed app slug: ${id} → ${trimmedNewId}`],
+      );
+    } catch { /* non-critical */ }
+
+    res.json({ success: true, newId: trimmedNewId });
+  } catch (err) {
+    console.error('[content] PATCH /:id/rename error:', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+/**
+ * PUT /api/content/:id/archive — replace the files of an existing hosted app (admin or owner).
+ */
+router.put(
+  '/:id/archive',
+  (req, res, next) => {
+    zipUpload.single('archive')(req, res, (zipErr) => {
+      if (zipErr) {
+        res.status(400).json({ error: zipErr.message ?? 'Invalid archive file.' });
+        return;
+      }
+      next();
+    });
+  },
+  async (req, res) => {
+    const user = getUser(req);
+    const { id } = req.params as { id: string };
+
+    if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
+      res.status(400).json({ error: 'Invalid content ID.' });
+      return;
+    }
+    const safeId = id.replace(/[^a-zA-Z0-9_-]/g, '');
+
+    const archiveFile = (req as { file?: Express.Multer.File }).file;
+    if (!archiveFile) {
+      res.status(400).json({ error: 'No archive file provided.' });
+      return;
+    }
+
+    let tempDir: string | null = null;
+    let backupDir: string | null = null;
+
+    try {
+      const result = await pool.query<{ project_path: string | null; uploaded_by: string; status: string }>(
+        'SELECT project_path, uploaded_by, status FROM uploaded_content WHERE id = $1',
+        [safeId],
+      );
+
+      if (result.rows.length === 0) {
+        res.status(404).json({ error: 'Content not found.' });
+        return;
+      }
+
+      const rowData = result.rows[0];
+      if (!user.isAdmin && rowData.uploaded_by !== user.login) {
+        res.status(403).json({ error: 'Not your project.' }); return;
+      }
+
+      if (!rowData.project_path?.startsWith('/uploads/')) {
+        res.status(400).json({
+          error: 'This app\'s files cannot be replaced this way — it is a seeded app served from the public directory.',
+        });
+        return;
+      }
+
+      ensureUploadsDir();
+      tempDir = fs.mkdtempSync(path.join(UPLOADS_DIR, 'tmp-zip-'));
+
+      let fileCount: number;
+      try {
+        fileCount = extractZipToDir(archiveFile.buffer, tempDir);
+      } catch (extractErr) {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+        tempDir = null;
+        const msg = extractErr instanceof Error ? extractErr.message : 'Failed to extract archive.';
+        res.status(400).json({ error: msg });
+        return;
+      }
+
+      if (fileCount === 0) {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+        tempDir = null;
+        res.status(400).json({ error: 'The archive is empty or contains no extractable files.' });
+        return;
+      }
+
+      const indexRel = findIndexHtml(tempDir);
+      if (!indexRel) {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+        tempDir = null;
+        res.status(400).json({ error: 'No index.html or index.htm found in the archive.' });
+        return;
+      }
+
+      const resolvedUploadsDir = path.resolve(UPLOADS_DIR);
+      const appDir = path.resolve(resolvedUploadsDir, safeId);
+      const rel = path.relative(resolvedUploadsDir, appDir);
+      if (rel.startsWith('..') || path.isAbsolute(rel)) {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+        tempDir = null;
+        res.status(400).json({ error: 'Invalid content ID: path escapes uploads directory.' });
+        return;
+      }
+
+      try {
+        const snap = await pool.query<{ html_content: string; project_path: string | null }>(
+          'SELECT html_content, project_path FROM uploaded_content WHERE id = $1',
+          [safeId],
+        );
+        if (snap.rows.length > 0) {
+          const maxVer = await pool.query<{ max: number | null }>(
+            'SELECT MAX(version_num) AS max FROM app_versions WHERE content_id = $1',
+            [safeId],
+          );
+          const nextVer = (maxVer.rows[0].max ?? 0) + 1;
+          await pool.query(
+            `INSERT INTO app_versions (content_id, version_num, html_content, project_path)
+             VALUES ($1, $2, $3, $4)`,
+            [safeId, nextVer, snap.rows[0].html_content ?? '', snap.rows[0].project_path],
+          );
+        }
+      } catch { /* non-critical */ }
+
+      if (fs.existsSync(appDir)) {
+        backupDir = `${appDir}.bak-${Date.now()}`;
+        fs.renameSync(appDir, backupDir);
+      }
+
+      fs.renameSync(tempDir, appDir);
+      tempDir = null;
+
+      if (backupDir && fs.existsSync(backupDir)) {
+        fs.rmSync(backupDir, { recursive: true, force: true });
+        backupDir = null;
+      }
+
+      const newProjectPath = `/uploads/${safeId}/${indexRel}`;
+      await pool.query(
+        'UPDATE uploaded_content SET project_path = $1, file_count = $2 WHERE id = $3',
+        [newProjectPath, fileCount, safeId],
+      );
+
+      try {
+        const auditId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+        await pool.query(
+          `INSERT INTO audit_log (id, timestamp, event_type, "user", detail)
+           VALUES ($1, NOW(), 'content_archive_replace', $2, $3)
+           ON CONFLICT (id) DO NOTHING`,
+          [auditId, user.login, `Replaced archive for app: ${safeId}`],
+        );
+      } catch { /* non-critical */ }
+
+      res.json({ success: true, projectPath: newProjectPath, fileCount });
+    } catch (err) {
+      if (tempDir) {
+        try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* non-critical */ }
+      }
+      if (backupDir && fs.existsSync(backupDir)) {
+        const appDir = path.resolve(UPLOADS_DIR, safeId);
+        try {
+          if (!fs.existsSync(appDir)) fs.renameSync(backupDir, appDir);
+        } catch { /* non-critical */ }
+      }
+      console.error('[content] PUT /:id/archive error:', err);
+      res.status(500).json({ error: 'Internal server error.' });
+    }
+  },
+);
+
+/**
+ * DELETE /api/content/:id — delete content.
+ * Admin can delete anything. Owner can only delete their own draft or rejected items.
+ */
+router.delete('/:id', async (req, res) => {
+  try {
+    const user = getUser(req);
+    const { id } = req.params as { id: string };
+
+    if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
+      res.status(400).json({ error: 'Invalid content ID.' });
+      return;
+    }
+
+    if (!user.isAdmin) {
+      const check = await pool.query<{ uploaded_by: string; status: string }>(
+        'SELECT uploaded_by, status FROM uploaded_content WHERE id = $1',
+        [id],
+      );
+      if (check.rows.length === 0) { res.status(404).json({ error: 'Content not found.' }); return; }
+      const row = check.rows[0];
+      if (row.uploaded_by !== user.login) { res.status(403).json({ error: 'Not your project.' }); return; }
+      if (!['draft', 'rejected'].includes(row.status)) {
+        res.status(403).json({ error: 'Cannot delete an approved or pending project. Contact an admin.' }); return;
+      }
+    }
+
+    const appDir = path.resolve(UPLOADS_DIR, id);
+    const resolvedUploadsDir = path.resolve(UPLOADS_DIR);
+    if (appDir.startsWith(resolvedUploadsDir + path.sep) && fs.existsSync(appDir)) {
+      fs.rmSync(appDir, { recursive: true, force: true });
+    }
+
+    const thumbPath = path.join(THUMBNAILS_DIR, `${id}.jpg`);
+    if (fs.existsSync(thumbPath)) {
+      fs.unlinkSync(thumbPath);
+    }
+
+    await pool.query('DELETE FROM uploaded_content WHERE id = $1', [id]);
+
+    const adminUser = getUser(req);
+    await pool.query(
+      `INSERT INTO content_tombstones (id, deleted_at, deleted_by)
+       VALUES ($1, NOW(), $2)
+       ON CONFLICT (id) DO NOTHING`,
+      [id, adminUser.login],
+    );
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[content] DELETE /:id error:', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+/** GET /api/content/:id/thumbnail */
 router.get('/:id/thumbnail', async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params as { id: string };
@@ -1148,10 +1448,7 @@ router.get('/:id/thumbnail', async (req: Request, res: Response): Promise<void> 
   }
 });
 
-/**
- * POST /api/content/:id/thumbnail — upload/replace thumbnail (admin only).
- * Accepts a single image file; crops and resizes to 256×256 JPEG via sharp.
- */
+/** POST /api/content/:id/thumbnail */
 router.post('/:id/thumbnail', thumbnailUpload.single('thumbnail'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params as { id: string };
@@ -1164,7 +1461,6 @@ router.post('/:id/thumbnail', thumbnailUpload.single('thumbnail'), async (req: R
       return;
     }
 
-    // Ensure thumbnails directory exists
     if (!fs.existsSync(THUMBNAILS_DIR)) {
       fs.mkdirSync(THUMBNAILS_DIR, { recursive: true });
     }
@@ -1186,9 +1482,7 @@ router.post('/:id/thumbnail', thumbnailUpload.single('thumbnail'), async (req: R
   }
 });
 
-/**
- * DELETE /api/content/:id/thumbnail — remove thumbnail (admin only).
- */
+/** DELETE /api/content/:id/thumbnail */
 router.delete('/:id/thumbnail', async (req: Request, res: Response): Promise<void> => {
   try {
     const { id } = req.params as { id: string };

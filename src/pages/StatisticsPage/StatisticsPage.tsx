@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useGitHubAuth } from '../../contexts/useGitHubAuth';
+import { listPendingReview, reviewProject } from '../../api/contentClient';
+import type { PendingItem } from '../../api/contentClient';
 import styles from './StatisticsPage.module.css';
 
 interface DayActivity { day: string; count: number }
@@ -123,6 +125,10 @@ export function StatisticsPage() {
   const [users, setUsers] = useState<GithubUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [togglingLogin, setTogglingLogin] = useState<string | null>(null);
+  const [pendingItems, setPendingItems] = useState<PendingItem[]>([]);
+  const [reviewingId, setReviewingId] = useState<string | null>(null);
+  const [rejectNoteFor, setRejectNoteFor] = useState<string | null>(null);
+  const [rejectNote, setRejectNote] = useState('');
 
   useEffect(() => {
     const p1 = fetch('/api/usage/stats/my-activity')
@@ -134,8 +140,29 @@ export function StatisticsPage() {
     const p3 = fetch('/api/auth/users')
       .then((r) => r.ok ? r.json() as Promise<GithubUser[]> : [])
       .then(setUsers).catch(() => {});
-    void Promise.all([p1, p2, p3]).finally(() => setLoading(false));
+    const p4 = user?.isAdmin
+      ? listPendingReview().then(setPendingItems).catch(() => {})
+      : Promise.resolve();
+    void Promise.all([p1, p2, p3, p4]).finally(() => setLoading(false));
   }, []);
+
+  const handleApprove = async (id: string) => {
+    setReviewingId(id);
+    try {
+      await reviewProject(id, 'approve');
+      setPendingItems((prev) => prev.filter((i) => i.id !== id));
+    } catch { /* ignore */ } finally { setReviewingId(null); }
+  };
+
+  const handleReject = async (id: string, note: string) => {
+    setReviewingId(id);
+    try {
+      await reviewProject(id, 'reject', note || undefined);
+      setPendingItems((prev) => prev.filter((i) => i.id !== id));
+      setRejectNoteFor(null);
+      setRejectNote('');
+    } catch { /* ignore */ } finally { setReviewingId(null); }
+  };
 
   return (
     <div className={styles.page}>
@@ -162,6 +189,87 @@ export function StatisticsPage() {
             <span className={styles.overviewNum}>{overview.appsTracked}</span>
             <span className={styles.overviewLabel}>Apps launched</span>
           </div>
+        </div>
+      )}
+
+      {user?.isAdmin && (
+        <div className={styles.section}>
+          <h2 className={styles.sectionTitle}>
+            Review Queue {pendingItems.length > 0 && `(${pendingItems.length})`}
+          </h2>
+          {pendingItems.length === 0 ? (
+            <p className={styles.loading} style={{ padding: '14px 16px' }}>No projects pending review.</p>
+          ) : (
+            <div className={styles.userList}>
+              {pendingItems.map((item) => (
+                <div key={item.id} className={styles.reviewRow}>
+                  {item.thumbnailPath ? (
+                    <img src={item.thumbnailPath} alt={item.name} className={styles.userAvatar} style={{ borderRadius: 6 }} />
+                  ) : (
+                    <div className={styles.reviewThumbPlaceholder}>{item.name[0]?.toUpperCase()}</div>
+                  )}
+                  <div className={styles.userInfo}>
+                    <div className={styles.userLoginRow}>
+                      <span className={styles.userLogin}>{item.name}</span>
+                    </div>
+                    <span className={styles.userDisplay}>by {item.uploadedBy}</span>
+                    {item.gitUrl && (
+                      <span className={styles.userDisplay}>{item.gitUrl.replace('https://github.com/', '')}</span>
+                    )}
+                  </div>
+                  <span className={styles.userSeen}>
+                    {item.submittedAt ? new Date(item.submittedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) : ''}
+                  </span>
+                  <a
+                    href={`/apps/${item.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={styles.adminToggle}
+                    style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}
+                  >
+                    Preview
+                  </a>
+                  <button
+                    className={styles.adminToggle}
+                    disabled={reviewingId === item.id}
+                    onClick={() => void handleApprove(item.id)}
+                  >
+                    Approve
+                  </button>
+                  <button
+                    className={`${styles.adminToggle} ${styles.adminToggleRemove}`}
+                    disabled={reviewingId === item.id}
+                    onClick={() => { setRejectNoteFor(item.id); setRejectNote(''); }}
+                  >
+                    Reject
+                  </button>
+                  {rejectNoteFor === item.id && (
+                    <div className={styles.rejectPanel}>
+                      <input
+                        className={styles.rejectInput}
+                        placeholder="Optional note for the user…"
+                        value={rejectNote}
+                        onChange={(e) => setRejectNote(e.target.value)}
+                      />
+                      <button
+                        className={`${styles.adminToggle} ${styles.adminToggleRemove}`}
+                        disabled={reviewingId === item.id}
+                        onClick={() => void handleReject(item.id, rejectNote)}
+                      >
+                        Confirm Reject
+                      </button>
+                      <button
+                        className={styles.adminToggle}
+                        onClick={() => setRejectNoteFor(null)}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
