@@ -58,6 +58,16 @@ export function deleteContent(id: string): Promise<{ success: boolean }> {
   });
 }
 
+export function updateContent(
+  id: string,
+  fields: { name?: string; description?: string },
+): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>(`/api/content/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(fields),
+  });
+}
+
 export interface GitHubRepo {
   full_name: string;
   name: string;

@@ -509,8 +509,7 @@ router.post(
     }
     const safeContentId = contentId.replace(/[^a-zA-Z0-9_-]/g, '');
 
-    // Non-admins always start as draft; admins can optionally set approved directly
-    const status = user.isAdmin ? 'approved' : 'draft';
+    const status = 'approved';
 
     let htmlContent = '';
     let projectPath: string | null = null;
@@ -801,7 +800,7 @@ router.post('/github', requireAuth, async (req: Request, res: Response): Promise
       `INSERT INTO uploaded_content
          (id, name, description, uploaded_at, uploaded_by, visibility, allowed_users,
           file_count, html_content, project_path, portal_route, status, git_url, build_log)
-       VALUES ($1, $2, $3, NOW(), $4, 'specific', $4, $5, '', $6, NULL, 'draft', $7, $8)`,
+       VALUES ($1, $2, $3, NOW(), $4, 'specific', $4, $5, '', $6, NULL, 'approved', $7, $8)`,
       [
         safeContentId,
         name.trim(),
@@ -1439,9 +1438,6 @@ router.delete('/:id', async (req, res) => {
       if (check.rows.length === 0) { res.status(404).json({ error: 'Content not found.' }); return; }
       const row = check.rows[0];
       if (row.uploaded_by !== user.login) { res.status(403).json({ error: 'Not your project.' }); return; }
-      if (!['draft', 'rejected'].includes(row.status)) {
-        res.status(403).json({ error: 'Cannot delete an approved or pending project. Contact an admin.' }); return;
-      }
     }
 
     const appDir = path.resolve(UPLOADS_DIR, id);

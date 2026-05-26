@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGitHubAuth } from '../../contexts/useGitHubAuth';
-import { listContent, submitForReview, deleteContent, uploadFromGitHub, listGitHubRepos } from '../../api/contentClient';
+import { listContent, deleteContent, updateContent, uploadFromGitHub, listGitHubRepos } from '../../api/contentClient';
 import type { GitHubRepo } from '../../api/contentClient';
 import type { UploadedContent } from '../../services/uploadedContent';
 import styles from './MyProjectsPage.module.css';
@@ -37,7 +37,7 @@ function uploadZipWithProgress(
 const STATUS_LABEL: Record<string, string> = {
   draft: 'Draft',
   pending_review: 'Under Review',
-  approved: 'Approved',
+  approved: 'Published',
   rejected: 'Rejected',
 };
 
@@ -372,6 +372,10 @@ function ProjectCard({ item, onAction }: ProjectCardProps) {
   const navigate = useNavigate();
   const [acting, setActing] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editName, setEditName] = useState(item.name);
+  const [editDesc, setEditDesc] = useState(item.description ?? '');
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const vipUrl = item.shareToken
     ? `${window.location.origin}/vip/${item.shareToken}`
@@ -388,18 +392,6 @@ function ProjectCard({ item, onAction }: ProjectCardProps) {
   const status = item.status ?? 'approved';
   const statusLabel = STATUS_LABEL[status] ?? status;
 
-  const handleSubmitReview = async () => {
-    setActing(true);
-    try {
-      await submitForReview(item.id);
-      onAction();
-    } catch {
-      // ignore
-    } finally {
-      setActing(false);
-    }
-  };
-
   const handleDelete = async () => {
     if (!confirm(`Delete "${item.name}"? This cannot be undone.`)) return;
     setActing(true);
@@ -408,6 +400,28 @@ function ProjectCard({ item, onAction }: ProjectCardProps) {
       onAction();
     } catch {
       // ignore
+    } finally {
+      setActing(false);
+    }
+  };
+
+  const handleEditOpen = () => {
+    setEditName(item.name);
+    setEditDesc(item.description ?? '');
+    setSaveError(null);
+    setEditing(true);
+  };
+
+  const handleSave = async () => {
+    if (!editName.trim()) { setSaveError('Name cannot be empty.'); return; }
+    setActing(true);
+    setSaveError(null);
+    try {
+      await updateContent(item.id, { name: editName.trim(), description: editDesc.trim() });
+      setEditing(false);
+      onAction();
+    } catch {
+      setSaveError('Failed to save. Please try again.');
     } finally {
       setActing(false);
     }
@@ -423,48 +437,77 @@ function ProjectCard({ item, onAction }: ProjectCardProps) {
         )}
       </div>
       <div className={styles.cardBody}>
-        <div className={styles.cardTitleRow}>
-          <span className={styles.cardName}>{item.name}</span>
-          <span className={`${styles.statusBadge} ${styles[`status_${status}`]}`}>{statusLabel}</span>
-        </div>
-        {item.description && <p className={styles.cardDesc}>{item.description}</p>}
-        {item.gitUrl && (
-          <a href={item.gitUrl} target="_blank" rel="noreferrer" className={styles.gitLink}>
-            {item.gitUrl.replace('https://github.com/', '')}
-          </a>
-        )}
-        {status === 'rejected' && item.reviewNote && (
-          <div className={styles.reviewNote}>
-            <strong>Review note:</strong> {item.reviewNote}
+        {editing ? (
+          <div className={styles.editForm}>
+            <input
+              className={styles.editInput}
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              placeholder="Project name"
+              maxLength={120}
+            />
+            <textarea
+              className={styles.editTextarea}
+              value={editDesc}
+              onChange={(e) => setEditDesc(e.target.value)}
+              placeholder="Description (optional)"
+              rows={3}
+              maxLength={500}
+            />
+            {saveError && <p className={styles.editError}>{saveError}</p>}
+            <div className={styles.editActions}>
+              <button className={`${styles.actionBtn} ${styles.actionPrimary}`} onClick={() => void handleSave()} disabled={acting}>
+                {acting ? 'Saving…' : 'Save'}
+              </button>
+              <button className={styles.actionBtn} onClick={() => setEditing(false)} disabled={acting}>
+                Cancel
+              </button>
+            </div>
           </div>
-        )}
-        {vipUrl && (
-          <div className={styles.vipRow}>
-            <span className={styles.vipLabel}>VIP Link</span>
-            <a href={vipUrl} target="_blank" rel="noopener noreferrer" className={styles.vipUrl}>
-              {vipUrl.replace(window.location.origin, '')}
-            </a>
-            <button className={`${styles.vipCopy} ${copied ? styles.vipCopied : ''}`} onClick={handleCopyVip}>
-              {copied ? '✓ Copied' : 'Copy'}
-            </button>
-          </div>
+        ) : (
+          <>
+            <div className={styles.cardTitleRow}>
+              <span className={styles.cardName}>{item.name}</span>
+              <span className={`${styles.statusBadge} ${styles[`status_${status}`]}`}>{statusLabel}</span>
+            </div>
+            {item.description && <p className={styles.cardDesc}>{item.description}</p>}
+            {item.gitUrl && (
+              <a href={item.gitUrl} target="_blank" rel="noreferrer" className={styles.gitLink}>
+                {item.gitUrl.replace('https://github.com/', '')}
+              </a>
+            )}
+            {status === 'rejected' && item.reviewNote && (
+              <div className={styles.reviewNote}>
+                <strong>Review note:</strong> {item.reviewNote}
+              </div>
+            )}
+            {vipUrl && (
+              <div className={styles.vipRow}>
+                <span className={styles.vipLabel}>VIP Link</span>
+                <a href={vipUrl} target="_blank" rel="noopener noreferrer" className={styles.vipUrl}>
+                  {vipUrl.replace(window.location.origin, '')}
+                </a>
+                <button className={`${styles.vipCopy} ${copied ? styles.vipCopied : ''}`} onClick={handleCopyVip}>
+                  {copied ? '✓ Copied' : 'Copy'}
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
-      <div className={styles.cardActions}>
-        <button className={styles.actionBtn} onClick={() => navigate(`/apps/${item.id}`)}>
-          {status === 'approved' ? 'Open' : 'Preview'}
-        </button>
-        {(status === 'draft' || status === 'rejected') && (
-          <button className={`${styles.actionBtn} ${styles.actionPrimary}`} onClick={() => void handleSubmitReview()} disabled={acting}>
-            {status === 'rejected' ? 'Re-submit' : 'Submit for Review'}
+      {!editing && (
+        <div className={styles.cardActions}>
+          <button className={styles.actionBtn} onClick={() => navigate(`/apps/${item.id}`)}>
+            Open
           </button>
-        )}
-        {(status === 'draft' || status === 'rejected') && (
+          <button className={styles.actionBtn} onClick={handleEditOpen}>
+            Edit
+          </button>
           <button className={`${styles.actionBtn} ${styles.actionDanger}`} onClick={() => void handleDelete()} disabled={acting}>
             Delete
           </button>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

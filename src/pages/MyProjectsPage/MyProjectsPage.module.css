@@ -139,6 +139,53 @@
 }
 .gitLink:hover { text-decoration: underline; }
 
+/* ── Inline edit form ── */
+.editForm {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.editInput {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-text);
+  font-size: 13px;
+  font-family: inherit;
+  padding: 6px 10px;
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+.editInput:focus { border-color: var(--color-teal); }
+
+.editTextarea {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  color: var(--color-text);
+  font-size: 12px;
+  font-family: inherit;
+  padding: 6px 10px;
+  outline: none;
+  resize: vertical;
+  width: 100%;
+  box-sizing: border-box;
+}
+.editTextarea:focus { border-color: var(--color-teal); }
+
+.editError {
+  font-size: 12px;
+  color: #f87171;
+  margin: 0;
+}
+
+.editActions {
+  display: flex;
+  gap: 6px;
+}
+
 .reviewNote {
   font-size: 12px;
   color: #b91c1c;
