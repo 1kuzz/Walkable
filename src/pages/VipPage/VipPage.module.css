@@ -1,0 +1,46 @@
+.root {
+  position: fixed;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  background: #000;
+}
+
+.frame {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+}
+
+.error {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: #0a0a0a;
+  color: #d1d5db;
+  font-family: system-ui, sans-serif;
+  text-align: center;
+  padding: 24px;
+}
+
+.errorIcon {
+  font-size: 48px;
+  margin-bottom: 16px;
+}
+
+.errorTitle {
+  font-size: 20px;
+  font-weight: 700;
+  color: #f9fafb;
+  margin: 0 0 8px;
+}
+
+.errorMsg {
+  font-size: 14px;
+  color: #9ca3af;
+  margin: 0;
+}

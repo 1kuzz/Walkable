@@ -48,6 +48,8 @@ export interface UploadedContent {
   submittedAt?: string | null;
   /** GitHub URL if imported from GitHub */
   gitUrl?: string | null;
+  /** UUID token for the shareable VIP link — only returned for the owner's own items */
+  shareToken?: string | null;
 }
 
 /**

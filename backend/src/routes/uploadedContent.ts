@@ -407,7 +407,7 @@ router.get('/', async (req, res) => {
                   (COALESCE(html_content,'') <> '') AS "hasContent",
                   thumbnail_path AS "thumbnailPath", portal_route AS "portalRoute",
                   status, review_note AS "reviewNote", submitted_at AS "submittedAt",
-                  git_url AS "gitUrl"`;
+                  git_url AS "gitUrl", share_token AS "shareToken"`;
 
     if (user.isAdmin) {
       query = `SELECT ${cols} FROM uploaded_content ORDER BY uploaded_at DESC`;

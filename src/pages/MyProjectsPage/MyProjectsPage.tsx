@@ -371,6 +371,19 @@ interface ProjectCardProps {
 function ProjectCard({ item, onAction }: ProjectCardProps) {
   const navigate = useNavigate();
   const [acting, setActing] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const vipUrl = item.shareToken
+    ? `${window.location.origin}/vip/${item.shareToken}`
+    : null;
+
+  const handleCopyVip = () => {
+    if (!vipUrl) return;
+    void navigator.clipboard.writeText(vipUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  };
 
   const status = item.status ?? 'approved';
   const statusLabel = STATUS_LABEL[status] ?? status;
@@ -423,6 +436,17 @@ function ProjectCard({ item, onAction }: ProjectCardProps) {
         {status === 'rejected' && item.reviewNote && (
           <div className={styles.reviewNote}>
             <strong>Review note:</strong> {item.reviewNote}
+          </div>
+        )}
+        {vipUrl && (
+          <div className={styles.vipRow}>
+            <span className={styles.vipLabel}>VIP Link</span>
+            <a href={vipUrl} target="_blank" rel="noopener noreferrer" className={styles.vipUrl}>
+              {vipUrl.replace(window.location.origin, '')}
+            </a>
+            <button className={`${styles.vipCopy} ${copied ? styles.vipCopied : ''}`} onClick={handleCopyVip}>
+              {copied ? '✓ Copied' : 'Copy'}
+            </button>
           </div>
         )}
       </div>

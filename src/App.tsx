@@ -21,6 +21,7 @@ const ProjectDetailPage = lazy(() => import('./pages/ProjectDetailPage/ProjectDe
 const MyProjectsPage = lazy(() => import('./pages/MyProjectsPage/MyProjectsPage').then(m => ({ default: m.MyProjectsPage })));
 const NotFoundPage = lazy(() => import('./pages/NotFoundPage/NotFoundPage').then(m => ({ default: m.NotFoundPage })));
 const HelpPage = lazy(() => import('./pages/HelpPage/HelpPage').then(m => ({ default: m.HelpPage })));
+const VipPage = lazy(() => import('./pages/VipPage/VipPage').then(m => ({ default: m.VipPage })));
 
 initializeTheme();
 
@@ -61,7 +62,13 @@ export function App() {
   return (
     <BrowserRouter>
       <GitHubAuthProvider>
-        <AppShell />
+        <Suspense fallback={null}>
+          <Routes>
+            {/* VIP links render outside AppShell — no portal chrome */}
+            <Route path="/vip/:token" element={<VipPage />} />
+            <Route path="*" element={<AppShell />} />
+          </Routes>
+        </Suspense>
       </GitHubAuthProvider>
     </BrowserRouter>
   );

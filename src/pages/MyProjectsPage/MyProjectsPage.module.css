@@ -155,6 +155,55 @@
   color: #fca5a5;
 }
 
+/* ── VIP link row ── */
+.vipRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 6px 10px;
+  background: var(--color-bg);
+  border: 1px solid var(--color-teal-border, var(--color-border));
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.vipLabel {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--color-teal-dark);
+  flex-shrink: 0;
+}
+
+.vipUrl {
+  font-size: 11px;
+  color: var(--color-teal);
+  text-decoration: none;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono, monospace);
+}
+.vipUrl:hover { text-decoration: underline; }
+
+.vipCopy {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+  padding: 2px 8px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: border-color 0.15s, color 0.15s;
+  font-family: inherit;
+}
+.vipCopy:hover { border-color: var(--color-teal); color: var(--color-text); }
+.vipCopied { border-color: var(--color-teal) !important; color: var(--color-teal) !important; }
+
 /* ── Status badges ── */
 .statusBadge {
   font-size: 10px;
