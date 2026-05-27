@@ -3,6 +3,13 @@ import multer from 'multer';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as cp from 'child_process';
+import {
+  detectPortalManifest,
+  allocatePort,
+  handleUploadBackend,
+  pm2Delete,
+  regenerateNginxAppsConf,
+} from '../services/appBackendManager';
 import AdmZip from 'adm-zip';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import sharp from 'sharp';
@@ -11,6 +18,7 @@ import type { AuthenticatedUser } from '../types';
 import type { Request, Response } from 'express';
 import { requireAuth } from '../middleware/requireAuth';
 import { requireAdmin } from '../middleware/requireAdmin';
+import { logger } from '../utils/logger';
 
 const router = Router();
 
@@ -585,6 +593,21 @@ router.post(
           tempDir = null;
 
           projectPath = `/uploads/${safeContentId}/${indexRel}`;
+
+          // Detect and start bundled backend if portal.json is present
+          const appRootForManifest = path.join(appDir, path.dirname(indexRel) === '.' ? '' : path.dirname(indexRel));
+          const portalManifest = detectPortalManifest(appRootForManifest);
+          if (portalManifest) {
+            try {
+              const backendPort = await allocatePort();
+              await handleUploadBackend(safeContentId, appRootForManifest, portalManifest, backendPort);
+              // Store backend info — will be committed with the INSERT below
+              (req as unknown as Record<string, unknown>)['_backendPort'] = backendPort;
+              (req as unknown as Record<string, unknown>)['_backendPrefix'] = portalManifest.backend.prefix;
+            } catch (err) {
+              logger.error('[content] backend start failed (non-fatal)', { error: String(err) });
+            }
+          }
         }
       } else if (portalRoute?.trim()) {
         const trimmedRoute = portalRoute.trim();
@@ -623,11 +646,15 @@ router.post(
         }
       }
 
+      const backendPort = (req as unknown as Record<string, unknown>)['_backendPort'] as number | undefined;
+      const backendPrefix = (req as unknown as Record<string, unknown>)['_backendPrefix'] as string | undefined;
+
       await pool.query(
         `INSERT INTO uploaded_content
            (id, name, description, uploaded_at, uploaded_by, visibility, allowed_users,
-            file_count, html_content, project_path, portal_route, status, build_log)
-         VALUES ($1, $2, $3, NOW(), $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+            file_count, html_content, project_path, portal_route, status, build_log,
+            backend_port, backend_prefix)
+         VALUES ($1,$2,$3,NOW(),$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
         [
           safeContentId,
           name.trim(),
@@ -641,6 +668,8 @@ router.post(
           portalRouteValue,
           status,
           buildLog,
+          backendPort ?? null,
+          backendPrefix ?? null,
         ],
       );
 
@@ -651,6 +680,12 @@ router.post(
         if (!fs.existsSync(absolutePath)) {
           res.status(500).json({ error: 'Project was uploaded but the entry file could not be verified. Try re-uploading.' });
           return;
+        }
+      }
+
+      if (backendPort) {
+        try { await regenerateNginxAppsConf(); } catch (err) {
+          logger.error('[content] nginx conf regeneration failed', { error: String(err) });
         }
       }
 
@@ -757,6 +792,8 @@ router.post('/github', requireAuth, async (req: Request, res: Response): Promise
 
     let projectPath: string | null = null;
     let buildLog: string | null = null;
+    let ghBackendPort: number | undefined;
+    let ghBackendPrefix: string | undefined;
     const hasPkgJson = fs.existsSync(path.join(tempDir, 'package.json'));
 
     if (build && hasPkgJson) {
@@ -797,13 +834,28 @@ router.post('/github', requireAuth, async (req: Request, res: Response): Promise
       tempDir = null;
 
       projectPath = `/uploads/${safeContentId}/${indexRel}`;
+
+      const ghAppRoot = path.join(appDir, path.dirname(indexRel) === '.' ? '' : path.dirname(indexRel));
+      const ghManifest = detectPortalManifest(ghAppRoot);
+      if (ghManifest) {
+        try {
+          ghBackendPort = await allocatePort();
+          await handleUploadBackend(safeContentId, ghAppRoot, ghManifest, ghBackendPort);
+          ghBackendPrefix = ghManifest.backend.prefix;
+        } catch (err) {
+          logger.error('[content] github backend start failed (non-fatal)', { error: String(err) });
+          ghBackendPort = undefined;
+          ghBackendPrefix = undefined;
+        }
+      }
     }
 
     await pool.query(
       `INSERT INTO uploaded_content
          (id, name, description, uploaded_at, uploaded_by, visibility, allowed_users,
-          file_count, html_content, project_path, portal_route, status, git_url, build_log)
-       VALUES ($1, $2, $3, NOW(), $4, 'specific', $4, $5, '', $6, NULL, 'approved', $7, $8)`,
+          file_count, html_content, project_path, portal_route, status, git_url, build_log,
+          backend_port, backend_prefix)
+       VALUES ($1,$2,$3,NOW(),$4,'specific',$4,$5,'',$6,NULL,'approved',$7,$8,$9,$10)`,
       [
         safeContentId,
         name.trim(),
@@ -813,8 +865,16 @@ router.post('/github', requireAuth, async (req: Request, res: Response): Promise
         projectPath,
         gitUrl.trim(),
         buildLog,
+        ghBackendPort ?? null,
+        ghBackendPrefix ?? null,
       ],
     );
+
+    if (ghBackendPort) {
+      try { await regenerateNginxAppsConf(); } catch (err) {
+        logger.error('[content] nginx conf regeneration failed', { error: String(err) });
+      }
+    }
 
     res.status(201).json({ id: safeContentId, buildLog });
   } catch (err) {
@@ -1434,15 +1494,16 @@ router.delete('/:id', async (req, res) => {
       return;
     }
 
-    if (!user.isAdmin) {
-      const check = await pool.query<{ uploaded_by: string; status: string }>(
-        'SELECT uploaded_by, status FROM uploaded_content WHERE id = $1',
-        [id],
-      );
-      if (check.rows.length === 0) { res.status(404).json({ error: 'Content not found.' }); return; }
-      const row = check.rows[0];
-      if (row.uploaded_by !== user.login) { res.status(403).json({ error: 'Not your project.' }); return; }
+    const check = await pool.query<{ uploaded_by: string; status: string; backend_port: number | null }>(
+      'SELECT uploaded_by, status, backend_port FROM uploaded_content WHERE id = $1',
+      [id],
+    );
+    if (check.rows.length === 0) { res.status(404).json({ error: 'Content not found.' }); return; }
+    const row = check.rows[0];
+    if (!user.isAdmin && row.uploaded_by !== user.login) {
+      res.status(403).json({ error: 'Not your project.' }); return;
     }
+    const hasBackend = row.backend_port !== null;
 
     const appDir = path.resolve(UPLOADS_DIR, id);
     const resolvedUploadsDir = path.resolve(UPLOADS_DIR);
@@ -1450,12 +1511,25 @@ router.delete('/:id', async (req, res) => {
       fs.rmSync(appDir, { recursive: true, force: true });
     }
 
+    const dataDir = path.join(UPLOADS_DIR, `portal-data-${id}`);
+    if (fs.existsSync(dataDir)) fs.rmSync(dataDir, { recursive: true, force: true });
+
     const thumbPath = path.join(THUMBNAILS_DIR, `${id}.jpg`);
     if (fs.existsSync(thumbPath)) {
       fs.unlinkSync(thumbPath);
     }
 
+    if (hasBackend) {
+      pm2Delete(id);
+    }
+
     await pool.query('DELETE FROM uploaded_content WHERE id = $1', [id]);
+
+    if (hasBackend) {
+      try { await regenerateNginxAppsConf(); } catch (err) {
+        logger.error('[content] nginx conf regen failed after delete', { error: String(err) });
+      }
+    }
 
     const adminUser = getUser(req);
     await pool.query(
