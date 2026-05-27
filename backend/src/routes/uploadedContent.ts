@@ -273,6 +273,7 @@ async function runProjectBuild(sourceDir: string, contentId: string): Promise<Bu
     fs.rmSync(finalDir, { recursive: true, force: true });
   }
   fs.cpSync(outputDir, finalDir, { recursive: true });
+  fs.chmodSync(finalDir, 0o755);
 
   let fileCount = 0;
   function countFiles(dir: string) {
@@ -580,6 +581,7 @@ router.post(
             fs.rmSync(appDir, { recursive: true, force: true });
           }
           fs.renameSync(tempDir, appDir);
+          fs.chmodSync(appDir, 0o755);
           tempDir = null;
 
           projectPath = `/uploads/${safeContentId}/${indexRel}`;
@@ -791,6 +793,7 @@ router.post('/github', requireAuth, async (req: Request, res: Response): Promise
       const appDir = path.join(UPLOADS_DIR, safeContentId);
       if (fs.existsSync(appDir)) fs.rmSync(appDir, { recursive: true, force: true });
       fs.renameSync(tempDir, appDir);
+      fs.chmodSync(appDir, 0o755);
       tempDir = null;
 
       projectPath = `/uploads/${safeContentId}/${indexRel}`;
@@ -1376,6 +1379,7 @@ router.put(
       }
 
       fs.renameSync(tempDir, appDir);
+      fs.chmodSync(appDir, 0o755);
       tempDir = null;
 
       if (backupDir && fs.existsSync(backupDir)) {
