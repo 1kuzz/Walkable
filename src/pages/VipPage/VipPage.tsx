@@ -46,7 +46,7 @@ export function VipPage() {
         src={`/api/share/${token}`}
         title={name ?? 'Project'}
         sandbox={APP_IFRAME_SANDBOX}
-        allow="fullscreen"
+        allow="autoplay; fullscreen"
         loading="eager"
       />
     </div>
