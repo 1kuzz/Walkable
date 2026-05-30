@@ -9,6 +9,7 @@ export function VipPage() {
   const { token } = useParams<{ token: string }>();
   const [name, setName] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
+  const [metaLoaded, setMetaLoaded] = useState(false);
 
   const isValid = !!token && UUID_RE.test(token);
 
@@ -23,10 +24,15 @@ export function VipPage() {
         if (data) {
           setName(data.name);
           document.title = data.name;
+          setMetaLoaded(true);
         }
       })
       .catch(() => setNotFound(true));
   }, [token, isValid]);
+
+  if (isValid && !notFound && !metaLoaded) {
+    return <div className={styles.loading}>Loading…</div>;
+  }
 
   if (!isValid || notFound) {
     return (

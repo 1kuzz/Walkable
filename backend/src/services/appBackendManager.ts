@@ -184,7 +184,7 @@ export async function regenerateNginxAppsConf(): Promise<void> {
     const safeName = row.name.replace(/[^a-zA-Z0-9 _-]/g, '').trim();
 
     conf += `# ${safeName} (${row.id})\n`;
-    conf += `location ${prefix}/api/ {\n`;
+    conf += `location ^~ ${prefix}/api/ {\n`;
     conf += `    proxy_pass         http://127.0.0.1:${port}/;\n`;
     conf += `    proxy_http_version 1.1;\n`;
     conf += `    proxy_set_header   Host              $host;\n`;
@@ -200,7 +200,7 @@ export async function regenerateNginxAppsConf(): Promise<void> {
       for (const dir of manifest?.backend.static ?? []) {
         const absDir = path.join(appRoot, dir);
         if (fs.existsSync(absDir)) {
-          conf += `location ${prefix}/${dir}/ {\n`;
+          conf += `location ^~ ${prefix}/${dir}/ {\n`;
           conf += `    alias ${absDir}/;\n`;
           conf += `    add_header Cache-Control "public, max-age=86400";\n`;
           conf += `}\n\n`;
