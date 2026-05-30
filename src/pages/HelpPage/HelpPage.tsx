@@ -39,9 +39,9 @@ export function HelpPage() {
   return (
     <div className={styles.page}>
       <div className={styles.pageHeader}>
-        <h1 className={styles.pageTitle}>Upload Guide</h1>
+        <h1 className={styles.pageTitle}>VibePort Docs</h1>
         <p className={styles.pageSubtitle}>
-          Requirements and checklist for submitting projects to the showcase.
+          Deploy your AI-generated code in seconds. No config, no DevOps.
         </p>
       </div>
 
@@ -52,32 +52,60 @@ export function HelpPage() {
           <div className={styles.step}>
             <span className={styles.stepNum}>1</span>
             <div>
-              <div className={styles.stepLabel}>Upload</div>
-              <div className={styles.stepDesc}>ZIP archive or import directly from a GitHub repo. Your project is saved as a private draft.</div>
+              <div className={styles.stepLabel}>Upload or import</div>
+              <div className={styles.stepDesc}>Drop a ZIP or paste a GitHub URL. We extract and find your index.html automatically.</div>
             </div>
           </div>
           <div className={styles.stepArrow}>→</div>
           <div className={styles.step}>
             <span className={styles.stepNum}>2</span>
             <div>
-              <div className={styles.stepLabel}>Submit for review</div>
-              <div className={styles.stepDesc}>Preview it first, then submit. An admin will approve or reject with feedback.</div>
+              <div className={styles.stepLabel}>Instant deploy</div>
+              <div className={styles.stepDesc}>Your app goes live immediately — no review, no waiting. Builds run automatically if enabled.</div>
             </div>
           </div>
           <div className={styles.stepArrow}>→</div>
           <div className={styles.step}>
             <span className={styles.stepNum}>3</span>
             <div>
-              <div className={styles.stepLabel}>Goes live</div>
-              <div className={styles.stepDesc}>Approved projects appear in the public gallery for everyone to try.</div>
+              <div className={styles.stepLabel}>Share your link</div>
+              <div className={styles.stepDesc}>Copy your VIP link and share with anyone. No login required to view.</div>
             </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Tiers */}
+      <div className={styles.section}>
+        <h2 className={styles.sectionTitle}>Free vs Pro</h2>
+        <div className={styles.sectionRow}>
+          <div>
+            <p className={styles.tierLabel}>Free</p>
+            <Checklist items={[
+              { text: '1 deployment per day' },
+              { text: 'Links expire after 24 hours' },
+              { text: 'npm builds included' },
+              { text: 'Node.js backends (portal.json)' },
+              { text: 'GitHub import' },
+            ]} />
+          </div>
+          <div>
+            <p className={styles.tierLabel}>Pro — $7/mo</p>
+            <Checklist items={[
+              { text: 'Unlimited deployments' },
+              { text: 'Permanent links (no expiry)' },
+              { text: 'API access (deploy from Claude / CLI)' },
+              { text: 'All Free features' },
+            ]} />
+            <a href="mailto:pro@1kuzz.org?subject=VibePort Pro" className={styles.upgradeLink}>
+              Upgrade to Pro →
+            </a>
           </div>
         </div>
       </div>
 
       {/* Upload methods */}
       <div className={styles.sectionRow}>
-
         <div className={styles.section}>
           <h2 className={styles.sectionTitle}>ZIP upload</h2>
           <Checklist items={[
@@ -85,9 +113,8 @@ export function HelpPage() {
             { text: 'Max ZIP size: 200 MB compressed' },
             { text: 'Max extracted size: 500 MB' },
             { text: 'Max number of files: 5,000' },
-            { text: 'Must contain an index.html or index.htm', note: 'shallowest one is used as entry' },
+            { text: 'Must contain an index.html', note: 'shallowest one is used as entry' },
             { text: '.git folders are stripped automatically' },
-            { text: 'Other dot files (.gitignore, .env) are fine' },
           ]} />
         </div>
 
@@ -95,145 +122,151 @@ export function HelpPage() {
           <h2 className={styles.sectionTitle}>GitHub import</h2>
           <Checklist items={[
             { text: 'Public repos work without signing in' },
-            { text: 'Private repos require GitHub sign-in', note: 'OAuth token is used automatically' },
+            { text: 'Private repos require GitHub sign-in', note: 'OAuth token used automatically' },
             { text: 'Repo ZIP must be under 200 MB' },
             { text: 'Same index.html requirement applies' },
-            { text: 'Enable "Build this project" for source repos', note: 'see build requirements below' },
+            { text: 'Enable "Build" for source repos', note: 'React, Vue, Vite, etc.' },
           ]} />
         </div>
-
       </div>
 
       {/* Build option */}
       <div className={styles.section}>
-        <h2 className={styles.sectionTitle}>Server-side build (optional)</h2>
+        <h2 className={styles.sectionTitle}>Automatic builds (npm)</h2>
         <p className={styles.sectionDesc}>
-          Enable "Build this project" when uploading a source repo (React, Vue, Vite, etc.) that needs
-          to be compiled before it can run. The server runs <code className={styles.code}>npm install</code> and{' '}
+          Enable "Build with npm" when your project needs to be compiled first.
+          We run <code className={styles.code}>npm install</code> and{' '}
           <code className={styles.code}>npm run build</code> for you.
         </p>
         <Checklist items={[
-          { text: 'package.json must be at the root of the ZIP / repo' },
+          { text: 'package.json must be at the ZIP root' },
           { text: 'A "build" script must be defined in package.json' },
-          { text: 'Build output must go to dist/, build/, out/, or public/' },
-          { text: 'Build output must include an index.html' },
+          { text: 'Output must go to dist/, build/, out/, or public/' },
           { text: 'Build must complete within 5 minutes' },
-          { text: 'Test locally first: npm install && npm run build should succeed' },
+          { text: 'Test locally: npm install && npm run build should succeed' },
         ]} />
         <p className={styles.tipBox}>
-          <strong>Tip:</strong> If your build needs environment variables, hard-code a safe default or
-          use <code className={styles.code}>import.meta.env.VITE_*</code> with a fallback —
-          the build server has no access to your <code className={styles.code}>.env</code> file.
+          <strong>Tip:</strong> If your build needs env vars, VibePort will detect your <code className={styles.code}>.env.example</code> and prompt you to fill in the values before deploying.
+        </p>
+      </div>
+
+      {/* Node backends */}
+      <div className={styles.section}>
+        <h2 className={styles.sectionTitle}>Node.js backends (portal.json)</h2>
+        <p className={styles.sectionDesc}>
+          Bundle a Node.js server alongside your frontend by adding a <code className={styles.code}>portal.json</code> file
+          next to your <code className={styles.code}>index.html</code>:
+        </p>
+        <pre className={styles.codeBlock}>{`{
+  "backend": {
+    "entry": "server/server.js",
+    "prefix": "/my-app",
+    "static": ["assets"]
+  }
+}`}</pre>
+        <Checklist items={[
+          { text: 'entry — path to your Node.js entry file (relative to portal.json)' },
+          { text: 'prefix — nginx location prefix for API calls (e.g. /my-app)' },
+          { text: 'static — optional dirs to serve as static files' },
+          { text: 'Server must listen on process.env.PORT' },
+        ]} />
+        <p className={styles.tipBox}>
+          <strong>API path:</strong> Requests to <code className={styles.code}>{'{prefix}/api/'}</code> are proxied to your server.
+        </p>
+      </div>
+
+      {/* API tokens */}
+      <div className={styles.section}>
+        <h2 className={styles.sectionTitle}>API deployment (Pro)</h2>
+        <p className={styles.sectionDesc}>
+          Generate an API token in{' '}
+          <Link to="/settings" className={styles.inlineLink}>Settings</Link>{' '}
+          and deploy from anywhere — your terminal, a Claude session, or a CI pipeline.
+        </p>
+        <pre className={styles.codeBlock}>{`# Deploy a ZIP via curl
+curl -X POST https://1kuzz.org/api/content \\
+  -H "Authorization: Bearer tok_your_token" \\
+  -F "archive=@./myapp.zip" \\
+  -F "name=My App" \\
+  -F "build=true"`}</pre>
+        <p className={styles.tipBox}>
+          <strong>Response:</strong> Returns <code className={styles.code}>{"{ id, shareToken, envVarsRequired }"}</code>. Use <code className={styles.code}>shareToken</code> to construct the VIP link: <code className={styles.code}>https://1kuzz.org/vip/{'{shareToken}'}</code>
         </p>
       </div>
 
       {/* What works / what doesn't */}
       <div className={styles.sectionRow}>
-
         <div className={styles.section}>
           <h2 className={styles.sectionTitle}>What works</h2>
           <Checklist items={[
             { text: 'HTML + CSS + vanilla JavaScript' },
             { text: 'React / Vue / Svelte (built to static files)' },
-            { text: 'Scripts from CDNs', note: 'unpkg, jsDelivr, cdnjs, etc.' },
-            { text: 'Google Fonts and other external stylesheets' },
-            { text: 'fetch() and XHR to external APIs' },
+            { text: 'Scripts from CDNs', note: 'unpkg, jsDelivr, etc.' },
+            { text: 'Google Fonts and external stylesheets' },
+            { text: 'fetch() to external APIs' },
             { text: 'WebGL, Canvas, Web Audio API' },
-            { text: 'Relative asset paths (./images/bg.png)' },
             { text: 'LocalStorage and SessionStorage' },
+            { text: 'Node.js backends via portal.json' },
           ]} />
         </div>
 
         <div className={styles.section}>
           <h2 className={styles.sectionTitle}>What does not work</h2>
           <WarnList items={[
-            'Server-side code (Node.js, PHP, Python, etc.) — static files only',
+            'Server-side code without portal.json (Node.js, PHP, Python)',
             'Hardcoded localhost URLs — they won\'t resolve for other users',
-            'Projects that require a running backend or database',
-            'WebSockets to a custom server (public WebSocket APIs are fine)',
-            'Reading files from disk with the File System API in production',
+            'WebSockets to a custom server without portal.json',
+            'Reading files from disk with the File System API',
             'Browser extensions or native app features',
           ]} />
         </div>
-
-      </div>
-
-      {/* Pre-upload checklist */}
-      <div className={styles.section}>
-        <h2 className={styles.sectionTitle}>Pre-upload checklist</h2>
-        <p className={styles.sectionDesc}>Run through this before hitting Upload to avoid common rejections.</p>
-        <Checklist items={[
-          { text: 'Open index.html locally in a browser — the app loads and works' },
-          { text: 'All asset paths are relative, not absolute', note: 'use ./style.css not /style.css' },
-          { text: 'No hardcoded localhost or 127.0.0.1 URLs anywhere' },
-          { text: 'External resources (CDN scripts, fonts) load over HTTPS, not HTTP' },
-          { text: 'If built: npm run build succeeds with no errors locally' },
-          { text: 'ZIP contains the built output, not just source files', note: 'unless using the Build option' },
-          { text: 'Project has a clear name and description ready' },
-          { text: 'A screenshot or thumbnail is prepared (optional, but helps)' },
-        ]} />
       </div>
 
       {/* Common errors */}
       <div className={styles.section}>
         <h2 className={styles.sectionTitle}>Common errors</h2>
         <div className={styles.faqList}>
-
           <div className={styles.faqItem}>
-            <div className={styles.faqQ}>App uploads but appears blank in the preview</div>
+            <div className={styles.faqQ}>App uploads but appears blank</div>
             <div className={styles.faqA}>
-              Open the browser developer console (F12 → Console) while the preview is open.
-              Look for 404 errors on assets — this usually means paths like <code className={styles.code}>/assets/app.js</code> are
-              absolute and won't resolve. Change them to <code className={styles.code}>./assets/app.js</code> and re-upload.
+              Open the browser console (F12 → Console).
+              Look for 404 errors on assets — paths like <code className={styles.code}>/assets/app.js</code> are
+              absolute and won't resolve. Change them to <code className={styles.code}>./assets/app.js</code> and re-deploy.
             </div>
           </div>
 
           <div className={styles.faqItem}>
             <div className={styles.faqQ}>No index.html found in the archive</div>
             <div className={styles.faqA}>
-              You uploaded source code without building it first. Either run{' '}
+              You uploaded source code without building it. Either run{' '}
               <code className={styles.code}>npm run build</code> locally and ZIP the output folder,
-              or enable "Build this project" in the GitHub import tab.
+              or enable "Build with npm" during upload.
             </div>
           </div>
 
           <div className={styles.faqItem}>
             <div className={styles.faqQ}>Build failed</div>
             <div className={styles.faqA}>
-              The build log is shown after a failed upload — read it carefully. The most common causes are:
-              missing <code className={styles.code}>build</code> script in package.json, required environment
-              variables not present, or a dependency that needs a native binary the server doesn't have.
-              Always verify <code className={styles.code}>npm install &amp;&amp; npm run build</code> works
-              on your own machine first.
+              The build log is shown after a failed upload. Common causes: missing{' '}
+              <code className={styles.code}>build</code> script in package.json, missing env vars,
+              or a native dependency the build server doesn't support.
+              Always verify <code className={styles.code}>npm install &amp;&amp; npm run build</code> works locally first.
             </div>
           </div>
 
           <div className={styles.faqItem}>
-            <div className={styles.faqQ}>Build output not found after a successful build</div>
+            <div className={styles.faqQ}>Link expired</div>
             <div className={styles.faqA}>
-              The server looks for output in <code className={styles.code}>dist/</code>,{' '}
-              <code className={styles.code}>build/</code>, <code className={styles.code}>out/</code>, or{' '}
-              <code className={styles.code}>public/</code>. If your project outputs elsewhere, set the output
-              directory in your build config (e.g., <code className={styles.code}>vite.config.js → build.outDir</code>)
-              to one of those names.
+              Free tier links expire after 24 hours. Re-upload to get a new link, or upgrade to Pro for permanent links.
             </div>
           </div>
-
-          <div className={styles.faqItem}>
-            <div className={styles.faqQ}>Project was rejected — what now?</div>
-            <div className={styles.faqA}>
-              The review note explains why. You can delete the rejected project, fix the issue, re-upload
-              and submit again. There is no limit on resubmissions.
-            </div>
-          </div>
-
         </div>
       </div>
 
       <div className={styles.footer}>
-        Ready?{' '}
-        <Link to="/my-projects" className={styles.footerLink}>
-          Go to My Projects to upload →
+        Ready to deploy?{' '}
+        <Link to="/deploy" className={styles.footerLink}>
+          Go to Deploy →
         </Link>
       </div>
     </div>

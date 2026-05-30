@@ -230,6 +230,47 @@
 
 /* ── Footer CTA ── */
 
+.tierLabel {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-text);
+  margin: 0 0 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  font-size: 11px;
+  color: var(--color-teal);
+}
+
+.upgradeLink {
+  display: inline-block;
+  margin-top: 14px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-teal);
+  text-decoration: none;
+}
+.upgradeLink:hover { text-decoration: underline; }
+
+.codeBlock {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--color-text);
+  overflow-x: auto;
+  margin: 0 0 14px;
+  white-space: pre;
+}
+
+.inlineLink {
+  color: var(--color-teal);
+  text-decoration: none;
+}
+.inlineLink:hover { text-decoration: underline; }
+
 .footer {
   font-size: 14px;
   color: var(--color-text-muted);

@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { useGitHubAuth } from '../../contexts/useGitHubAuth';
 import styles from './LandingPage.module.css';
 
@@ -37,8 +37,8 @@ export function LandingPage() {
       <nav className={styles.nav}>
         <span className={styles.navBrand}>VibePort</span>
         <div className={styles.navRight}>
-          <a href="/apps" className={styles.navLink}>Gallery</a>
-          <a href="/help" className={styles.navLink}>Docs</a>
+          <Link to="/apps" className={styles.navLink}>Gallery</Link>
+          <Link to="/help" className={styles.navLink}>Docs</Link>
           <button className={styles.navCta} onClick={handleLogin}>
             Deploy with GitHub →
           </button>
@@ -141,9 +141,9 @@ export function LandingPage() {
       <footer className={styles.footer}>
         <span>VibePort © {new Date().getFullYear()}</span>
         <div className={styles.footerLinks}>
-          <a href="/help" className={styles.footerLink}>Docs</a>
+          <Link to="/help" className={styles.footerLink}>Docs</Link>
           <a href="https://github.com/1kuzz/Walkable" target="_blank" rel="noreferrer" className={styles.footerLink}>GitHub</a>
-          <a href="/apps" className={styles.footerLink}>Gallery</a>
+          <Link to="/apps" className={styles.footerLink}>Gallery</Link>
         </div>
       </footer>
     </div>
