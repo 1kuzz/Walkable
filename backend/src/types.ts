@@ -3,7 +3,7 @@
 declare module 'express-session' {
   interface SessionData {
     githubToken?: string;
-    githubUser?: { login: string; avatar_url: string; name: string | null; isAdmin?: boolean };
+    githubUser?: { login: string; avatar_url: string; name: string | null; isAdmin?: boolean; tier?: string };
   }
 }
 
@@ -11,6 +11,7 @@ export interface AuthenticatedUser {
   login: string;
   displayName: string;
   isAdmin: boolean;
+  tier: string;
 }
 
 /** Express Request extended with the decoded user. */

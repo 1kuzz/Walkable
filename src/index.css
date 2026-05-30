@@ -1,6 +1,5 @@
 /* ──────────────────────────────────────────────────
-   MOPS Portal — Global Styles
-   Kaspersky corporate design system (2025)
+   VibePort — Developer-first deployment platform
    ────────────────────────────────────────────────── */
 
 /* ── Kaspersky Sans Display ── */
@@ -68,32 +67,37 @@
 }
 
 :root {
-  /* Brand colors — orange accent, black & white */
-  --color-teal:        #F97316;
-  --color-teal-dark:   #EA6C00;
-  --color-teal-light:  #FFF0E6;
-  --color-teal-border: #F97316;
+  /* Accent — indigo for dev-tool aesthetic */
+  --color-teal:        #6366F1;
+  --color-teal-dark:   #4F46E5;
+  --color-teal-light:  rgba(99, 102, 241, 0.12);
+  --color-teal-border: #6366F1;
 
-  /* Neutrals */
+  /* Dark-first neutrals */
   --color-white:       #ffffff;
-  --color-bg:          #F5F5F5;
-  --color-surface:     #ffffff;
-  --color-border:      #D1D5DB;
-  --color-text:        #0A0A0A;
-  --color-text-muted:  #6B7280;
+  --color-bg:          #09090B;
+  --color-surface:     #18181B;
+  --color-surface-2:   #27272A;
+  --color-border:      #3F3F46;
+  --color-text:        #FAFAFA;
+  --color-text-muted:  #A1A1AA;
 
   /* Status */
-  --color-success: #27ae60;
-  --color-warning: #f39c12;
-  --color-danger:  #e74c3c;
+  --color-success: #22C55E;
+  --color-warning: #F59E0B;
+  --color-danger:  #EF4444;
 
   /* Layout */
-  --header-height: 56px;
-  --sidebar-width: 280px;
+  --header-height: 52px;
+  --sidebar-width: 0px;
+  --radius:        8px;
+  --radius-lg:     12px;
+  --radius-xl:     16px;
+  --transition:    150ms ease;
 
   /* Typography */
-  --font-display: 'Kaspersky Sans Display', system-ui, -apple-system, sans-serif;
-  --font-mono: 'Kaspersky Sans Mono', 'Consolas', monospace;
+  --font-display: 'Kaspersky Sans Display', 'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono: 'Kaspersky Sans Mono', 'JetBrains Mono', 'Consolas', monospace;
 
   font-family: var(--font-display);
   font-size: 14px;
@@ -104,6 +108,20 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  color-scheme: dark;
+}
+
+/* Light theme opt-in */
+.theme-light {
+  --color-bg:          #F4F4F5;
+  --color-surface:     #ffffff;
+  --color-surface-2:   #F4F4F5;
+  --color-border:      #D1D5DB;
+  --color-text:        #09090B;
+  --color-text-muted:  #6B7280;
+  --color-teal-light:  rgba(99, 102, 241, 0.08);
+  --color-teal-dark:   #4F46E5;
+  color-scheme: light;
 }
 
 *,
@@ -153,24 +171,7 @@ ul {
   padding: 0;
 }
 
-/* ── Dark Theme ──
-   Activated manually via .theme-dark class on :root.
-   Dark palette follows Kaspersky corporate guidelines:
-   - Background: #1D1D1B (Kaspersky Near-Black)
-   - Surface: #2A2A28
-   - Text: #FFFFFF / #A0A0A0
-   - Accent: Kaspersky Green #29CCB1
-   ────────────────────────────────────────────────── */
-
+/* Dark theme class kept for backward compat — dark is now the default */
 .theme-dark {
-  --color-bg:          #0A0A0A;
-  --color-surface:     #1A1A1A;
-  --color-border:      #2D2D2D;
-  --color-text:        #FFFFFF;
-  --color-text-muted:  #9CA3AF;
-  --color-white:       #FFFFFF;
-  --color-teal-light:  rgba(249, 115, 22, 0.12);
-  --color-teal-dark:   #FB923C;
-
   color-scheme: dark;
 }

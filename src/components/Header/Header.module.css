@@ -1,621 +1,240 @@
 .header {
-  display: flex;
-  align-items: center;
-  height: var(--header-height);
-  background-color: var(--color-teal);
-  color: var(--color-white);
-  padding: 0 16px;
-  gap: 12px;
   position: sticky;
   top: 0;
-  z-index: 100;
-  flex-shrink: 0;
-}
-
-/* ── Branding ── */
-.branding {
+  z-index: 200;
+  height: var(--header-height);
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
+  padding: 0 20px;
+  background: rgba(9, 9, 11, 0.88);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--color-border);
+  gap: 20px;
 }
 
-.brandingBtn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-shrink: 0;
+/* Brand */
+.brand {
   background: none;
   border: none;
   padding: 0;
   cursor: pointer;
-  color: inherit;
-}
-
-.brandLogo {
-  height: 36px;
-  width: auto;
-  object-fit: contain;
+  display: flex;
+  align-items: center;
   flex-shrink: 0;
 }
 
 .brandName {
+  font-size: 17px;
   font-weight: 700;
-  font-size: 13px;
-  letter-spacing: 0.5px;
-  white-space: nowrap;
+  color: var(--color-text);
+  letter-spacing: -0.3px;
+  font-family: var(--font-display);
 }
 
-/* ── Navigation ── */
+/* Desktop nav */
 .nav {
   display: flex;
   align-items: center;
-  gap: 4px;
-  flex: 1;
-  min-width: 0;
-  justify-content: center;
-  flex-wrap: nowrap;
-  /* overflow must not be hidden/clip here: the Admin ▾ dropdown is
-     absolutely positioned below the nav and would be clipped otherwise. */
-  overflow: visible;
-  /* Prevent text from being painted outside the flex container edge */
-  contain: layout;
+  gap: 2px;
 }
 
 .navLink {
-  background: none;
-  border: none;
-  color: var(--color-white);
+  padding: 6px 12px;
   font-size: 13px;
   font-weight: 500;
-  padding: 4px 8px;
-  border-radius: 4px;
-  transition: background-color 0.15s;
-  white-space: nowrap;
-  opacity: 0.9;
-}
-
-.navLink:hover {
-  background-color: rgba(255, 255, 255, 0.15);
+  color: var(--color-text-muted);
   text-decoration: none;
-  opacity: 1;
+  border-radius: var(--radius);
+  transition: all var(--transition);
 }
+.navLink:hover { color: var(--color-text); background: var(--color-surface); text-decoration: none; }
+.navLinkActive { color: var(--color-text) !important; background: var(--color-surface); }
 
-.navLinkActive {
-  background-color: rgba(255, 255, 255, 0.2);
-  font-weight: 600;
-  opacity: 1;
-}
-
-.hotButton {
-  background: none;
-  border: 1px dashed rgba(255, 255, 255, 0.45);
-  color: rgba(255, 255, 255, 0.65);
-  font-size: 12px;
-  padding: 3px 8px;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.hotButton:hover {
-  background-color: rgba(255, 255, 255, 0.12);
-  border-color: rgba(255, 255, 255, 0.65);
-  color: var(--color-white);
-}
-
-.separator {
-  color: rgba(255, 255, 255, 0.35);
-  font-size: 12px;
-  user-select: none;
-}
-
-.navLinkInner {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-}
-
-.unreadDot {
-  position: absolute;
-  top: -3px;
-  right: -7px;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--color-teal, #29ccb1);
-  pointer-events: none;
-}
-
-/* ── User Controls ── */
-.userControls {
+/* Auth area */
+.authArea {
+  margin-left: auto;
   display: flex;
   align-items: center;
   gap: 12px;
-  flex-shrink: 0;
 }
 
-.bugButton {
-  background: none;
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  color: var(--color-white);
-  font-size: 12px;
-  padding: 4px 10px;
-  border-radius: 4px;
-  white-space: nowrap;
-  transition: background-color 0.15s;
-}
+.placeholder { width: 80px; height: 32px; background: var(--color-surface); border-radius: var(--radius); }
 
-.bugButton:hover {
-  background-color: rgba(255, 255, 255, 0.15);
-}
-
-.opModeButton {
-  background: rgba(255, 193, 7, 0.15);
-  border: 1px solid rgba(255, 193, 7, 0.5);
-  color: #ffc107;
-  font-size: 12px;
-  padding: 4px 10px;
-  border-radius: 4px;
-  white-space: nowrap;
+.loginBtn {
+  background: var(--color-teal);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
-  transition: background-color 0.15s;
+  white-space: nowrap;
+  font-family: var(--font-display);
+  transition: background var(--transition);
 }
+.loginBtn:hover { background: var(--color-teal-dark); }
 
-.opModeButton:hover {
-  background: rgba(255, 193, 7, 0.25);
-}
+/* User menu */
+.userMenu { position: relative; }
 
-.userInfo {
+.userBtn {
   display: flex;
   align-items: center;
   gap: 8px;
-  position: relative;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 5px 10px;
+  cursor: pointer;
+  font-family: var(--font-display);
+  transition: border-color var(--transition);
+}
+.userBtn:hover { border-color: var(--color-teal); }
+
+.avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  object-fit: cover;
 }
 
-.userAvatar {
+.avatarInitial {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--color-teal);
+  color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  background-color: rgba(0, 0, 0, 0.15);
-  border: 2px solid rgba(255, 255, 255, 0.5);
-  border-radius: 50%;
   font-size: 11px;
   font-weight: 700;
-  color: var(--color-white);
-  flex-shrink: 0;
-  cursor: pointer;
-  transition: border-color 0.15s;
 }
 
-.userAvatar:hover {
-  border-color: var(--color-white);
+.userLogin { font-size: 13px; font-weight: 600; color: var(--color-text); }
+
+.proBadge {
+  background: var(--color-teal);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  padding: 2px 6px;
+  border-radius: 999px;
 }
 
-.userText {
-  display: flex;
-  flex-direction: column;
-  line-height: 1.2;
-}
+.chevron { font-size: 9px; color: var(--color-text-muted); }
 
-.userLogin {
-  font-size: 11px;
-  opacity: 0.8;
-  font-family: var(--font-mono);
-}
-
-.userDisplayName {
-  font-size: 13px;
-  font-weight: 500;
-}
-
-/* ── User Dropdown ── */
+/* Dropdown */
 .dropdown {
   position: absolute;
   top: calc(100% + 6px);
   right: 0;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-  min-width: 150px;
-  z-index: 200;
-  overflow: hidden;
-}
-
-.dropdownItem {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 9px 14px;
-  background: none;
-  border: none;
-  color: var(--color-text);
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-  transition: background-color 0.12s;
-}
-
-.dropdownItem:hover {
-  background-color: var(--color-teal-light);
-}
-
-/* ── Admin Dropdown ── */
-.adminDropdownWrapper {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-}
-
-.adminDropdownWrapper > button {
-  background: none;
-  border: none;
-  cursor: pointer;
-}
-
-.adminDropdown {
-  display: none;
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 50%;
-  transform: translateX(-50%);
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
   min-width: 160px;
-  z-index: 200;
-  overflow: hidden;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  padding: 6px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+  z-index: 300;
 }
 
-/* bridge gap so hover doesn't break when moving to dropdown */
-.adminDropdownWrapper::after {
-  content: '';
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  height: 6px;
-}
-
-.adminDropdownWrapper:hover .adminDropdown {
+.dropItem {
   display: block;
-}
-
-.adminDropdownItem {
-  display: block;
-  padding: 9px 16px;
-  color: var(--color-text);
-  font-size: 13px;
-  font-weight: 500;
-  white-space: nowrap;
-  transition: background-color 0.12s;
-}
-
-.adminDropdownItem:hover {
-  background-color: var(--color-teal-light);
-  text-decoration: none;
-}
-
-.adminDropdownItemActive {
-  background-color: var(--color-teal-light);
-  color: var(--color-teal);
-  font-weight: 600;
-}
-
-.helpButton {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  background: none;
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  border-radius: 50%;
-  color: var(--color-white);
-  font-size: 14px;
-  font-weight: 700;
-  text-decoration: none;
-  flex-shrink: 0;
-  transition: background-color 0.15s;
-}
-
-.helpButton:hover {
-  background-color: rgba(255, 255, 255, 0.15);
-  text-decoration: none;
-}
-
-.helpButtonActive {
-  background-color: rgba(255, 255, 255, 0.2);
-}
-
-/* ── Hot Button Wrapper ── */
-.hotButtonWrapper {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-}
-
-/* ── Hamburger Toggle (hidden on desktop) ── */
-.menuToggle {
-  display: none;
-  align-items: center;
-  justify-content: center;
+  width: 100%;
+  text-align: left;
   background: none;
   border: none;
-  color: var(--color-white);
-  padding: 6px;
-  border-radius: 4px;
+  border-radius: var(--radius);
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--color-text);
   cursor: pointer;
-  margin-left: auto;
-  flex-shrink: 0;
-  transition: background-color 0.15s;
+  font-family: var(--font-display);
+  transition: background var(--transition);
+}
+.dropItem:hover { background: var(--color-bg); }
+.dropItemDanger { color: var(--color-danger); }
+.dropItemDanger:hover { background: rgba(239,68,68,0.08); }
+
+.dropDivider { height: 1px; background: var(--color-border); margin: 4px 0; }
+
+/* Hamburger */
+.hamburger {
+  display: none;
+  flex-direction: column;
+  gap: 4px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px;
 }
 
-.menuToggle:hover {
-  background-color: rgba(255, 255, 255, 0.15);
+.hamburgerLine {
+  display: block;
+  width: 20px;
+  height: 2px;
+  background: var(--color-text);
+  border-radius: 1px;
+  transition: transform var(--transition), opacity var(--transition);
 }
+.hamburgerOpen1 { transform: translateY(6px) rotate(45deg); }
+.hamburgerOpen2 { opacity: 0; }
+.hamburgerOpen3 { transform: translateY(-6px) rotate(-45deg); }
 
-/* ── Mobile Menu Panel (rendered by React when open) ── */
+/* Mobile menu */
 .mobileMenu {
-  display: flex;
   position: fixed;
   top: var(--header-height);
   left: 0;
   right: 0;
-  background-color: var(--color-teal);
-  z-index: 99;
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  padding: 12px 16px 20px;
+  display: flex;
   flex-direction: column;
-  padding: 8px 0 16px;
-  max-height: calc(100vh - var(--header-height));
-  overflow-y: auto;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+  gap: 2px;
+  z-index: 199;
 }
 
-.mobileNavLink {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.mobileLink {
+  display: block;
   width: 100%;
-  padding: 12px 20px;
+  text-align: left;
   background: none;
   border: none;
-  color: var(--color-white);
+  font-family: var(--font-display);
+  padding: 10px 12px;
   font-size: 14px;
   font-weight: 500;
-  text-align: left;
-  white-space: nowrap;
-  opacity: 0.9;
-  transition: background-color 0.15s;
-  cursor: pointer;
-  text-decoration: none;
-  box-sizing: border-box;
-}
-
-.mobileNavLink:hover {
-  background-color: rgba(255, 255, 255, 0.15);
-  text-decoration: none;
-  opacity: 1;
-}
-
-.mobileNavLinkActive {
-  background-color: rgba(255, 255, 255, 0.2);
-  font-weight: 600;
-  opacity: 1;
-}
-
-.mobileSectionLabel {
-  display: block;
-  padding: 10px 20px 4px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.8px;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.55);
-  user-select: none;
-}
-
-.mobileDivider {
-  border: none;
-  border-top: 1px solid rgba(255, 255, 255, 0.2);
-  margin: 8px 0;
-}
-
-.mobileUserRow {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 20px;
-}
-
-/* ── Overflow menu ── */
-.overflowWrapper {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  flex-shrink: 0;
-}
-
-.overflowDropdown {
-  position: absolute;
-  top: calc(100% + 4px);
-  right: 0;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
-  min-width: 160px;
-  z-index: 200;
-  overflow: hidden;
-  padding: 6px 0;
-  display: flex;
-  flex-direction: column;
-  max-height: min(420px, calc(100vh - var(--header-height) - 20px));
-  overflow-y: auto;
-  min-width: 220px;
-}
-
-.overflowNote {
-  display: block;
-  padding: 8px 14px 6px;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-  color: var(--color-text-secondary);
-}
-
-.overflowSectionLabel {
-  display: block;
-  padding: 10px 14px 6px;
-  font-size: 11px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-  color: var(--color-text-secondary);
-}
-
-.overflowMenuItem {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  padding: 9px 14px;
-  border: none;
-  background: transparent;
   color: var(--color-text);
-  text-align: left;
-  font-size: 13px;
-  font-weight: 500;
-  cursor: pointer;
   text-decoration: none;
-  transition: background-color 0.12s ease;
-}
-
-.overflowMenuItem:hover {
-  background-color: var(--color-teal-light);
-  text-decoration: none;
-}
-
-.overflowMenuItemActive {
-  background-color: var(--color-teal-light);
-  color: var(--color-teal);
-  font-weight: 600;
-}
-
-/* ── Auth elements ── */
-.authPlaceholder {
-  display: inline-block;
-  width: 80px;
-  height: 28px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.1);
-  flex-shrink: 0;
-}
-
-.githubBtn {
-  background: rgba(255, 255, 255, 0.15);
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  color: var(--color-white);
-  font-size: 12px;
-  font-weight: 500;
-  padding: 4px 10px;
-  border-radius: 4px;
+  border-radius: var(--radius);
   cursor: pointer;
-  white-space: nowrap;
-  transition: background-color 0.15s;
+  transition: background var(--transition);
 }
+.mobileLink:hover { background: var(--color-bg); text-decoration: none; }
 
-.githubBtn:hover {
-  background: rgba(255, 255, 255, 0.25);
-}
-
-/* Account button (logged-in state) */
-.accountBtn {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  background: rgba(255, 255, 255, 0.12);
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 20px;
-  padding: 3px 10px 3px 3px;
-  cursor: pointer;
-  color: var(--color-white);
-  transition: background-color 0.15s, border-color 0.15s;
-  flex-shrink: 0;
-}
-
-.accountBtn:hover {
-  background: rgba(255, 255, 255, 0.22);
-  border-color: rgba(255, 255, 255, 0.55);
-}
-
-.accountAvatar {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.4);
-  flex-shrink: 0;
+.mobileCta {
   display: block;
-}
-
-.accountInitial {
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: rgba(0, 0, 0, 0.2);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 11px;
-  font-weight: 700;
-  flex-shrink: 0;
-}
-
-.accountLogin {
-  font-size: 12px;
-  font-weight: 600;
-  white-space: nowrap;
-  color: var(--color-white);
-}
-
-.avatar {
-  width: 24px;
-  height: 24px;
-  border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  flex-shrink: 0;
-}
-
-.logoutBtn {
-  background: none;
+  width: 100%;
+  margin-top: 8px;
+  background: var(--color-teal);
+  color: #fff;
   border: none;
-  color: rgba(255, 255, 255, 0.7);
-  font-size: 12px;
+  border-radius: var(--radius);
+  padding: 11px;
+  font-size: 14px;
+  font-weight: 600;
   cursor: pointer;
-  padding: 2px 4px;
-  border-radius: 3px;
-  transition: color 0.15s;
+  font-family: var(--font-display);
 }
 
-.logoutBtn:hover {
-  color: var(--color-white);
-}
+.mobileDivider { height: 1px; background: var(--color-border); margin: 8px 0; }
 
-/* ── Responsive breakpoint ── */
-@media (max-width: 820px) {
-  .nav {
-    display: none;
-  }
-
-  .userControls {
-    display: none;
-  }
-
-  .menuToggle {
-    display: flex;
-  }
+@media (max-width: 640px) {
+  .nav { display: none; }
+  .hamburger { display: flex; }
+  .loginBtn { display: none; }
 }

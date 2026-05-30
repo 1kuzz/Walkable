@@ -73,15 +73,16 @@ router.get('/github/callback', async (req: Request, res: Response) => {
       [user.login, user.name ?? user.login, user.avatar_url],
     );
 
-    // Read the resolved is_admin value from DB (may have been set by another admin)
-    const adminResult = await pool.query<{ is_admin: boolean }>(
-      `SELECT is_admin FROM github_users WHERE login = $1`,
+    // Read the resolved is_admin and tier from DB
+    const adminResult = await pool.query<{ is_admin: boolean; tier: string }>(
+      `SELECT is_admin, tier FROM github_users WHERE login = $1`,
       [user.login],
     );
     const isAdmin = adminResult.rows[0]?.is_admin ?? false;
+    const tier = adminResult.rows[0]?.tier ?? 'free';
 
     req.session.githubToken = tokenData.access_token;
-    req.session.githubUser  = { login: user.login, avatar_url: user.avatar_url, name: user.name, isAdmin };
+    req.session.githubUser  = { login: user.login, avatar_url: user.avatar_url, name: user.name, isAdmin, tier };
 
     // Explicit save + HTML bounce instead of bare 302 redirect.
     // iOS Safari ITP blocks cookies set during cross-site redirect chains;
@@ -125,6 +126,27 @@ router.get('/users', async (req: Request, res: Response) => {
     res.json(result.rows);
   } catch (err) {
     console.error('[auth] GET /users error:', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+/** PATCH /api/auth/users/:login/tier — set user tier (admin only) */
+router.patch('/users/:login/tier', requireAdmin, async (req: Request, res: Response) => {
+  const { login } = req.params as { login: string };
+  const { tier } = req.body as { tier?: string };
+  if (!tier || !['free', 'pro'].includes(tier)) {
+    res.status(400).json({ error: 'tier must be "free" or "pro".' });
+    return;
+  }
+  try {
+    const result = await pool.query<{ tier: string }>(
+      `UPDATE github_users SET tier = $2 WHERE login = $1 RETURNING tier`,
+      [login, tier],
+    );
+    if (result.rows.length === 0) { res.status(404).json({ error: 'User not found.' }); return; }
+    res.json({ login, tier: result.rows[0].tier });
+  } catch (err) {
+    console.error('[auth] PATCH /users/:login/tier error:', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });

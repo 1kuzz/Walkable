@@ -44,8 +44,24 @@ export function VipPage() {
     );
   }
 
+  const vipUrl = `${window.location.origin}/vip/${token ?? ''}`;
+  const [barCopied, setBarCopied] = useState(false);
+  const handleBarCopy = () => {
+    void navigator.clipboard.writeText(vipUrl).then(() => {
+      setBarCopied(true);
+      setTimeout(() => setBarCopied(false), 2000);
+    });
+  };
+
   return (
     <div className={styles.root}>
+      <div className={styles.topBar}>
+        <a href="/" className={styles.topBarBrand}>VibePort</a>
+        {name && <span className={styles.topBarName}>{name}</span>}
+        <button className={`${styles.topBarCopy} ${barCopied ? styles.topBarCopied : ''}`} onClick={handleBarCopy}>
+          {barCopied ? '✓' : '🔗'}
+        </button>
+      </div>
       <iframe
         key={token}
         className={styles.frame}

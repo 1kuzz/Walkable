@@ -7,7 +7,7 @@ const SSO_PREF_KEY = 'mops_sso_preferred';
 
 export type Theme = 'light' | 'dark';
 
-const DEFAULT_THEME: Theme = 'light';
+const DEFAULT_THEME: Theme = 'dark';
 
 /** Read the persisted theme preference (defaults to 'light'). */
 export function getTheme(): Theme {

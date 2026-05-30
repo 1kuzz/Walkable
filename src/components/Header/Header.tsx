@@ -1,168 +1,105 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
-import { useUnreadCount } from '../../services/updates';
-import { Icon } from '../Icon/Icon';
 import { useGitHubAuth } from '../../contexts/useGitHubAuth';
 import styles from './Header.module.css';
-import { useI18n } from '../../i18n';
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   isActive ? `${styles.navLink} ${styles.navLinkActive}` : styles.navLink;
-const mobileNavLinkClass = ({ isActive }: { isActive: boolean }) =>
-  isActive ? `${styles.mobileNavLink} ${styles.mobileNavLinkActive}` : styles.mobileNavLink;
-
-function AuthSection({ compact = false }: { compact?: boolean }) {
-  const { user, loading, login, logout } = useGitHubAuth();
-  const navigate = useNavigate();
-
-  if (loading) {
-    return <span className={styles.authPlaceholder} />;
-  }
-
-  if (!user) {
-    return (
-      <button
-        className={compact ? styles.mobileNavLink : styles.githubBtn}
-        onClick={login}
-      >
-        Sign in with GitHub
-      </button>
-    );
-  }
-
-  if (compact) {
-    return (
-      <div className={styles.mobileUserRow}>
-        {user.avatar_url && (
-          <img src={user.avatar_url} alt={user.login} className={styles.avatar} />
-        )}
-        <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: 'var(--color-white)' }}>
-          {user.login}
-        </span>
-        <button className={styles.logoutBtn} onClick={() => void logout()}>
-          Sign out
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <button
-      className={styles.accountBtn}
-      onClick={() => navigate('/settings')}
-      title={`${user.login} — Settings`}
-    >
-      {user.avatar_url ? (
-        <img src={user.avatar_url} alt={user.login} className={styles.accountAvatar} />
-      ) : (
-        <span className={styles.accountInitial}>{user.login[0].toUpperCase()}</span>
-      )}
-      <span className={styles.accountLogin}>{user.login}</span>
-    </button>
-  );
-}
 
 export function Header() {
-  const { t } = useI18n();
+  const { user, loading, login, logout } = useGitHubAuth();
   const navigate = useNavigate();
-  const unreadCount = useUnreadCount();
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const { user } = useGitHubAuth();
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [dropOpen, setDropOpen] = useState(false);
+  const dropRef = useRef<HTMLDivElement>(null);
+
+  const isPro = (user as (typeof user & { tier?: string }) | null)?.tier === 'pro';
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    if (!dropOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (dropRef.current && !dropRef.current.contains(e.target as Node)) setDropOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [dropOpen]);
 
   return (
     <header className={styles.header}>
-      <button className={styles.brandingBtn} onClick={() => navigate('/gallery')} aria-label={t('nav.goToGallery')}>
-        <span className={styles.brandName}>Project Showcase</span>
+      {/* Brand */}
+      <button className={styles.brand} onClick={() => navigate(user ? '/deploy' : '/')} aria-label="VibePort home">
+        <span className={styles.brandName}>VibePort</span>
       </button>
 
-      <button
-        className={styles.menuToggle}
-        onClick={() => setMobileMenuOpen((v) => !v)}
-        aria-expanded={mobileMenuOpen}
-        aria-label={mobileMenuOpen ? t('nav.closeMenu') : t('nav.openMenu')}
-      >
-        <Icon name={mobileMenuOpen ? 'close' : 'menu'} size={22} />
-      </button>
-
-      <nav className={styles.nav} aria-label={t('nav.mainNavigation')}>
-        <NavLink to="/gallery" className={navLinkClass}>
-          {t('nav.gallery')}
-        </NavLink>
-        <span className={styles.separator}>|</span>
-        <NavLink to="/content" className={navLinkClass}>
-          Submit
-        </NavLink>
-        <span className={styles.separator}>|</span>
-        <NavLink to="/updates" className={navLinkClass}>
-          <span className={styles.navLinkInner}>
-            {t('nav.updates')}
-            {unreadCount > 0 && (
-              <span className={styles.unreadDot} aria-label={t('nav.unread', { count: unreadCount })} />
-            )}
-          </span>
-        </NavLink>
-        <span className={styles.separator}>|</span>
-        <NavLink to="/statistics" className={navLinkClass}>
-          {t('nav.statistics') || 'Stats'}
-        </NavLink>
-        <span className={styles.separator}>|</span>
-        <NavLink to="/help" className={navLinkClass}>
-          Help
-        </NavLink>
+      {/* Desktop nav */}
+      <nav className={styles.nav}>
         {user && (
-          <>
-            <span className={styles.separator}>|</span>
-            <NavLink to="/my-projects" className={navLinkClass}>
-              My Projects
-            </NavLink>
-          </>
+          <NavLink to="/deploy" className={navLinkClass}>Deploy</NavLink>
         )}
-        <span className={styles.separator}>|</span>
-        <AuthSection />
+        <NavLink to="/apps" className={navLinkClass}>Apps</NavLink>
+        <NavLink to="/help" className={navLinkClass}>Docs</NavLink>
       </nav>
 
-      {mobileMenuOpen && (
-        <div className={styles.mobileMenu} role="navigation" aria-label={t('nav.mainNavigation')}>
-          <NavLink to="/gallery" className={mobileNavLinkClass} onClick={() => setMobileMenuOpen(false)}>
-            {t('nav.gallery')}
-          </NavLink>
-          <NavLink to="/content" className={mobileNavLinkClass} onClick={() => setMobileMenuOpen(false)}>
-            Submit
-          </NavLink>
-          <NavLink to="/updates" className={mobileNavLinkClass} onClick={() => setMobileMenuOpen(false)}>
-            {t('nav.updates')}
-            {unreadCount > 0 && (
-              <span className={styles.unreadDot} aria-label={t('nav.unread', { count: unreadCount })} />
+      {/* Auth / user */}
+      <div className={styles.authArea}>
+        {loading ? (
+          <span className={styles.placeholder} />
+        ) : user ? (
+          <div className={styles.userMenu} ref={dropRef}>
+            <button className={styles.userBtn} onClick={() => setDropOpen(v => !v)} aria-expanded={dropOpen}>
+              {user.avatar_url
+                ? <img src={user.avatar_url} alt={user.login} className={styles.avatar} />
+                : <span className={styles.avatarInitial}>{user.login[0].toUpperCase()}</span>}
+              <span className={styles.userLogin}>{user.login}</span>
+              {isPro && <span className={styles.proBadge}>PRO</span>}
+              <span className={styles.chevron}>{dropOpen ? '▲' : '▼'}</span>
+            </button>
+            {dropOpen && (
+              <div className={styles.dropdown}>
+                <button className={styles.dropItem} onClick={() => { navigate('/settings'); setDropOpen(false); }}>
+                  Settings
+                </button>
+                <button className={styles.dropItem} onClick={() => { navigate('/updates'); setDropOpen(false); }}>
+                  Updates
+                </button>
+                <button className={styles.dropItem} onClick={() => { navigate('/statistics'); setDropOpen(false); }}>
+                  Statistics
+                </button>
+                <div className={styles.dropDivider} />
+                <button className={`${styles.dropItem} ${styles.dropItemDanger}`} onClick={() => void logout()}>
+                  Sign out
+                </button>
+              </div>
             )}
-          </NavLink>
-          <NavLink
-            to="/statistics"
-            className={mobileNavLinkClass}
-            onClick={() => setMobileMenuOpen(false)}
-          >
-            {t('nav.statistics') || 'Stats'}
-          </NavLink>
-          <NavLink
-            to="/help"
-            className={mobileNavLinkClass}
-            onClick={() => setMobileMenuOpen(false)}
-          >
-            Help
-          </NavLink>
-          {user && (
-            <NavLink
-              to="/my-projects"
-              className={mobileNavLinkClass}
-              onClick={() => setMobileMenuOpen(false)}
-            >
-              My Projects
-            </NavLink>
-          )}
-          <NavLink to="/settings" className={mobileNavLinkClass} onClick={() => setMobileMenuOpen(false)}>
-            Settings
-          </NavLink>
-          <hr className={styles.mobileDivider} />
-          <AuthSection compact />
+          </div>
+        ) : (
+          <button className={styles.loginBtn} onClick={login}>
+            Deploy with GitHub
+          </button>
+        )}
+
+        {/* Mobile hamburger */}
+        <button className={styles.hamburger} onClick={() => setMobileOpen(v => !v)} aria-label="Menu">
+          <span className={`${styles.hamburgerLine} ${mobileOpen ? styles.hamburgerOpen1 : ''}`} />
+          <span className={`${styles.hamburgerLine} ${mobileOpen ? styles.hamburgerOpen2 : ''}`} />
+          <span className={`${styles.hamburgerLine} ${mobileOpen ? styles.hamburgerOpen3 : ''}`} />
+        </button>
+      </div>
+
+      {/* Mobile menu */}
+      {mobileOpen && (
+        <div className={styles.mobileMenu} onClick={() => setMobileOpen(false)}>
+          {user && <NavLink to="/deploy" className={styles.mobileLink}>Deploy</NavLink>}
+          <NavLink to="/apps" className={styles.mobileLink}>Apps</NavLink>
+          <NavLink to="/help" className={styles.mobileLink}>Docs</NavLink>
+          <NavLink to="/updates" className={styles.mobileLink}>Updates</NavLink>
+          <NavLink to="/statistics" className={styles.mobileLink}>Statistics</NavLink>
+          <NavLink to="/settings" className={styles.mobileLink}>Settings</NavLink>
+          <div className={styles.mobileDivider} />
+          {user
+            ? <button className={styles.mobileLink} onClick={() => void logout()}>Sign out</button>
+            : <button className={styles.mobileCta} onClick={login}>Deploy with GitHub</button>}
         </div>
       )}
     </header>

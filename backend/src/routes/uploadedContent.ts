@@ -18,6 +18,7 @@ import type { AuthenticatedUser } from '../types';
 import type { Request, Response } from 'express';
 import { requireAuth } from '../middleware/requireAuth';
 import { requireAdmin } from '../middleware/requireAdmin';
+import { checkUploadLimit } from '../middleware/tierLimits';
 import { logger } from '../utils/logger';
 
 const router = Router();
@@ -473,6 +474,7 @@ router.get('/pending', requireAdmin, async (_req, res) => {
 router.post(
   '/',
   requireAuth,
+  checkUploadLimit,
   (req, res, next) => {
     zipUpload.single('archive')(req, res, (zipErr) => {
       if (zipErr) {
@@ -595,8 +597,22 @@ router.post(
 
           projectPath = `/uploads/${safeContentId}/${indexRel}`;
 
-          // Detect and start bundled backend if portal.json is present
+          // Detect .env.example and surface required vars to the client
           const appRootForManifest = path.join(appDir, path.dirname(indexRel) === '.' ? '' : path.dirname(indexRel));
+          const envExamplePath = path.join(appRootForManifest, '.env.example');
+          if (fs.existsSync(envExamplePath)) {
+            try {
+              const envRaw = fs.readFileSync(envExamplePath, 'utf8');
+              const envVars = envRaw.split('\n')
+                .map(l => l.trim())
+                .filter(l => l && !l.startsWith('#') && l.includes('='))
+                .map(l => l.split('=')[0].trim())
+                .filter(Boolean);
+              (req as unknown as Record<string, unknown>)['_envVarsRequired'] = envVars;
+            } catch { /* non-fatal */ }
+          }
+
+          // Detect and start bundled backend if portal.json is present
           const portalManifest = detectPortalManifest(appRootForManifest);
           if (portalManifest) {
             try {
@@ -650,13 +666,14 @@ router.post(
       const backendPort = (req as unknown as Record<string, unknown>)['_backendPort'] as number | undefined;
       const backendPrefix = (req as unknown as Record<string, unknown>)['_backendPrefix'] as string | undefined;
 
+      const isPro = user.tier === 'pro' || user.isAdmin;
       await pool.query(
         `INSERT INTO uploaded_content
            (id, name, description, uploaded_at, uploaded_by, visibility, allowed_users,
             file_count, html_content, project_path, portal_route, status, build_log,
             backend_port, backend_prefix, expires_at)
          VALUES ($1,$2,$3,NOW(),$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,
-                 NOW() + INTERVAL '24 hours')`,
+                 ${isPro ? 'NULL' : "NOW() + INTERVAL '24 hours'"})`,
         [
           safeContentId,
           name.trim(),
@@ -691,7 +708,10 @@ router.post(
         }
       }
 
-      res.status(201).json({ id: safeContentId, buildLog });
+      const envVarsRequired = (req as unknown as Record<string, unknown>)['_envVarsRequired'] as string[] | undefined;
+      // Fetch share token to return in response
+      const stRow = await pool.query<{ share_token: string }>(`SELECT share_token FROM uploaded_content WHERE id = $1`, [safeContentId]);
+      res.status(201).json({ id: safeContentId, buildLog, envVarsRequired: envVarsRequired ?? [], shareToken: stRow.rows[0]?.share_token });
     } catch (err) {
       if (tempDir) {
         try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* non-critical */ }
@@ -707,7 +727,7 @@ router.post(
  * Fetches the repo as a zipball (supports private repos via user session token).
  * Must be registered before /:id routes.
  */
-router.post('/github', requireAuth, async (req: Request, res: Response): Promise<void> => {
+router.post('/github', requireAuth, checkUploadLimit, async (req: Request, res: Response): Promise<void> => {
   try {
     const user = getUser(req);
     const { gitUrl, name, description, build } = req.body as {
@@ -852,13 +872,14 @@ router.post('/github', requireAuth, async (req: Request, res: Response): Promise
       }
     }
 
+    const isProUser = user.tier === 'pro' || user.isAdmin;
     await pool.query(
       `INSERT INTO uploaded_content
          (id, name, description, uploaded_at, uploaded_by, visibility, allowed_users,
           file_count, html_content, project_path, portal_route, status, git_url, build_log,
           backend_port, backend_prefix, expires_at)
        VALUES ($1,$2,$3,NOW(),$4,'specific',$4,$5,'',$6,NULL,'approved',$7,$8,$9,$10,
-               NOW() + INTERVAL '24 hours')`,
+               ${isProUser ? 'NULL' : "NOW() + INTERVAL '24 hours'"})`,
       [
         safeContentId,
         name.trim(),
@@ -879,7 +900,8 @@ router.post('/github', requireAuth, async (req: Request, res: Response): Promise
       }
     }
 
-    res.status(201).json({ id: safeContentId, buildLog });
+    const ghStRow = await pool.query<{ share_token: string }>(`SELECT share_token FROM uploaded_content WHERE id = $1`, [safeContentId]);
+    res.status(201).json({ id: safeContentId, buildLog, shareToken: ghStRow.rows[0]?.share_token });
   } catch (err) {
     console.error('[content] POST /github error:', err);
     res.status(500).json({ error: 'Internal server error.' });
@@ -1115,6 +1137,46 @@ router.get('/:id/render/version/:versionNum', renderLimiter, async (req: Request
     serveInlineHtml(res, row.html_content ?? '', user, `${id}@v${vNum}`, (req.query['theme'] as string) ?? 'light');
   } catch (err) {
     console.error('[content] GET /:id/render/version/:versionNum error:', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+/**
+ * POST /api/content/:id/env — write env vars to portal-data dir (owner only, portal backends only).
+ */
+router.post('/:id/env', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const user = getUser(req);
+  const { id } = req.params as { id: string };
+  if (!/^[a-zA-Z0-9_-]+$/.test(id)) { res.status(400).json({ error: 'Invalid ID.' }); return; }
+
+  const vars = req.body as Record<string, string>;
+  if (!vars || typeof vars !== 'object' || Array.isArray(vars)) {
+    res.status(400).json({ error: 'Body must be a JSON object of key-value env vars.' });
+    return;
+  }
+
+  try {
+    const check = await pool.query<{ uploaded_by: string; backend_port: number | null }>(
+      `SELECT uploaded_by, backend_port FROM uploaded_content WHERE id = $1`,
+      [id],
+    );
+    if (check.rows.length === 0) { res.status(404).json({ error: 'Not found.' }); return; }
+    if (!user.isAdmin && check.rows[0].uploaded_by !== user.login) {
+      res.status(403).json({ error: 'Not your project.' }); return;
+    }
+
+    const dataDir = path.join(UPLOADS_DIR, `portal-data-${id}`);
+    fs.mkdirSync(dataDir, { recursive: true });
+
+    const envContent = Object.entries(vars)
+      .filter(([k]) => /^[A-Z_][A-Z0-9_]*$/i.test(k))
+      .map(([k, v]) => `${k}=${String(v).replace(/\n/g, '\\n')}`)
+      .join('\n');
+    fs.writeFileSync(path.join(dataDir, '.env'), envContent, 'utf8');
+
+    res.json({ ok: true, varsWritten: Object.keys(vars).length });
+  } catch (err) {
+    console.error('[content] POST /:id/env error:', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });

@@ -24,7 +24,9 @@ import projectsRouter from './routes/projects';
 import githubAuthRouter from './routes/githubAuth';
 import githubProxyRouter from './routes/githubProxy';
 import shareRouter from './routes/shareRouter';
+import apiTokensRouter from './routes/apiTokens';
 import { startCleanupScheduler } from './services/contentCleanup';
+import { createHash } from 'crypto';
 
 if (
   process.env.NODE_ENV === 'production' &&
@@ -79,23 +81,58 @@ app.use(cors({
 
 app.use(express.json({ limit: '100mb' }));
 
-// Populate req.authUser from session on every request.
-// isAdmin is stored in the session (set during OAuth callback) — no DB hit per request.
-app.use((req, _res, next) => {
+// Populate req.authUser from session or API token Bearer header.
+app.use(async (req, _res, next) => {
   const githubUser = req.session?.githubUser;
   if (githubUser?.login) {
     (req as unknown as AuthRequest).authUser = {
       login: githubUser.login,
       displayName: githubUser.name ?? githubUser.login,
       isAdmin: githubUser.isAdmin === true,
+      tier: githubUser.tier ?? 'free',
     };
-  } else {
-    (req as unknown as AuthRequest).authUser = {
-      login: 'anonymous',
-      displayName: 'Anonymous',
-      isAdmin: false,
-    };
+    return next();
   }
+
+  // API token auth: Bearer tok_xxx
+  const bearer = req.headers.authorization;
+  if (bearer?.startsWith('Bearer tok_')) {
+    const raw = bearer.slice(7);
+    const hash = createHash('sha256').update(raw).digest('hex');
+    try {
+      const tokRow = await pool.query<{ user_login: string; id: string }>(
+        `SELECT id, user_login FROM api_tokens
+         WHERE token_hash = $1 AND (expires_at IS NULL OR expires_at > NOW())`,
+        [hash],
+      );
+      if (tokRow.rows.length > 0) {
+        const { user_login, id } = tokRow.rows[0];
+        const userRow = await pool.query<{ display_name: string; is_admin: boolean; tier: string }>(
+          `SELECT display_name, is_admin, tier FROM github_users WHERE login = $1`,
+          [user_login],
+        );
+        if (userRow.rows.length > 0) {
+          const u = userRow.rows[0];
+          (req as unknown as AuthRequest).authUser = {
+            login: user_login,
+            displayName: u.display_name,
+            isAdmin: u.is_admin,
+            tier: u.tier,
+          };
+          // fire-and-forget last_used_at update
+          pool.query(`UPDATE api_tokens SET last_used_at = NOW() WHERE id = $1`, [id]).catch(() => {});
+          return next();
+        }
+      }
+    } catch { /* fall through to anonymous */ }
+  }
+
+  (req as unknown as AuthRequest).authUser = {
+    login: 'anonymous',
+    displayName: 'Anonymous',
+    isAdmin: false,
+    tier: 'free',
+  };
   next();
 });
 
@@ -119,6 +156,7 @@ app.use('/api/projects', generalLimiter, projectsRouter);
 app.use('/api/auth', generalLimiter, githubAuthRouter);
 app.use('/api/github', generalLimiter, githubProxyRouter);
 app.use('/api/share', generalLimiter, shareRouter);
+app.use('/api/tokens', generalLimiter, apiTokensRouter);
 
 // ── Health checks ─────────────────────────────────────────────────────────────
 
