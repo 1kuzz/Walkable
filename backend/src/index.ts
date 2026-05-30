@@ -24,6 +24,7 @@ import projectsRouter from './routes/projects';
 import githubAuthRouter from './routes/githubAuth';
 import githubProxyRouter from './routes/githubProxy';
 import shareRouter from './routes/shareRouter';
+import { startCleanupScheduler } from './services/contentCleanup';
 
 if (
   process.env.NODE_ENV === 'production' &&
@@ -232,6 +233,7 @@ async function main(): Promise<void> {
   await pool.query('SELECT 1');
   logger.info('[server] Database connection OK.');
   await runMigrations();
+  startCleanupScheduler();
 
   const server = app.listen(PORT, () => {
     logger.info(`[server] Backend listening on port ${PORT}`);

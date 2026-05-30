@@ -416,7 +416,8 @@ router.get('/', async (req, res) => {
                   (COALESCE(html_content,'') <> '') AS "hasContent",
                   thumbnail_path AS "thumbnailPath", portal_route AS "portalRoute",
                   status, review_note AS "reviewNote", submitted_at AS "submittedAt",
-                  git_url AS "gitUrl", share_token AS "shareToken"`;
+                  git_url AS "gitUrl", share_token AS "shareToken",
+                  expires_at AS "expiresAt"`;
 
     if (user.isAdmin) {
       query = `SELECT ${cols} FROM uploaded_content ORDER BY uploaded_at DESC`;
@@ -653,8 +654,9 @@ router.post(
         `INSERT INTO uploaded_content
            (id, name, description, uploaded_at, uploaded_by, visibility, allowed_users,
             file_count, html_content, project_path, portal_route, status, build_log,
-            backend_port, backend_prefix)
-         VALUES ($1,$2,$3,NOW(),$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+            backend_port, backend_prefix, expires_at)
+         VALUES ($1,$2,$3,NOW(),$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,
+                 NOW() + INTERVAL '24 hours')`,
         [
           safeContentId,
           name.trim(),
@@ -854,8 +856,9 @@ router.post('/github', requireAuth, async (req: Request, res: Response): Promise
       `INSERT INTO uploaded_content
          (id, name, description, uploaded_at, uploaded_by, visibility, allowed_users,
           file_count, html_content, project_path, portal_route, status, git_url, build_log,
-          backend_port, backend_prefix)
-       VALUES ($1,$2,$3,NOW(),$4,'specific',$4,$5,'',$6,NULL,'approved',$7,$8,$9,$10)`,
+          backend_port, backend_prefix, expires_at)
+       VALUES ($1,$2,$3,NOW(),$4,'specific',$4,$5,'',$6,NULL,'approved',$7,$8,$9,$10,
+               NOW() + INTERVAL '24 hours')`,
       [
         safeContentId,
         name.trim(),

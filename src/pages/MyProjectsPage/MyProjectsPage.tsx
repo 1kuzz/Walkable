@@ -34,6 +34,15 @@ function uploadZipWithProgress(
   });
 }
 
+function formatExpiry(expiresAt: string): string {
+  const ms = new Date(expiresAt).getTime() - Date.now();
+  if (ms <= 0) return 'Expired';
+  const h = Math.floor(ms / 3_600_000);
+  const m = Math.floor((ms % 3_600_000) / 60_000);
+  if (h >= 1) return `Expires in ${h}h ${m}m`;
+  return `Expires in ${m}m`;
+}
+
 const STATUS_LABEL: Record<string, string> = {
   draft: 'Draft',
   pending_review: 'Under Review',
@@ -153,7 +162,7 @@ function UploadModal({ onClose, onUploaded }: UploadModalProps) {
           <div className={styles.successScreen}>
             <div className={styles.successIcon}>✓</div>
             <h3 className={styles.successTitle}>Uploaded successfully!</h3>
-            <p className={styles.successMsg}>Your project is ready to preview. Submit it for review when you're happy with it.</p>
+            <p className={styles.successMsg}>Your project is live! It will be auto-deleted in 24 hours.</p>
             {buildLog && (
               <details className={styles.buildLogDetails}>
                 <summary>Build log</summary>
@@ -352,6 +361,8 @@ function UploadModal({ onClose, onUploaded }: UploadModalProps) {
           )}
         </div>
 
+        <p className={styles.expiryNotice}>Your app will be auto-deleted after 24 hours.</p>
+
         <div className={styles.modalFooter}>
           <button className={styles.cancelBtn} onClick={onClose} disabled={submitting}>Cancel</button>
           <button className={styles.uploadBtn} onClick={() => void handleSubmit()} disabled={submitting}>
@@ -470,6 +481,11 @@ function ProjectCard({ item, onAction }: ProjectCardProps) {
               <span className={styles.cardName}>{item.name}</span>
               <span className={`${styles.statusBadge} ${styles[`status_${status}`]}`}>{statusLabel}</span>
             </div>
+            {item.expiresAt && (
+              <span className={`${styles.expiryBadge} ${new Date(item.expiresAt).getTime() - Date.now() < 2 * 3_600_000 ? styles.expiryUrgent : ''}`}>
+                {formatExpiry(item.expiresAt)}
+              </span>
+            )}
             {item.description && <p className={styles.cardDesc}>{item.description}</p>}
             {item.gitUrl && (
               <a href={item.gitUrl} target="_blank" rel="noreferrer" className={styles.gitLink}>

@@ -1,0 +1,2 @@
+ALTER TABLE uploaded_content
+  ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ;

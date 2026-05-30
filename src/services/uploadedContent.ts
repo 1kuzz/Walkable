@@ -50,6 +50,8 @@ export interface UploadedContent {
   gitUrl?: string | null;
   /** UUID token for the shareable VIP link — only returned for the owner's own items */
   shareToken?: string | null;
+  /** ISO timestamp when this upload auto-expires (null = permanent) */
+  expiresAt?: string | null;
 }
 
 /**
