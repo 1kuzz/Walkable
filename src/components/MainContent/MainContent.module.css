@@ -22,10 +22,14 @@
     border: none;
     border-radius: 0;
     margin: 0;
+    overflow: visible;
+    flex: none;
+    width: 100%;
   }
 
   .inner {
-    overflow-y: visible;
+    overflow: visible;
+    flex: none;
     padding: 12px;
   }
 }
