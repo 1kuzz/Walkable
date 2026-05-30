@@ -5,8 +5,9 @@ import { requireAuth } from '../middleware/requireAuth';
 const router = Router();
 
 /**
- * GET /api/github/repos?page=1
+ * GET /api/github/repos?page=1&q=search
  * Lists the authenticated user's GitHub repositories via their session OAuth token.
+ * Includes private repos if the OAuth scope includes 'repo'.
  */
 router.get('/repos', requireAuth, async (req: Request, res: Response): Promise<void> => {
   try {
@@ -17,14 +18,33 @@ router.get('/repos', requireAuth, async (req: Request, res: Response): Promise<v
     }
 
     const page = String(req.query['page'] ?? '1');
-    const url = `https://api.github.com/user/repos?sort=updated&per_page=50&page=${page}&affiliation=owner,collaborator`;
+    const q = String(req.query['q'] ?? '').trim();
+
+    // Use search API when query is provided, otherwise list user's repos
+    let url: string;
+    if (q) {
+      // Search only the user's repos
+      const userRes = await fetch('https://api.github.com/user', {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+          'User-Agent': 'VibePort/1.0',
+        },
+      });
+      const userData = await userRes.json() as { login?: string };
+      const login = userData.login ?? '';
+      url = `https://api.github.com/search/repositories?q=${encodeURIComponent(q + ' user:' + login)}&sort=updated&per_page=30&page=${page}`;
+    } else {
+      url = `https://api.github.com/user/repos?sort=updated&per_page=50&page=${page}&affiliation=owner,collaborator`;
+    }
 
     const ghRes = await fetch(url, {
       headers: {
         Authorization: `Bearer ${token}`,
         Accept: 'application/vnd.github+json',
         'X-GitHub-Api-Version': '2022-11-28',
-        'User-Agent': 'Walkable-Portal/1.0',
+        'User-Agent': 'VibePort/1.0',
       },
     });
 
@@ -33,7 +53,9 @@ router.get('/repos', requireAuth, async (req: Request, res: Response): Promise<v
       return;
     }
 
-    const repos = await ghRes.json();
+    const data = await ghRes.json();
+    // Search API wraps results in { items: [] }, list API is a plain array
+    const repos = Array.isArray(data) ? data : (data as { items?: unknown[] }).items ?? [];
     res.json(repos);
   } catch (err) {
     console.error('[github-proxy] GET /repos error:', err);

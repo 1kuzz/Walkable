@@ -7,6 +7,7 @@ import {
   detectPortalManifest,
   allocatePort,
   handleUploadBackend,
+  pm2Start,
   pm2Delete,
   regenerateNginxAppsConf,
 } from '../services/appBackendManager';
@@ -418,7 +419,8 @@ router.get('/', async (req, res) => {
                   thumbnail_path AS "thumbnailPath", portal_route AS "portalRoute",
                   status, review_note AS "reviewNote", submitted_at AS "submittedAt",
                   git_url AS "gitUrl", share_token AS "shareToken",
-                  expires_at AS "expiresAt"`;
+                  expires_at AS "expiresAt",
+                  backend_port AS "backendPort", backend_prefix AS "backendPrefix"`;
 
     if (user.isAdmin) {
       query = `SELECT ${cols} FROM uploaded_content ORDER BY uploaded_at DESC`;
@@ -1137,6 +1139,83 @@ router.get('/:id/render/version/:versionNum', renderLimiter, async (req: Request
     serveInlineHtml(res, row.html_content ?? '', user, `${id}@v${vNum}`, (req.query['theme'] as string) ?? 'light');
   } catch (err) {
     console.error('[content] GET /:id/render/version/:versionNum error:', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+/**
+ * POST /api/content/:id/stop — stop PM2 backend, keep files (owner or admin).
+ */
+router.post('/:id/stop', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const user = getUser(req);
+  const { id } = req.params as { id: string };
+  if (!/^[a-zA-Z0-9_-]+$/.test(id)) { res.status(400).json({ error: 'Invalid ID.' }); return; }
+  try {
+    const check = await pool.query<{ uploaded_by: string; backend_port: number | null }>(
+      `SELECT uploaded_by, backend_port FROM uploaded_content WHERE id = $1`, [id],
+    );
+    if (check.rows.length === 0) { res.status(404).json({ error: 'Not found.' }); return; }
+    if (!user.isAdmin && check.rows[0].uploaded_by !== user.login) {
+      res.status(403).json({ error: 'Not your project.' }); return;
+    }
+    if (!check.rows[0].backend_port) {
+      res.status(400).json({ error: 'No running backend for this project.' }); return;
+    }
+    pm2Delete(id);
+    await pool.query(`UPDATE uploaded_content SET backend_port = NULL WHERE id = $1`, [id]);
+    try { await regenerateNginxAppsConf(); } catch { /* non-fatal */ }
+    res.json({ ok: true });
+  } catch (err) {
+    console.error('[content] POST /:id/stop error:', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+/**
+ * POST /api/content/:id/restart — restart stopped PM2 backend (owner or admin).
+ */
+router.post('/:id/restart', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const user = getUser(req);
+  const { id } = req.params as { id: string };
+  if (!/^[a-zA-Z0-9_-]+$/.test(id)) { res.status(400).json({ error: 'Invalid ID.' }); return; }
+  try {
+    const check = await pool.query<{
+      uploaded_by: string; backend_port: number | null;
+      backend_prefix: string | null; project_path: string | null;
+    }>(
+      `SELECT uploaded_by, backend_port, backend_prefix, project_path FROM uploaded_content WHERE id = $1`, [id],
+    );
+    if (check.rows.length === 0) { res.status(404).json({ error: 'Not found.' }); return; }
+    const row = check.rows[0];
+    if (!user.isAdmin && row.uploaded_by !== user.login) {
+      res.status(403).json({ error: 'Not your project.' }); return;
+    }
+    if (row.backend_port) {
+      res.status(400).json({ error: 'Backend is already running.' }); return;
+    }
+    if (!row.backend_prefix || !row.project_path) {
+      res.status(400).json({ error: 'No backend configuration for this project.' }); return;
+    }
+    // Find portal.json from the project path
+    const withoutUploads = row.project_path.replace(/^\/uploads\/[^/]+\//, '');
+    const relDir = path.dirname(withoutUploads);
+    const contentDir = path.join(UPLOADS_DIR, id);
+    const appRoot = relDir === '.' ? contentDir : path.join(contentDir, relDir);
+    const manifest = detectPortalManifest(appRoot);
+    if (!manifest) {
+      res.status(400).json({ error: 'portal.json not found — cannot restart backend.' }); return;
+    }
+    const newPort = await allocatePort();
+    const entryAbs = path.resolve(appRoot, manifest.backend.entry);
+    pm2Start(id, entryAbs, newPort);
+    await pool.query(
+      `UPDATE uploaded_content SET backend_port = $2 WHERE id = $1`,
+      [id, newPort],
+    );
+    try { await regenerateNginxAppsConf(); } catch { /* non-fatal */ }
+    res.json({ ok: true, port: newPort });
+  } catch (err) {
+    console.error('[content] POST /:id/restart error:', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });

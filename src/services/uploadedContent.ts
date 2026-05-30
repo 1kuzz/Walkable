@@ -52,6 +52,10 @@ export interface UploadedContent {
   shareToken?: string | null;
   /** ISO timestamp when this upload auto-expires (null = permanent) */
   expiresAt?: string | null;
+  /** PM2 port for bundled Node.js backend (null = stopped or no backend) */
+  backendPort?: number | null;
+  /** Nginx prefix for the backend (e.g. /uploaded-apps/my-app) */
+  backendPrefix?: string | null;
 }
 
 /**

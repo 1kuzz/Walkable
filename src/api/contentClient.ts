@@ -58,6 +58,14 @@ export function deleteContent(id: string): Promise<{ success: boolean }> {
   });
 }
 
+export function stopBackend(id: string): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>(`/api/content/${encodeURIComponent(id)}/stop`, { method: 'POST' });
+}
+
+export function restartBackend(id: string): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>(`/api/content/${encodeURIComponent(id)}/restart`, { method: 'POST' });
+}
+
 export function updateContent(
   id: string,
   fields: { name?: string; description?: string },

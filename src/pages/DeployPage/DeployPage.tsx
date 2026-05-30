@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useGitHubAuth } from '../../contexts/useGitHubAuth';
-import { listContent, deleteContent, updateContent } from '../../api/contentClient';
+import { listContent, deleteContent, updateContent, stopBackend, restartBackend } from '../../api/contentClient';
+import type { GitHubRepo } from '../../api/contentClient';
 import type { UploadedContent } from '../../services/uploadedContent';
 import styles from './DeployPage.module.css';
 
@@ -36,25 +37,124 @@ function statusDot(expiresAt: string | null | undefined): string {
   return styles.dotLive;
 }
 
-function parseGitHubUrl(url: string): string | null {
-  const m = url.trim().match(/^https?:\/\/github\.com\/([a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+?)(\.git)?\/?$/);
-  return m ? m[1] : null;
+// ── GitHub Repo Picker ────────────────────────────────────────────────────────
+
+interface RepoBrowserProps {
+  onSelect: (repo: GitHubRepo) => void;
+  selected: string | null;
 }
+
+function RepoBrowser({ onSelect, selected }: RepoBrowserProps) {
+  const [repos, setRepos] = useState<GitHubRepo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const searchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const load = useCallback(async (q: string, p: number, append: boolean) => {
+    if (p === 1) setLoading(true); else setLoadingMore(true);
+    try {
+      const url = q
+        ? `/api/github/repos?page=${p}&q=${encodeURIComponent(q)}`
+        : `/api/github/repos?page=${p}`;
+      const res = await fetch(url, { credentials: 'include' });
+      const data = await res.json() as GitHubRepo[];
+      if (append) {
+        setRepos(prev => [...prev, ...data]);
+      } else {
+        setRepos(data);
+      }
+      setHasMore(data.length >= (q ? 30 : 50));
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
+    }
+  }, []);
+
+  useEffect(() => { void load('', 1, false); }, [load]);
+
+  const handleSearch = (q: string) => {
+    setSearch(q);
+    setPage(1);
+    if (searchRef.current) clearTimeout(searchRef.current);
+    searchRef.current = setTimeout(() => { void load(q, 1, false); }, 300);
+  };
+
+  const handleLoadMore = () => {
+    const next = page + 1;
+    setPage(next);
+    void load(search, next, true);
+  };
+
+  return (
+    <div className={styles.repoBrowser}>
+      <div className={styles.repoSearch}>
+        <span className={styles.repoSearchIcon}>🔍</span>
+        <input
+          className={styles.repoSearchInput}
+          placeholder="Search your repos…"
+          value={search}
+          onChange={e => handleSearch(e.target.value)}
+        />
+      </div>
+
+      <div className={styles.repoList}>
+        {loading ? (
+          <div className={styles.repoLoading}>Loading repos…</div>
+        ) : repos.length === 0 ? (
+          <div className={styles.repoEmpty}>No repos found.</div>
+        ) : (
+          repos.map(repo => (
+            <button
+              key={repo.full_name}
+              className={`${styles.repoItem} ${selected === repo.html_url ? styles.repoItemSelected : ''}`}
+              onClick={() => onSelect(repo)}
+            >
+              <div className={styles.repoItemLeft}>
+                <span className={styles.repoName}>{repo.name}</span>
+                {repo.private && <span className={styles.privateBadge}>Private</span>}
+                {repo.description && (
+                  <span className={styles.repoDesc}>{repo.description}</span>
+                )}
+              </div>
+              <span className={styles.repoDate}>
+                {new Date(repo.updated_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+              </span>
+            </button>
+          ))
+        )}
+      </div>
+
+      {hasMore && !loading && (
+        <button className={styles.loadMoreBtn} onClick={handleLoadMore} disabled={loadingMore}>
+          {loadingMore ? 'Loading…' : 'Load more'}
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ── Deploy Card ───────────────────────────────────────────────────────────────
 
 interface DeployCardProps {
   item: UploadedContent;
-  onDelete: () => void;
+  onRefresh: () => void;
 }
 
-function DeployCard({ item, onDelete }: DeployCardProps) {
+function DeployCard({ item, onRefresh }: DeployCardProps) {
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(item.name);
   const [saving, setSaving] = useState(false);
-  const [deleting, setDeleting] = useState(false);
+  const [acting, setActing] = useState<'delete' | 'stop' | 'restart' | null>(null);
 
   const vipUrl = item.shareToken ? `${window.location.origin}/vip/${item.shareToken}` : null;
+  const hasBackend = !!(item.backendPort || item.backendPrefix);
+  const backendRunning = !!item.backendPort;
+  const isExpired = !!item.expiresAt && new Date(item.expiresAt).getTime() <= Date.now();
 
   const handleCopy = () => {
     if (!vipUrl) return;
@@ -70,18 +170,27 @@ function DeployCard({ item, onDelete }: DeployCardProps) {
     try {
       await updateContent(item.id, { name: editName.trim(), description: item.description ?? '' });
       setEditing(false);
-      onDelete(); // refresh
+      onRefresh();
     } finally { setSaving(false); }
   };
 
   const handleDelete = async () => {
-    if (!confirm(`Delete "${item.name}"?`)) return;
-    setDeleting(true);
-    try { await deleteContent(item.id); onDelete(); } finally { setDeleting(false); }
+    if (!confirm(`Delete "${item.name}"? This cannot be undone.`)) return;
+    setActing('delete');
+    try { await deleteContent(item.id); onRefresh(); } finally { setActing(null); }
+  };
+
+  const handleStop = async () => {
+    setActing('stop');
+    try { await stopBackend(item.id); onRefresh(); } catch { /* ignore */ } finally { setActing(null); }
+  };
+
+  const handleRestart = async () => {
+    setActing('restart');
+    try { await restartBackend(item.id); onRefresh(); } catch { /* ignore */ } finally { setActing(null); }
   };
 
   const expiry = formatExpiry(item.expiresAt ?? undefined);
-  const isExpired = !!item.expiresAt && new Date(item.expiresAt).getTime() <= Date.now();
 
   return (
     <div className={`${styles.card} ${isExpired ? styles.cardExpired : ''}`}>
@@ -113,58 +222,82 @@ function DeployCard({ item, onDelete }: DeployCardProps) {
             <span className={`${styles.dot} ${statusDot(item.expiresAt ?? undefined)}`} />
             <span className={styles.expiryText}>{expiry}</span>
             {item.gitUrl && <span className={styles.gitBadge}>GitHub</span>}
-            {(item as UploadedContent & { backendPort?: number }).backendPort && <span className={styles.backendBadge}>Node</span>}
+            {hasBackend && (
+              <span className={`${styles.backendBadge} ${backendRunning ? styles.backendRunning : styles.backendStopped}`}>
+                {backendRunning ? '● Node' : '○ Node (stopped)'}
+              </span>
+            )}
           </div>
         </div>
-        <div className={styles.cardActions}>
-          <button
-            className={styles.openBtn}
-            onClick={() => navigate(`/apps/${item.id}`)}
-            title="Open in portal"
-          >↗</button>
-        </div>
+        <button
+          className={styles.openBtn}
+          onClick={() => navigate(`/apps/${item.id}`)}
+          title="Open app"
+        >↗</button>
       </div>
 
       {vipUrl && (
         <div className={styles.vipRow}>
-          <span className={styles.vipUrl}>{vipUrl.replace(window.location.origin, '')}</span>
+          <a href={vipUrl} target="_blank" rel="noreferrer" className={styles.vipUrl}>
+            {vipUrl.replace(window.location.origin, '')}
+          </a>
           <button className={`${styles.copyBtn} ${copied ? styles.copyBtnDone : ''}`} onClick={handleCopy}>
-            {copied ? '✓' : 'Copy link'}
+            {copied ? '✓' : 'Copy'}
           </button>
         </div>
       )}
 
       <div className={styles.cardFooter}>
-        <button className={styles.dangerBtn} onClick={() => void handleDelete()} disabled={deleting}>
-          {deleting ? 'Deleting…' : 'Delete'}
+        {hasBackend && (
+          backendRunning ? (
+            <button
+              className={styles.stopBtn}
+              onClick={() => void handleStop()}
+              disabled={acting !== null}
+            >
+              {acting === 'stop' ? 'Stopping…' : '■ Stop backend'}
+            </button>
+          ) : (
+            <button
+              className={styles.restartBtn}
+              onClick={() => void handleRestart()}
+              disabled={acting !== null}
+            >
+              {acting === 'restart' ? 'Starting…' : '▶ Start backend'}
+            </button>
+          )
+        )}
+        <button className={styles.dangerBtn} onClick={() => void handleDelete()} disabled={acting !== null}>
+          {acting === 'delete' ? 'Deleting…' : 'Delete'}
         </button>
       </div>
     </div>
   );
 }
 
+// ── Deploy Page ───────────────────────────────────────────────────────────────
+
 export function DeployPage() {
   const { user } = useGitHubAuth();
   const [searchParams] = useSearchParams();
 
-  // Deployments list
   const [items, setItems] = useState<UploadedContent[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Deploy form
   const [tab, setTab] = useState<'zip' | 'github'>('zip');
   const [name, setName] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [gitUrl, setGitUrl] = useState('');
+  const [selectedRepo, setSelectedRepo] = useState<string | null>(null);
   const [build, setBuild] = useState(false);
   const [deploy, setDeploy] = useState<DeployState>({ status: 'idle', progress: 0 });
   const [envValues, setEnvValues] = useState<Record<string, string>>({});
   const [showEnvForm, setShowEnvForm] = useState(false);
+  const [liveCopied, setLiveCopied] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Pre-fill GitHub URL from ?import= param
   useEffect(() => {
     const importUrl = searchParams.get('import');
     if (importUrl) { setGitUrl(importUrl); setTab('github'); }
@@ -194,11 +327,22 @@ export function DeployPage() {
     if (f && !name) setName(f.name.replace(/\.zip$/i, ''));
   };
 
+  const handleRepoSelect = (repo: GitHubRepo) => {
+    setGitUrl(repo.html_url);
+    setSelectedRepo(repo.html_url);
+    if (!name) setName(repo.name);
+    // Guess that source repos need building
+    if (repo.description?.toLowerCase().includes('react') || repo.description?.toLowerCase().includes('vite')) {
+      setBuild(true);
+    }
+  };
+
   const resetDeploy = () => {
     setDeploy({ status: 'idle', progress: 0 });
     setFile(null);
     setName('');
     setGitUrl('');
+    setSelectedRepo(null);
     setBuild(false);
     setEnvValues({});
     setShowEnvForm(false);
@@ -207,7 +351,7 @@ export function DeployPage() {
   const handleDeploy = async () => {
     if (!name.trim()) return;
     if (tab === 'zip' && !file) return;
-    if (tab === 'github' && !parseGitHubUrl(gitUrl)) return;
+    if (tab === 'github' && !gitUrl.trim()) return;
 
     setDeploy({ status: 'uploading', progress: 0 });
 
@@ -220,7 +364,6 @@ export function DeployPage() {
         fd.append('name', name.trim());
         if (build) fd.append('build', 'true');
 
-        setDeploy(s => ({ ...s, status: 'uploading', progress: 10 }));
         result = await new Promise((resolve, reject) => {
           const xhr = new XMLHttpRequest();
           xhr.open('POST', '/api/content');
@@ -255,7 +398,6 @@ export function DeployPage() {
 
       setDeploy(s => ({ ...s, progress: 90, buildLog: result.buildLog ?? undefined }));
 
-      // If env vars required, show the form before marking live
       if (result.envVarsRequired && result.envVarsRequired.length > 0) {
         const initial: Record<string, string> = {};
         result.envVarsRequired.forEach(k => { initial[k] = ''; });
@@ -288,7 +430,6 @@ export function DeployPage() {
   };
 
   const vipUrl = deploy.shareToken ? `${window.location.origin}/vip/${deploy.shareToken}` : null;
-  const [liveCopied, setLiveCopied] = useState(false);
   const handleCopyLive = () => {
     if (!vipUrl) return;
     void navigator.clipboard.writeText(vipUrl).then(() => {
@@ -298,6 +439,10 @@ export function DeployPage() {
   };
 
   const isPro = (user as (typeof user & { tier?: string }) | null)?.tier === 'pro';
+  const canDeploy = !!(
+    name.trim() &&
+    (tab === 'zip' ? file : gitUrl.trim())
+  );
 
   return (
     <div className={styles.page}>
@@ -320,10 +465,9 @@ export function DeployPage() {
               </div>
             )}
 
-            {/* Tabs */}
             <div className={styles.tabs}>
               <button className={`${styles.tab} ${tab === 'zip' ? styles.tabActive : ''}`} onClick={() => setTab('zip')}>
-                ZIP Upload
+                📦 ZIP Upload
               </button>
               <button className={`${styles.tab} ${tab === 'github' ? styles.tabActive : ''}`} onClick={() => setTab('github')}>
                 GitHub
@@ -349,19 +493,12 @@ export function DeployPage() {
                   <div className={styles.dropPlaceholder}>
                     <span className={styles.dropIcon}>📁</span>
                     <span className={styles.dropText}>Drop your ZIP here or <u>click to browse</u></span>
-                    <span className={styles.dropHint}>Max 200 MB</span>
+                    <span className={styles.dropHint}>Max 200 MB · index.html required</span>
                   </div>
                 )}
               </div>
             ) : (
-              <div className={styles.githubInput}>
-                <input
-                  className={styles.urlInput}
-                  placeholder="https://github.com/user/repo"
-                  value={gitUrl}
-                  onChange={e => setGitUrl(e.target.value)}
-                />
-              </div>
+              <RepoBrowser onSelect={handleRepoSelect} selected={selectedRepo} />
             )}
 
             <div className={styles.formRow}>
@@ -374,13 +511,34 @@ export function DeployPage() {
               />
               <label className={styles.buildToggle}>
                 <input type="checkbox" checked={build} onChange={e => setBuild(e.target.checked)} />
-                Build (npm run build)
+                npm build
               </label>
             </div>
 
+            {tab === 'github' && gitUrl && !selectedRepo && (
+              <div className={styles.manualUrlRow}>
+                <span className={styles.manualUrlLabel}>URL:</span>
+                <input
+                  className={styles.urlInput}
+                  value={gitUrl}
+                  onChange={e => setGitUrl(e.target.value)}
+                  placeholder="https://github.com/user/repo"
+                />
+              </div>
+            )}
+
+            {tab === 'github' && selectedRepo && (
+              <div className={styles.selectedRepoRow}>
+                <span className={styles.selectedRepoUrl}>{selectedRepo.replace('https://github.com/', '')}</span>
+                <button className={styles.clearRepoBtn} onClick={() => { setSelectedRepo(null); setGitUrl(''); }}>
+                  Change
+                </button>
+              </div>
+            )}
+
             <button
               className={styles.deployBtn}
-              disabled={!name.trim() || (tab === 'zip' && !file) || (tab === 'github' && !parseGitHubUrl(gitUrl))}
+              disabled={!canDeploy}
               onClick={() => void handleDeploy()}
             >
               Deploy →
@@ -389,20 +547,20 @@ export function DeployPage() {
         ) : deploy.status === 'uploading' || deploy.status === 'building' ? (
           <div className={styles.progressPanel}>
             <div className={styles.progressSteps}>
-              <div className={`${styles.pStep} ${styles.pStepDone}`}>✓ Connecting</div>
+              <div className={`${styles.pStep} ${styles.pStepDone}`}>✓ Connected</div>
               <div className={`${styles.pStep} ${deploy.progress >= 50 ? styles.pStepDone : styles.pStepActive}`}>
                 {deploy.status === 'uploading' ? '⟳ Uploading…' : '✓ Uploaded'}
               </div>
-              <div className={`${styles.pStep} ${deploy.status === 'building' ? styles.pStepActive : ''}`}>
-                {deploy.progress >= 90 ? '✓ Building' : deploy.status === 'building' ? '⟳ Building…' : '◦ Build'}
+              <div className={`${styles.pStep} ${deploy.progress >= 90 ? styles.pStepDone : deploy.status === 'building' ? styles.pStepActive : ''}`}>
+                {deploy.progress >= 90 ? '✓ Built' : deploy.status === 'building' ? '⟳ Building…' : '◦ Build'}
               </div>
-              <div className={styles.pStep}>◦ Live</div>
+              <div className={`${styles.pStep} ${showEnvForm ? styles.pStepActive : ''}`}>◦ Live</div>
             </div>
             <div className={styles.progressBar}>
               <div className={styles.progressFill} style={{ width: `${deploy.progress}%` }} />
             </div>
             <p className={styles.progressNote}>
-              {showEnvForm ? 'Almost there — set your env vars below' : 'Hang tight, this usually takes under 30 seconds…'}
+              {showEnvForm ? 'Set your env vars below to go live' : 'Usually under 30 seconds…'}
             </p>
 
             {showEnvForm && deploy.envVarsRequired && (
@@ -420,18 +578,19 @@ export function DeployPage() {
                   </div>
                 ))}
                 <div className={styles.envActions}>
-                  <button className={styles.deployBtn} onClick={() => void handleSubmitEnv()}>Set & go live</button>
+                  <button className={styles.deployBtn} style={{ width: 'auto', padding: '10px 20px' }} onClick={() => void handleSubmitEnv()}>
+                    Set & go live
+                  </button>
                   <button className={styles.skipBtn} onClick={() => {
                     setShowEnvForm(false);
                     setDeploy(s => ({ ...s, status: 'live', progress: 100 }));
                     void fetchItems();
-                  }}>Skip for now</button>
+                  }}>Skip</button>
                 </div>
               </div>
             )}
           </div>
         ) : (
-          /* status === 'live' */
           <div className={styles.livePanel}>
             <div className={styles.liveIcon}>🚀</div>
             <h2 className={styles.liveTitle}>Live!</h2>
@@ -439,7 +598,7 @@ export function DeployPage() {
               <div className={styles.liveLink}>
                 <a href={vipUrl} target="_blank" rel="noreferrer" className={styles.liveLinkText}>{vipUrl}</a>
                 <button className={`${styles.copyBtn} ${liveCopied ? styles.copyBtnDone : ''}`} onClick={handleCopyLive}>
-                  {liveCopied ? '✓ Copied' : 'Copy'}
+                  {liveCopied ? '✓' : 'Copy'}
                 </button>
               </div>
             )}
@@ -461,19 +620,19 @@ export function DeployPage() {
         {!loading && items.length === 0 && (
           <div className={styles.emptyState}>
             <span className={styles.emptyIcon}>📭</span>
-            <p>No deployments yet. Drop a ZIP above to get started.</p>
+            <p>No deployments yet. Drop a ZIP or pick a GitHub repo above.</p>
           </div>
         )}
         {items.length > 0 && (
           <div className={styles.grid}>
             {items.map(item => (
-              <DeployCard key={item.id} item={item} onDelete={() => { setLoading(true); void fetchItems(); }} />
+              <DeployCard key={item.id} item={item} onRefresh={() => { setLoading(true); void fetchItems(); }} />
             ))}
           </div>
         )}
         {!isPro && items.length > 0 && (
           <p className={styles.tierNote}>
-            Free tier: 1 deploy/day, 24-hour links.{' '}
+            Free tier: 1 deploy/day · 24-hour links.{' '}
             <a href="/settings#pro" className={styles.upgradeLink}>Upgrade to Pro</a> for permanent links &amp; unlimited deploys.
           </p>
         )}
