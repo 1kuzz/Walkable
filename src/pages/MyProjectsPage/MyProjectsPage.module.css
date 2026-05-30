@@ -3,6 +3,17 @@
   max-width: 960px;
 }
 
+@media (max-width: 820px) {
+  .page {
+    padding: 12px;
+  }
+
+  .card {
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+}
+
 .pageHeader {
   display: flex;
   align-items: flex-start;
