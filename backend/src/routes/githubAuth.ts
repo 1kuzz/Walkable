@@ -83,7 +83,17 @@ router.get('/github/callback', async (req: Request, res: Response) => {
     req.session.githubToken = tokenData.access_token;
     req.session.githubUser  = { login: user.login, avatar_url: user.avatar_url, name: user.name, isAdmin };
 
-    res.redirect(`${FRONTEND_URL()}/?auth=success`);
+    // Explicit save + HTML bounce instead of bare 302 redirect.
+    // iOS Safari ITP blocks cookies set during cross-site redirect chains;
+    // a 200 HTML response with a client-side redirect is treated as first-party.
+    req.session.save(() => {
+      const dest = `${FRONTEND_URL()}/?auth=success`;
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.send(`<!DOCTYPE html><html><head><meta charset="utf-8">
+<meta http-equiv="refresh" content="0;url=${dest}">
+<script>window.location.replace(${JSON.stringify(dest)})</script>
+</head><body></body></html>`);
+    });
   } catch {
     res.redirect(`${FRONTEND_URL()}/?auth=error`);
   }
