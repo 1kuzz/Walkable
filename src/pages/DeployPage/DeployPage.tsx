@@ -6,7 +6,13 @@ import type { GitHubRepo, StorageInfo, QueueItem } from '../../api/contentClient
 import type { UploadedContent } from '../../services/uploadedContent';
 import styles from './DeployPage.module.css';
 
-type DeployStatus = 'idle' | 'uploading' | 'building' | 'live' | 'failed' | 'queued';
+type DeployStatus = 'idle' | 'uploading' | 'building' | 'live' | 'failed' | 'queued' | 'filtering';
+
+interface DirScanEntry {
+  name: string;   // top-level dir name, or '__root__' for root-level files
+  files: number;
+  bytes: number;
+}
 
 interface DeployState {
   status: DeployStatus;
@@ -18,6 +24,18 @@ interface DeployState {
   envVarsRequired?: string[];
   queuePosition?: number;
   queueMessage?: string;
+  // filtering step
+  tempId?: string;
+  scanDirs?: DirScanEntry[];
+  totalScannedFiles?: number;
+}
+
+const BUILD_OUTPUT_DIRS = new Set(['dist', 'build', 'out', 'output', 'public', 'www', '.next', '__sveltekit']);
+
+function fmtBytes(b: number): string {
+  if (b >= 1_048_576) return `${(b / 1_048_576).toFixed(1)} MB`;
+  if (b >= 1024) return `${(b / 1024).toFixed(0)} KB`;
+  return `${b} B`;
 }
 
 function formatExpiry(expiresAt: string | null | undefined): string {
@@ -299,6 +317,7 @@ export function DeployPage() {
   const [envValues, setEnvValues] = useState<Record<string, string>>({});
   const [showEnvForm, setShowEnvForm] = useState(false);
   const [liveCopied, setLiveCopied] = useState(false);
+  const [filterSelected, setFilterSelected] = useState<Record<string, boolean>>({});
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -356,6 +375,7 @@ export function DeployPage() {
     setBuild(false);
     setEnvValues({});
     setShowEnvForm(false);
+    setFilterSelected({});
   };
 
   const handleDeploy = async () => {
@@ -406,7 +426,24 @@ export function DeployPage() {
           });
           xhr.addEventListener('load', () => {
             try {
-              const json = JSON.parse(xhr.responseText) as typeof result & { error?: string };
+              const json = JSON.parse(xhr.responseText) as typeof result & { error?: string; needsFilter?: boolean; tempId?: string; dirs?: DirScanEntry[]; totalFiles?: number };
+              // Server needs us to pick which directories to include
+              if (xhr.status === 200 && json.needsFilter && json.tempId && json.dirs) {
+                const initial: Record<string, boolean> = {};
+                for (const d of json.dirs) {
+                  initial[d.name] = d.name === '__root__' || BUILD_OUTPUT_DIRS.has(d.name.toLowerCase());
+                }
+                setFilterSelected(initial);
+                setDeploy({
+                  status: 'filtering',
+                  progress: 100,
+                  tempId: json.tempId,
+                  scanDirs: json.dirs,
+                  totalScannedFiles: json.totalFiles,
+                });
+                resolve({ id: '', shareToken: undefined }); // sentinel — filtering state handles the rest
+                return;
+              }
               if (xhr.status >= 200 && xhr.status < 300 && json.id) resolve(json);
               else reject(new Error(json.error ?? 'Upload failed'));
             } catch { reject(new Error('Upload failed')); }
@@ -429,6 +466,9 @@ export function DeployPage() {
         result = await res.json() as typeof result;
       }
 
+      // If server returned needsFilter, state is already set to 'filtering' — bail out
+      if (!result.id) return;
+
       setDeploy(s => ({ ...s, progress: 90, buildLog: result.buildLog ?? undefined }));
 
       if (result.envVarsRequired && result.envVarsRequired.length > 0) {
@@ -441,6 +481,27 @@ export function DeployPage() {
       }
 
       setDeploy({ status: 'live', progress: 100, id: result.id, shareToken: result.shareToken, buildLog: result.buildLog ?? undefined });
+      void fetchItems();
+    } catch (err) {
+      setDeploy(s => ({ ...s, status: 'failed', error: err instanceof Error ? err.message : 'Deploy failed' }));
+    }
+  };
+
+  const handleConfirmFilter = async () => {
+    if (!deploy.tempId) return;
+    const selected = Object.entries(filterSelected).filter(([, v]) => v).map(([k]) => k);
+    if (selected.length === 0) return;
+    setDeploy(s => ({ ...s, status: 'uploading', progress: 10 }));
+    try {
+      const res = await fetch('/api/content/confirm-filter', {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tempId: deploy.tempId, selectedDirs: selected, name: name.trim() }),
+      });
+      const json = await res.json() as { id?: string; shareToken?: string; error?: string };
+      if (!res.ok || !json.id) throw new Error(json.error ?? 'Deploy failed');
+      setDeploy({ status: 'live', progress: 100, id: json.id, shareToken: json.shareToken });
       void fetchItems();
     } catch (err) {
       setDeploy(s => ({ ...s, status: 'failed', error: err instanceof Error ? err.message : 'Deploy failed' }));
@@ -504,7 +565,48 @@ export function DeployPage() {
 
       {/* ── Deploy Panel ── */}
       <div className={styles.deployPanel}>
-        {deploy.status === 'idle' || deploy.status === 'failed' ? (
+        {deploy.status === 'filtering' && deploy.scanDirs ? (
+          <div className={styles.filterPanel}>
+            <h2 className={styles.filterTitle}>Choose what to include</h2>
+            <p className={styles.filterSubtitle}>
+              This ZIP has {deploy.totalScannedFiles?.toLocaleString()} files after removing <code>node_modules</code>.
+              Select the directories you need:
+            </p>
+            <div className={styles.filterList}>
+              {deploy.scanDirs.map(dir => {
+                const checked = filterSelected[dir.name] ?? false;
+                const label = dir.name === '__root__' ? 'Root files (index.html, package.json, …)' : `${dir.name}/`;
+                return (
+                  <label key={dir.name} className={`${styles.filterRow} ${checked ? styles.filterRowChecked : ''}`}>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={e => setFilterSelected(s => ({ ...s, [dir.name]: e.target.checked }))}
+                      className={styles.filterCheck}
+                    />
+                    <span className={styles.filterDirIcon}>{dir.name === '__root__' ? '📄' : '📁'}</span>
+                    <span className={styles.filterDirName}>{label}</span>
+                    <span className={styles.filterDirMeta}>{dir.files.toLocaleString()} files · {fmtBytes(dir.bytes)}</span>
+                  </label>
+                );
+              })}
+            </div>
+            {(() => {
+              const selectedFiles = deploy.scanDirs
+                .filter(d => filterSelected[d.name])
+                .reduce((s, d) => s + d.files, 0);
+              const hasSelection = selectedFiles > 0;
+              return (
+                <div className={styles.filterActions}>
+                  <button className={styles.deployBtn} disabled={!hasSelection} onClick={() => void handleConfirmFilter()}>
+                    Deploy {hasSelection ? `${selectedFiles.toLocaleString()} files` : ''} →
+                  </button>
+                  <button className={styles.retryBtn} onClick={resetDeploy}>Cancel</button>
+                </div>
+              );
+            })()}
+          </div>
+        ) : deploy.status === 'idle' || deploy.status === 'failed' ? (
           <>
             {deploy.status === 'failed' && (
               <div className={styles.errorBanner}>

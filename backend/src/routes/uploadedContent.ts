@@ -27,6 +27,57 @@ const router = Router();
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads');
 const THUMBNAILS_DIR = path.join(UPLOADS_DIR, 'thumbnails');
+const PRESCAN_DIR = path.join(UPLOADS_DIR, 'tmp-prescan');
+
+// ── Prescan temp cleanup ──────────────────────────────────────────────────────
+
+function cleanExpiredPrescans(): void {
+  if (!fs.existsSync(PRESCAN_DIR)) return;
+  const cutoff = Date.now() - 2 * 60 * 60 * 1000; // 2 hours
+  for (const f of fs.readdirSync(PRESCAN_DIR)) {
+    const full = path.join(PRESCAN_DIR, f);
+    try {
+      if (fs.statSync(full).mtimeMs < cutoff) fs.unlinkSync(full);
+    } catch { /* non-critical */ }
+  }
+}
+cleanExpiredPrescans();
+setInterval(cleanExpiredPrescans, 60 * 60 * 1000).unref();
+
+// ── Zip entry scanning ────────────────────────────────────────────────────────
+
+export interface DirScanEntry {
+  name: string;   // top-level segment, or '__root__' for files at zip root
+  files: number;
+  bytes: number;
+}
+
+// Known build-output dirs that should be pre-selected in the filter UI
+const BUILD_OUTPUT_DIRS = new Set(['dist', 'build', 'out', 'output', 'public', 'www', '.next', '__sveltekit']);
+
+function scanZipTopLevel(buffer: Buffer): { dirs: DirScanEntry[]; totalFiles: number } {
+  const zip = new AdmZip(buffer);
+  const map = new Map<string, DirScanEntry>();
+  let totalFiles = 0;
+
+  for (const entry of zip.getEntries()) {
+    if (entry.isDirectory || shouldSkipEntry(entry.entryName)) continue;
+    const segments = entry.entryName.split('/');
+    const top = segments.length > 1 ? segments[0] : '__root__';
+    const cur = map.get(top) ?? { name: top, files: 0, bytes: 0 };
+    cur.files++;
+    cur.bytes += entry.header.size;
+    map.set(top, cur);
+    totalFiles++;
+  }
+
+  return {
+    dirs: [...map.values()].sort((a, b) => b.bytes - a.bytes),
+    totalFiles,
+  };
+}
+
+export { BUILD_OUTPUT_DIRS };
 
 const renderLimiter = rateLimit({
   windowMs: 60 * 1000,
@@ -78,15 +129,22 @@ function shouldSkipEntry(entryName: string): boolean {
   return entryName.split('/').some(seg => SKIP_DIRS.has(seg));
 }
 
-function extractZipToDir(buffer: Buffer, targetDir: string): number {
+function extractZipToDir(buffer: Buffer, targetDir: string, allowedTopDirs?: Set<string>): number {
   const zip = new AdmZip(buffer);
   const entries = zip.getEntries();
 
-  // Count only the entries we will actually extract (skipping dev artifacts)
-  const relevant = entries.filter(e => !e.isDirectory && !shouldSkipEntry(e.entryName));
+  const relevant = entries.filter(e => {
+    if (e.isDirectory || shouldSkipEntry(e.entryName)) return false;
+    if (allowedTopDirs) {
+      const segments = e.entryName.split('/');
+      const top = segments.length > 1 ? segments[0] : '__root__';
+      return allowedTopDirs.has(top);
+    }
+    return true;
+  });
 
   if (relevant.length > ZIP_MAX_FILES) {
-    throw new Error(`Archive contains too many entries (limit: ${ZIP_MAX_FILES}).`);
+    throw new Error(`Archive contains too many entries (limit: ${ZIP_MAX_FILES}). Select fewer directories.`);
   }
 
   let totalBytes = 0;
@@ -94,16 +152,11 @@ function extractZipToDir(buffer: Buffer, targetDir: string): number {
 
   for (const entry of relevant) {
     const entryName = entry.entryName;
-
-    if (!entryName || entryName.includes('\0')) {
-      throw new Error(`Archive contains an entry with an invalid name.`);
-    }
-
+    if (!entryName || entryName.includes('\0')) throw new Error(`Archive contains an entry with an invalid name.`);
     const resolvedEntry = path.resolve(targetDir, entryName);
     if (!resolvedEntry.startsWith(resolvedTarget + path.sep) && resolvedEntry !== resolvedTarget) {
       throw new Error(`Archive contains a path traversal entry: "${entryName}".`);
     }
-
     totalBytes += entry.header.size;
     if (totalBytes > ZIP_MAX_EXTRACTED_BYTES) {
       throw new Error(`Archive would exceed maximum extracted size (${ZIP_MAX_EXTRACTED_BYTES / 1024 / 1024} MB).`);
@@ -587,6 +640,28 @@ router.post(
       const archiveFile = (req as { file?: Express.Multer.File }).file;
 
       if (archiveFile) {
+        // Pre-scan: if the archive has too many relevant entries, pause and ask the user
+        // to pick which directories to include (no extraction yet, just scanning headers)
+        {
+          const prescanZip = new AdmZip(archiveFile.buffer);
+          const prescanCount = prescanZip.getEntries()
+            .filter(e => !e.isDirectory && !shouldSkipEntry(e.entryName)).length;
+          if (prescanCount > ZIP_MAX_FILES) {
+            fs.mkdirSync(PRESCAN_DIR, { recursive: true });
+            const prescanId = `ps_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+            const tempZipPath = path.join(PRESCAN_DIR, `${prescanId}.zip`);
+            fs.writeFileSync(tempZipPath, archiveFile.buffer);
+            const scan = scanZipTopLevel(archiveFile.buffer);
+            res.status(200).json({
+              needsFilter: true,
+              tempId: prescanId,
+              dirs: scan.dirs,
+              totalFiles: scan.totalFiles,
+            });
+            return;
+          }
+        }
+
         ensureUploadsDir();
         tempDir = fs.mkdtempSync(path.join(UPLOADS_DIR, 'tmp-zip-'));
 
@@ -1040,6 +1115,143 @@ router.post('/seed', async (req, res) => {
     res.status(201).json({ id: item.id });
   } catch (err) {
     console.error('[content] POST /seed error:', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+/**
+ * POST /api/content/confirm-filter
+ * Second step when a ZIP had too many entries: user picks dirs, we extract only those.
+ * Must be registered before /:id routes.
+ */
+router.post('/confirm-filter', requireAuth, checkUploadLimit, storageCheck('reject'), async (req: Request, res: Response): Promise<void> => {
+  const user = getUser(req);
+  const { tempId, selectedDirs, name, description } = req.body as {
+    tempId?: string;
+    selectedDirs?: string[];
+    name?: string;
+    description?: string;
+  };
+
+  if (!tempId || !name?.trim() || !selectedDirs?.length) {
+    res.status(400).json({ error: 'tempId, name, and selectedDirs are required.' });
+    return;
+  }
+
+  if (!/^[a-zA-Z0-9_-]+$/.test(tempId)) {
+    res.status(400).json({ error: 'Invalid tempId.' });
+    return;
+  }
+
+  const resolvedPrescanDir = path.resolve(PRESCAN_DIR);
+  const tempZipPath = path.join(resolvedPrescanDir, `${tempId}.zip`);
+  const resolvedTempZipPath = path.resolve(tempZipPath);
+  if (!resolvedTempZipPath.startsWith(resolvedPrescanDir + path.sep)) {
+    res.status(400).json({ error: 'Invalid tempId.' });
+    return;
+  }
+
+  if (!fs.existsSync(resolvedTempZipPath)) {
+    res.status(404).json({ error: 'Upload session expired. Please re-upload your ZIP.' });
+    return;
+  }
+
+  // Validate and sanitize selected dir names (no slashes, no traversal)
+  const safeSelected = new Set(
+    selectedDirs.filter(d => typeof d === 'string' && /^[^/\\]+$/.test(d) && d !== '' && !d.includes('\0')),
+  );
+  if (safeSelected.size === 0) {
+    res.status(400).json({ error: 'No valid directories selected.' });
+    return;
+  }
+
+  let buffer: Buffer;
+  try {
+    buffer = fs.readFileSync(resolvedTempZipPath);
+  } catch {
+    res.status(404).json({ error: 'Upload session expired. Please re-upload your ZIP.' });
+    return;
+  }
+
+  const contentId = `upload_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const safeContentId = contentId.replace(/[^a-zA-Z0-9_-]/g, '');
+
+  ensureUploadsDir();
+  const tempDir = fs.mkdtempSync(path.join(UPLOADS_DIR, 'tmp-zip-'));
+
+  try {
+    let fileCount: number;
+    try {
+      fileCount = extractZipToDir(buffer, tempDir, safeSelected);
+    } catch (extractErr) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      const msg = extractErr instanceof Error ? extractErr.message : 'Failed to extract archive.';
+      res.status(400).json({ error: msg });
+      return;
+    } finally {
+      // Remove temp zip regardless
+      try { fs.unlinkSync(resolvedTempZipPath); } catch { /* non-critical */ }
+    }
+
+    if (fileCount === 0) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      res.status(400).json({ error: 'No files found in the selected directories.' });
+      return;
+    }
+
+    extractNestedBuildZips(tempDir);
+
+    const indexRel = findIndexHtml(tempDir);
+    if (!indexRel) {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+      res.status(400).json({ error: 'No index.html found in the selected directories. Make sure to include the directory that contains index.html.' });
+      return;
+    }
+
+    const appDir = path.join(UPLOADS_DIR, safeContentId);
+    if (fs.existsSync(appDir)) fs.rmSync(appDir, { recursive: true, force: true });
+    fs.renameSync(tempDir, appDir);
+    fs.chmodSync(appDir, 0o755);
+
+    const projectPath = `/uploads/${safeContentId}/${indexRel}`;
+
+    const appRootForManifest = path.join(appDir, path.dirname(indexRel) === '.' ? '' : path.dirname(indexRel));
+    let backendPort: number | undefined;
+    let backendPrefix: string | undefined;
+    const portalManifest = detectPortalManifest(appRootForManifest);
+    if (portalManifest) {
+      try {
+        backendPort = await allocatePort();
+        await handleUploadBackend(safeContentId, appRootForManifest, portalManifest, backendPort);
+        backendPrefix = portalManifest.backend.prefix;
+      } catch (err) {
+        logger.error('[content] confirm-filter backend start failed (non-fatal)', { error: String(err) });
+      }
+    }
+
+    const isPro = user.tier === 'pro' || user.isAdmin;
+    await pool.query(
+      `INSERT INTO uploaded_content
+         (id, name, description, uploaded_at, uploaded_by, visibility, allowed_users,
+          file_count, html_content, project_path, portal_route, status,
+          backend_port, backend_prefix, expires_at)
+       VALUES ($1,$2,$3,NOW(),$4,'specific',$4,$5,'',$6,NULL,'approved',$7,$8,
+               ${isPro ? 'NULL' : "NOW() + INTERVAL '24 hours'"})`,
+      [safeContentId, name.trim(), description?.trim() ?? '', user.login,
+       fileCount, projectPath, backendPort ?? null, backendPrefix ?? null],
+    );
+
+    if (backendPort) {
+      try { await regenerateNginxAppsConf(); } catch { /* non-critical */ }
+    }
+
+    const stRow = await pool.query<{ share_token: string }>(
+      `SELECT share_token FROM uploaded_content WHERE id = $1`, [safeContentId],
+    );
+    res.status(201).json({ id: safeContentId, shareToken: stRow.rows[0]?.share_token });
+  } catch (err) {
+    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* non-critical */ }
+    console.error('[content] POST /confirm-filter error:', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
