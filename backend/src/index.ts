@@ -92,15 +92,36 @@ app.use(cors({
 app.use(express.json({ limit: '100mb' }));
 
 // Populate req.authUser from session or API token Bearer header.
+// tier and isAdmin are always re-read from DB so admin/tier changes take effect immediately.
 app.use(async (req, _res, next) => {
   const githubUser = req.session?.githubUser;
   if (githubUser?.login) {
-    (req as unknown as AuthRequest).authUser = {
-      login: githubUser.login,
-      displayName: githubUser.name ?? githubUser.login,
-      isAdmin: githubUser.isAdmin === true,
-      tier: githubUser.tier ?? 'free',
-    };
+    try {
+      const dbRow = await pool.query<{ is_admin: boolean; tier: string }>(
+        `SELECT is_admin, tier FROM github_users WHERE login = $1`,
+        [githubUser.login],
+      );
+      const isAdmin = dbRow.rows[0]?.is_admin ?? false;
+      const tier = dbRow.rows[0]?.tier ?? 'free';
+      // Keep session in sync so client-facing /api/auth/me reflects current values
+      if (githubUser.isAdmin !== isAdmin || githubUser.tier !== tier) {
+        req.session.githubUser = { ...githubUser, isAdmin, tier };
+      }
+      (req as unknown as AuthRequest).authUser = {
+        login: githubUser.login,
+        displayName: githubUser.name ?? githubUser.login,
+        isAdmin,
+        tier,
+      };
+    } catch {
+      // DB unavailable — fall back to session values
+      (req as unknown as AuthRequest).authUser = {
+        login: githubUser.login,
+        displayName: githubUser.name ?? githubUser.login,
+        isAdmin: githubUser.isAdmin === true,
+        tier: githubUser.tier ?? 'free',
+      };
+    }
     return next();
   }
 
