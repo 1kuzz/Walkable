@@ -125,6 +125,26 @@ try{
     });
   }
 }catch(e){}
+// Also fix window.location.href so new URL(window.location.href).pathname returns
+// the clean path. React Router v6 uses this code path internally.
+try{
+  var d2=Object.getOwnPropertyDescriptor(Location.prototype,'href');
+  if(d2&&d2.get&&d2.configurable){
+    Object.defineProperty(Location.prototype,'href',{
+      get:function(){
+        var h=d2.get.call(this);
+        try{
+          var u=new URL(h),p=u.pathname;
+          if(p===B||p===B+'/')p='/';
+          else if(p.startsWith(B+'/'))p=p.slice(B.length);
+          else return h;
+          return u.origin+p+u.search+u.hash;
+        }catch(e2){return h;}
+      },
+      configurable:true
+    });
+  }
+}catch(e2){}
 // Fix <a href> attributes that React renders with clean paths (e.g. href="/book").
 // Without this ctrl-click / middle-click / copy-link opens the portal instead of
 // staying in the VIP session (/app/UUID/book).

@@ -46,7 +46,8 @@ async function getAppEntry(token: string): Promise<AppEntry | null> {
     `SELECT uc.name, uc.project_path, COALESCE(gu.tier, 'free') AS tier
      FROM uploaded_content uc
      LEFT JOIN github_users gu ON gu.login = uc.uploaded_by
-     WHERE uc.share_token = $1`,
+     WHERE uc.share_token = $1
+       AND (uc.expires_at IS NULL OR uc.expires_at > NOW())`,
     [token],
   );
 
@@ -77,7 +78,8 @@ router.get('/:token/meta', async (req: Request, res: Response): Promise<void> =>
   }
   try {
     const result = await pool.query<{ name: string; uploaded_by: string }>(
-      `SELECT name, uploaded_by FROM uploaded_content WHERE share_token = $1`,
+      `SELECT name, uploaded_by FROM uploaded_content
+       WHERE share_token = $1 AND (expires_at IS NULL OR expires_at > NOW())`,
       [token],
     );
     if (result.rows.length === 0) {
@@ -156,11 +158,22 @@ router.get('/:token', async (req: Request, res: Response): Promise<void> => {
               uc.portal_route, uc.uploaded_by, COALESCE(gu.tier, 'free') AS tier
        FROM uploaded_content uc
        LEFT JOIN github_users gu ON gu.login = uc.uploaded_by
-       WHERE uc.share_token = $1`,
+       WHERE uc.share_token = $1
+         AND (uc.expires_at IS NULL OR uc.expires_at > NOW())`,
       [token],
     );
 
     if (result.rows.length === 0) {
+      // Distinguish expired vs never-existed for a cleaner error message.
+      const expired = await pool.query<{ id: string }>(
+        `SELECT id FROM uploaded_content WHERE share_token = $1 AND expires_at <= NOW()`,
+        [token],
+      );
+      if (expired.rows.length > 0) {
+        sendHtmlError(res, 410, 'App Expired',
+          'This 24-hour link has expired. Ask the owner for a new share link.');
+        return;
+      }
       sendHtmlError(res, 404, 'Link Not Found', 'This VIP link does not exist or may have been removed.');
       return;
     }

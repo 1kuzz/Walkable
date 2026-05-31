@@ -7,27 +7,15 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export function VipPage() {
   const { token } = useParams<{ token: string }>();
   const [notFound, setNotFound] = useState(false);
-  const [status, setStatus] = useState('Launching…');
 
   const isValid = !!token && UUID_RE.test(token);
 
   useEffect(() => {
     if (!isValid) { setNotFound(true); return; }
-
-    // Create a 24h viewer session, then navigate into it.
-    // Each visitor gets a unique /api/vs/:sessionId URL.
-    fetch(`/api/share/${token}/session`, { method: 'POST' })
-      .then(async (r) => {
-        if (!r.ok) { setNotFound(true); return; }
-        const { sessionId } = await r.json() as { sessionId: string };
-        // Use the clean /app/:sessionId URL so the session link stays in the
-        // address bar throughout navigation (never collapses to '/').
-        window.location.replace(`/app/${sessionId}`);
-      })
-      .catch(() => {
-        setStatus('Redirecting…');
-        window.location.replace(`/api/share/${token}`);
-      });
+    // Redirect directly to the stable share URL — no per-visitor session needed.
+    // The share URL works for the content's lifetime (24 h for free tier), then
+    // the cleanup scheduler deletes it and the link returns 410.
+    window.location.replace(`/api/share/${token}`);
   }, [token, isValid]);
 
   if (!isValid || notFound) {
@@ -40,5 +28,5 @@ export function VipPage() {
     );
   }
 
-  return <div className={styles.loading}>{status}</div>;
+  return <div className={styles.loading}>Redirecting…</div>;
 }
