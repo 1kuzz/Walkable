@@ -24,6 +24,7 @@ import projectsRouter from './routes/projects';
 import githubAuthRouter from './routes/githubAuth';
 import githubProxyRouter from './routes/githubProxy';
 import shareRouter from './routes/shareRouter';
+import vipSessionRouter from './routes/vipSessionRouter';
 import apiTokensRouter from './routes/apiTokens';
 import uploadQueueRouter from './routes/uploadQueue';
 import { startCleanupScheduler } from './services/contentCleanup';
@@ -187,6 +188,7 @@ app.use('/api/projects', generalLimiter, projectsRouter);
 app.use('/api/auth', generalLimiter, githubAuthRouter);
 app.use('/api/github', generalLimiter, githubProxyRouter);
 app.use('/api/share', generalLimiter, shareRouter);
+app.use('/api/vs',    generalLimiter, vipSessionRouter);
 app.use('/api/tokens', generalLimiter, apiTokensRouter);
 app.use('/api/queue',  generalLimiter, uploadQueueRouter);
 

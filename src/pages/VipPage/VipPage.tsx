@@ -7,19 +7,26 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 export function VipPage() {
   const { token } = useParams<{ token: string }>();
   const [notFound, setNotFound] = useState(false);
+  const [status, setStatus] = useState('Launching…');
 
   const isValid = !!token && UUID_RE.test(token);
 
   useEffect(() => {
     if (!isValid) { setNotFound(true); return; }
-    // Validate the token exists, then navigate directly to the app (no iframe)
-    fetch(`/api/share/${token}/meta`)
-      .then((r) => {
+
+    // Create a 24h viewer session, then navigate into it.
+    // Each visitor gets a unique /api/vs/:sessionId URL.
+    fetch(`/api/share/${token}/session`, { method: 'POST' })
+      .then(async (r) => {
         if (!r.ok) { setNotFound(true); return; }
-        // Replace current history entry so Back still works
-        window.location.replace(`/api/share/${token}`);
+        const { sessionId } = await r.json() as { sessionId: string };
+        window.location.replace(`/api/vs/${sessionId}`);
       })
-      .catch(() => setNotFound(true));
+      .catch(() => {
+        // Fallback: direct share URL if session creation fails
+        setStatus('Redirecting…');
+        window.location.replace(`/api/share/${token}`);
+      });
   }, [token, isValid]);
 
   if (!isValid || notFound) {
@@ -32,5 +39,5 @@ export function VipPage() {
     );
   }
 
-  return <div className={styles.loading}>Launching…</div>;
+  return <div className={styles.loading}>{status}</div>;
 }

@@ -1,193 +1,72 @@
+/**
+ * /api/share/:token[/*]
+ *
+ * - GET  /:token/meta   → minimal metadata (public)
+ * - POST /:token/session → create a 24h viewer session, return { sessionId }
+ * - GET  /:token        → serve app HTML directly (legacy / direct-link fallback)
+ * - GET  /:token/*      → serve static assets + SPA fallback
+ */
 import { Router } from 'express';
 import * as path from 'path';
 import * as fs from 'fs';
 import type { Request, Response } from 'express';
 import { pool } from '../db/client';
+import {
+  UPLOADS_DIR,
+  UPLOADS_DIR_RESOLVED,
+  resolveProjectDir,
+  serveAppHtml,
+  sendHtmlError,
+} from '../services/vipServing';
 
 const router = Router();
 
-const UPLOADS_DIR = process.env.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads');
-const UPLOADS_DIR_RESOLVED = path.resolve(UPLOADS_DIR);
-
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// ── App directory cache (5 min TTL) ──────────────────────────────────────────
+// ── App dir cache (5 min TTL) ─────────────────────────────────────────────────
 
-interface AppDirEntry { projectDir: string; expires: number }
-const appDirCache = new Map<string, AppDirEntry>();
-
-/**
- * Resolve project_path → actual directory of the best index.html to serve.
- * If the stored path is a Vite source file (loads /src/main.tsx), auto-detect
- * the built dist/index.html in the same directory.
- */
-function resolveProjectDir(storedPath: string): string {
-  const pathParts = storedPath.split('/').slice(2); // strip '' and 'uploads'
-  let htmlPath = path.join(UPLOADS_DIR, ...pathParts);
-
-  if (fs.existsSync(htmlPath)) {
-    try {
-      const html = fs.readFileSync(htmlPath, 'utf8');
-      // Source HTML: Vite dev entry loads from /src/
-      if (/src=["']\/src\//i.test(html)) {
-        const dir = path.dirname(htmlPath);
-        for (const sub of ['dist', 'build', 'out', 'public']) {
-          const candidate = path.join(dir, sub, 'index.html');
-          if (fs.existsSync(candidate)) {
-            try {
-              const ch = fs.readFileSync(candidate, 'utf8');
-              // Confirm it's a built file (has hashed assets or modulepreload)
-              if (/src=["']\/assets\//i.test(ch) || /rel=["']modulepreload/i.test(ch)) {
-                htmlPath = candidate;
-                break;
-              }
-            } catch { /* skip */ }
-          }
-        }
-      }
-    } catch { /* skip */ }
-  }
-
-  return path.dirname(htmlPath);
+interface AppEntry {
+  projectDir: string;
+  appName: string;
+  showBar: boolean;
+  expires: number;
 }
+const appCache = new Map<string, AppEntry>();
 
-async function getAppDir(token: string): Promise<string | null> {
-  const cached = appDirCache.get(token);
-  if (cached && cached.expires > Date.now()) return cached.projectDir;
+async function getAppEntry(token: string): Promise<AppEntry | null> {
+  const cached = appCache.get(token);
+  if (cached && cached.expires > Date.now()) return cached;
 
-  const result = await pool.query<{ project_path: string | null }>(
-    `SELECT project_path FROM uploaded_content WHERE share_token = $1`, [token],
+  const result = await pool.query<{
+    name: string;
+    project_path: string | null;
+    tier: string;
+  }>(
+    `SELECT uc.name, uc.project_path, COALESCE(gu.tier, 'free') AS tier
+     FROM uploaded_content uc
+     LEFT JOIN github_users gu ON gu.login = uc.uploaded_by
+     WHERE uc.share_token = $1`,
+    [token],
   );
+
   if (result.rows.length === 0 || !result.rows[0].project_path) return null;
 
-  const projectDir = resolveProjectDir(result.rows[0].project_path);
-  appDirCache.set(token, { projectDir, expires: Date.now() + 5 * 60 * 1000 });
-  return projectDir;
+  const row = result.rows[0];
+  const entry: AppEntry = {
+    projectDir: resolveProjectDir(row.project_path as string),
+    appName: row.name,
+    showBar: row.tier !== 'pro',
+    expires: Date.now() + 5 * 60 * 1000,
+  };
+  appCache.set(token, entry);
+  return entry;
 }
 
-// ── HTML helpers ─────────────────────────────────────────────────────────────
-
-const VIP_BAR_STYLE = `
-<style id="__vpbar_s">
-#__vpbar{position:fixed;top:0;left:0;right:0;height:42px;background:#111827;display:flex;align-items:center;padding:0 16px;gap:12px;font:13px/1 system-ui,sans-serif;z-index:2147483647;box-shadow:0 1px 0 rgba(255,255,255,.07)}
-#__vpbar a{color:#9ca3af;text-decoration:none;font-weight:700;letter-spacing:-.3px;flex-shrink:0}
-#__vpbar a:hover{color:#fff}
-#__vpbar_n{flex:1;color:#d1d5db;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
-#__vpbar_c{border:1px solid #374151;background:none;color:#9ca3af;padding:3px 10px;border-radius:6px;cursor:pointer;font-size:12px;flex-shrink:0}
-#__vpbar_c:hover{background:#1f2937;color:#fff}
-</style>`;
-
-function injectVipBar(html: string, appName: string, shareUrl: string): string {
-  const safeName = appName
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-  const safeUrl = shareUrl.replace(/'/g, "\\'");
-
-  const bar = `${VIP_BAR_STYLE}
-<div id="__vpbar">
-  <a href="/">VibePort</a>
-  <span id="__vpbar_n">${safeName}</span>
-  <button id="__vpbar_c">🔗 Copy link</button>
-</div>
-<script>
-(function(){
-  document.getElementById('__vpbar_c').addEventListener('click',function(){
-    var u='${safeUrl}';
-    navigator.clipboard.writeText(u).then(function(){
-      var b=document.getElementById('__vpbar_c');
-      b.textContent='✓ Copied!';
-      setTimeout(function(){b.textContent='🔗 Copy link';},2000);
-    }).catch(function(){window.prompt('Copy this link:',u);});
-  });
-  var s=document.documentElement.style;
-  s.setProperty('padding-top','42px','important');
-})();
-</script>`;
-
-  const closeBody = html.toLowerCase().lastIndexOf('</body>');
-  if (closeBody !== -1) return html.slice(0, closeBody) + bar + html.slice(closeBody);
-  return html + bar;
-}
-
-/**
- * Rewrite absolute asset paths in HTML so they route through /api/share/:token/*.
- * This fixes Vite's default output which uses absolute /assets/... paths that
- * can't be resolved via <base> tag when served from a non-root URL.
- * Only rewrites src="/" (always assets) and href="/" for known asset extensions.
- * Navigation links (href="/about") are left untouched.
- */
-function rewriteAbsolutePaths(html: string, tokenBase: string): string {
-  const base = tokenBase.replace(/\/$/, ''); // e.g. '/api/share/UUID'
-
-  // src="/..." — always static assets (scripts, images, audio, video)
-  let result = html.replace(/\b(src)="(\/(?!\/)[^"]*)"/g, `$1="${base}$2"`);
-  result = result.replace(/\b(src)='(\/(?!\/)[^']*)'/g, `$1='${base}$2'`);
-
-  // href="/..." — only rewrite asset file extensions, leave navigation links alone
-  const ASSET_EXT = /\.(js|css|ico|png|svg|jpg|jpeg|gif|webp|avif|woff2?|ttf|eot|otf|json|map)(\?[^"']*)?$/i;
-  result = result.replace(/\b(href)="(\/(?!\/)[^"]*)"/g, (m, attr, p) =>
-    ASSET_EXT.test(p) ? `${attr}="${base}${p}"` : m);
-  result = result.replace(/\b(href)='(\/(?!\/)[^']*)'/g, (m, attr, p) =>
-    ASSET_EXT.test(p) ? `${attr}='${base}${p}'` : m);
-
-  // CSS url('/...') in inline styles / <style> blocks
-  result = result.replace(/\burl\(['"]?(\/(?!\/)[^'")]*)\)/g, `url(${base}$1)`);
-
-  return result;
-}
-
-function serveAppHtml(res: Response, rawHtml: string, appName: string, shareUrl: string, basePath: string | null): void {
-  let html = rawHtml.replace(/^[﻿\s]+/, '');
-  if (!html.toLowerCase().startsWith('<!doctype')) html = '<!DOCTYPE html>\n' + html;
-
-  if (basePath) {
-    // Fix absolute asset paths first (Vite default: /assets/...)
-    html = rewriteAbsolutePaths(html, basePath);
-    // <base> handles remaining relative paths (./assets/...) — only inject if absent
-    if (!/<base[\s>]/i.test(html)) {
-      const baseHref = basePath.endsWith('/') ? basePath : basePath + '/';
-      html = html.replace(/<head([^>]*)>/i, `<head$1>\n<base href="${baseHref}">`);
-    }
-  }
-
-  html = injectVipBar(html, appName, shareUrl);
-
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('X-Robots-Tag', 'noindex, nofollow');
-  res.setHeader('Cache-Control', 'no-store, no-cache');
-  res.status(200).send(html);
-}
-
-function sendHtmlError(res: Response, code: number, title: string, detail: string): void {
-  const icon = code === 404 ? '📭' : '⚠️';
-  res.status(code);
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-  res.setHeader('Cache-Control', 'no-store');
-  res.send(`<!DOCTYPE html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${title}</title>
-<style>
-  body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;
-       min-height:100vh;margin:0;background:#0a0a0a;color:#d1d5db}
-  .box{text-align:center;padding:40px 24px;max-width:400px}
-  .icon{font-size:48px;margin-bottom:16px}
-  h1{font-size:18px;font-weight:700;margin:0 0 8px;color:#f9fafb}
-  p{font-size:14px;margin:0;color:#9ca3af}
-</style></head>
-<body><div class="box">
-<div class="icon">${icon}</div>
-<h1>${title}</h1><p>${detail}</p>
-</div></body></html>`);
-}
-
-// ── Routes ───────────────────────────────────────────────────────────────────
+// ── Routes ────────────────────────────────────────────────────────────────────
 
 /**
  * GET /api/share/:token/meta
- * Minimal metadata for VIP page title — no auth required.
+ * Minimal metadata for the VipPage loading screen — no auth required.
  */
 router.get('/:token/meta', async (req: Request, res: Response): Promise<void> => {
   const { token } = req.params as { token: string };
@@ -204,8 +83,7 @@ router.get('/:token/meta', async (req: Request, res: Response): Promise<void> =>
       res.status(404).json({ error: 'Not found.' });
       return;
     }
-    const row = result.rows[0];
-    res.json({ name: row.name, uploadedBy: row.uploaded_by });
+    res.json({ name: result.rows[0].name, uploadedBy: result.rows[0].uploaded_by });
   } catch (err) {
     console.error('[share] GET /:token/meta error:', err);
     res.status(500).json({ error: 'Internal server error.' });
@@ -213,8 +91,48 @@ router.get('/:token/meta', async (req: Request, res: Response): Promise<void> =>
 });
 
 /**
+ * POST /api/share/:token/session
+ * Create a 24-hour viewer session for this VIP app.
+ * Returns { sessionId } which the frontend uses to redirect to /api/vs/:sessionId.
+ */
+router.post('/:token/session', async (req: Request, res: Response): Promise<void> => {
+  const { token } = req.params as { token: string };
+  if (!UUID_RE.test(token)) {
+    res.status(404).json({ error: 'Not found.' });
+    return;
+  }
+  try {
+    // Validate the token exists
+    const check = await pool.query<{ id: string }>(
+      `SELECT id FROM uploaded_content WHERE share_token = $1`,
+      [token],
+    );
+    if (check.rows.length === 0) {
+      res.status(404).json({ error: 'Not found.' });
+      return;
+    }
+
+    const contentId = check.rows[0].id;
+    const viewerIp = req.ip ?? req.socket.remoteAddress ?? null;
+
+    const session = await pool.query<{ id: string }>(
+      `INSERT INTO vip_viewer_sessions (content_id, viewer_ip)
+       VALUES ($1, $2)
+       RETURNING id::text`,
+      [contentId, viewerIp],
+    );
+
+    res.json({ sessionId: session.rows[0].id });
+  } catch (err) {
+    console.error('[share] POST /:token/session error:', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+/**
  * GET /api/share/:token
- * Serve project HTML directly with injected VIP bar and fixed asset paths.
+ * Serve the app HTML directly (legacy / direct-link fallback).
+ * Includes history patching + SPA routing fix.
  */
 router.get('/:token', async (req: Request, res: Response): Promise<void> => {
   const { token } = req.params as { token: string };
@@ -227,13 +145,17 @@ router.get('/:token', async (req: Request, res: Response): Promise<void> => {
     const result = await pool.query<{
       id: string;
       name: string;
-      html_content: string | null;
+      html_content: string;
       project_path: string | null;
       portal_route: string | null;
       uploaded_by: string;
+      tier: string;
     }>(
-      `SELECT id, name, html_content, project_path, portal_route, uploaded_by
-       FROM uploaded_content WHERE share_token = $1`,
+      `SELECT uc.id, uc.name, uc.html_content, uc.project_path,
+              uc.portal_route, uc.uploaded_by, COALESCE(gu.tier, 'free') AS tier
+       FROM uploaded_content uc
+       LEFT JOIN github_users gu ON gu.login = uc.uploaded_by
+       WHERE uc.share_token = $1`,
       [token],
     );
 
@@ -250,49 +172,32 @@ router.get('/:token', async (req: Request, res: Response): Promise<void> => {
     }
 
     const shareUrl = `${req.protocol}://${req.hostname}/vip/${token}`;
-    const tokenBase = `/api/share/${token}`;
+    const basePath = `/api/share/${token}`;
+    const showBar = row.tier !== 'pro';
 
     if (row.project_path) {
-      const pathParts = row.project_path.split('/').slice(2); // strip '' and 'uploads'
-      let absolutePath = path.join(UPLOADS_DIR, ...pathParts);
+      const projectDir = resolveProjectDir(row.project_path);
 
-      if (!fs.existsSync(absolutePath)) {
+      // Warm cache for the wildcard asset route
+      appCache.set(token, {
+        projectDir,
+        appName: row.name,
+        showBar,
+        expires: Date.now() + 5 * 60 * 1000,
+      });
+
+      const indexPath = path.join(projectDir, 'index.html');
+      if (!fs.existsSync(indexPath)) {
         sendHtmlError(res, 404, 'Project Files Missing',
           'The project files were not found on disk. Try re-uploading the project.');
         return;
       }
 
       let rawHtml: string;
-      try {
-        rawHtml = fs.readFileSync(absolutePath, 'utf8');
-      } catch {
-        sendHtmlError(res, 500, 'Server Error', 'Could not read project files.');
-        return;
-      }
+      try { rawHtml = fs.readFileSync(indexPath, 'utf8'); }
+      catch { sendHtmlError(res, 500, 'Server Error', 'Could not read project files.'); return; }
 
-      // Auto-detect built output when stored path is a Vite source file
-      if (/src=["']\/src\//i.test(rawHtml)) {
-        const dir = path.dirname(absolutePath);
-        for (const sub of ['dist', 'build', 'out', 'public']) {
-          const candidate = path.join(dir, sub, 'index.html');
-          if (fs.existsSync(candidate)) {
-            try {
-              const ch = fs.readFileSync(candidate, 'utf8');
-              if (/src=["']\/assets\//i.test(ch) || /rel=["']modulepreload/i.test(ch)) {
-                absolutePath = candidate;
-                rawHtml = ch;
-                break;
-              }
-            } catch { /* skip */ }
-          }
-        }
-      }
-
-      // Warm the cache with the resolved directory so asset requests are fast
-      const projectDir = path.dirname(absolutePath);
-      appDirCache.set(token, { projectDir, expires: Date.now() + 5 * 60 * 1000 });
-
-      serveAppHtml(res, rawHtml, row.name, shareUrl, tokenBase);
+      serveAppHtml(res, rawHtml, { appName: row.name, shareUrl, basePath, showBar });
       return;
     }
 
@@ -302,8 +207,8 @@ router.get('/:token', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // html_content apps have no associated file assets — no path rewriting needed
-    serveAppHtml(res, rawHtml, row.name, shareUrl, null);
+    // html_content apps have no file assets — no basePath rewriting
+    serveAppHtml(res, rawHtml, { appName: row.name, shareUrl, basePath: '', showBar });
   } catch (err) {
     console.error('[share] GET /:token error:', err);
     sendHtmlError(res, 500, 'Server Error', 'Something went wrong. Please try again later.');
@@ -312,46 +217,52 @@ router.get('/:token', async (req: Request, res: Response): Promise<void> => {
 
 /**
  * GET /api/share/:token/*
- * Serve static assets (JS, CSS, images, fonts) for a VIP app.
- * After rewriteAbsolutePaths(), the app's HTML references /api/share/:token/assets/...
- * instead of /assets/..., so all assets are routed here with correct MIME types.
+ * Serve static assets (JS, CSS, images) from the app's project directory.
+ * Falls back to index.html for extension-less paths (SPA client-side routing).
  */
 router.get('/:token/*', async (req: Request, res: Response): Promise<void> => {
   const { token } = req.params as { token: string };
-  if (!UUID_RE.test(token)) {
-    res.status(404).end();
-    return;
-  }
+  if (!UUID_RE.test(token)) { res.status(404).end(); return; }
 
   const assetPath = (req.params as Record<string, string>)['0'];
-  if (!assetPath) {
-    res.status(404).end();
-    return;
-  }
+  if (!assetPath) { res.status(404).end(); return; }
 
   try {
-    const projectDir = await getAppDir(token);
-    if (!projectDir) {
-      res.status(404).end();
-      return;
-    }
+    const entry = await getAppEntry(token);
+    if (!entry) { res.status(404).end(); return; }
 
-    const filePath = path.resolve(projectDir, assetPath);
+    const filePath = path.resolve(entry.projectDir, assetPath);
 
-    // Security: must stay within uploads directory
+    // Security: must stay within uploads
     if (!filePath.startsWith(UPLOADS_DIR_RESOLVED + '/') &&
         filePath !== UPLOADS_DIR_RESOLVED) {
       res.status(403).end();
       return;
     }
 
-    if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
-      res.status(404).end();
+    if (fs.existsSync(filePath) && !fs.statSync(filePath).isDirectory()) {
+      res.sendFile(filePath);
       return;
     }
 
-    // sendFile sets Content-Type automatically from extension (mime-types)
-    res.sendFile(filePath);
+    // SPA fallback: extension-less path → serve index.html for client-side routing
+    const hasExt = /\.[^/]+$/.test(assetPath);
+    if (hasExt) { res.status(404).end(); return; }
+
+    const indexPath = path.join(entry.projectDir, 'index.html');
+    if (!fs.existsSync(indexPath)) { res.status(404).end(); return; }
+
+    let rawHtml: string;
+    try { rawHtml = fs.readFileSync(indexPath, 'utf8'); }
+    catch { res.status(500).end(); return; }
+
+    const shareUrl = `${req.protocol}://${req.hostname}/vip/${token}`;
+    serveAppHtml(res, rawHtml, {
+      appName: entry.appName,
+      shareUrl,
+      basePath: `/api/share/${token}`,
+      showBar: entry.showBar,
+    });
   } catch (err) {
     console.error('[share] GET /:token/* error:', err);
     res.status(500).end();
