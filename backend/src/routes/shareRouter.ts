@@ -17,6 +17,7 @@ import {
   resolveProjectDir,
   serveAppHtml,
   sendHtmlError,
+  rewriteAssetBundle,
 } from '../services/vipServing';
 
 const router = Router();
@@ -241,6 +242,19 @@ router.get('/:token/*', async (req: Request, res: Response): Promise<void> => {
     }
 
     if (fs.existsSync(filePath) && !fs.statSync(filePath).isDirectory()) {
+      const ext = path.extname(filePath).toLowerCase();
+
+      if (ext === '.js' || ext === '.mjs' || ext === '.css') {
+        const raw = fs.readFileSync(filePath, 'utf8');
+        const rewritten = rewriteAssetBundle(raw, `/api/share/${token}`, ext as '.js' | '.css');
+        const mime = ext === '.css' ? 'text/css' : 'application/javascript';
+        res
+          .setHeader('Content-Type', `${mime}; charset=UTF-8`)
+          .setHeader('Cache-Control', 'public, max-age=86400')
+          .send(rewritten);
+        return;
+      }
+
       res.sendFile(filePath);
       return;
     }

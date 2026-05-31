@@ -65,16 +65,31 @@ export async function deleteExpiredContent(): Promise<void> {
   }
 }
 
+async function deleteExpiredSessions(): Promise<void> {
+  const result = await pool.query(
+    `DELETE FROM vip_viewer_sessions WHERE expires_at < NOW() RETURNING id`,
+  );
+  if (result.rowCount && result.rowCount > 0) {
+    logger.info(`[cleanup] deleted ${result.rowCount} expired viewer session(s)`);
+  }
+}
+
 export function startCleanupScheduler(): void {
   // Run at startup
   deleteExpiredContent().catch(err =>
     logger.error('[cleanup] startup check failed', { error: String(err) }),
+  );
+  deleteExpiredSessions().catch(err =>
+    logger.error('[cleanup] session startup check failed', { error: String(err) }),
   );
 
   // Hourly cleanup + queue processing
   setInterval(() => {
     deleteExpiredContent().catch(err =>
       logger.error('[cleanup] scheduled check failed', { error: String(err) }),
+    );
+    deleteExpiredSessions().catch(err =>
+      logger.error('[cleanup] session cleanup failed', { error: String(err) }),
     );
   }, 60 * 60 * 1000);
 

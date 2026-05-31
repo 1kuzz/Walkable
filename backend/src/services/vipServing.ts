@@ -201,6 +201,50 @@ export function serveAppHtml(
   res.status(200).send(html);
 }
 
+// ── Asset bundle rewriting ────────────────────────────────────────────────────
+
+function escRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Rewrite absolute static-asset paths inside a JS or CSS bundle so they route
+ * through the session's serving endpoint instead of the portal root.
+ *
+ * Vite bundles embed image/font paths as absolute strings: "/assets/logo.png".
+ * The browser resolves these against the origin root (portal), not the session
+ * path, so they 404. Rewriting them to "/api/vs/UUID/assets/logo.png" fixes it.
+ *
+ * Handles Vite (/assets/), CRA (/static/), and Next.js (/_next/) output dirs.
+ */
+export function rewriteAssetBundle(
+  content: string,
+  basePath: string,
+  ext: '.js' | '.mjs' | '.css',
+): string {
+  const base = basePath.replace(/\/$/, '');
+  const prefixes = ['/assets/', '/static/', '/_next/'];
+
+  let result = content;
+  for (const prefix of prefixes) {
+    const escaped = escRe(prefix);
+    if (ext === '.css') {
+      // url(/assets/...) | url('/assets/...') | url("/assets/...")
+      result = result.replace(
+        new RegExp(`url\\((['"]?)(${escaped})`, 'g'),
+        (_, q) => `url(${q}${base}${prefix}`,
+      );
+    } else {
+      // "/assets/..." and '/assets/...' string literals in JS
+      result = result.replace(
+        new RegExp(`(['"])(${escaped})`, 'g'),
+        (_, q) => `${q}${base}${prefix}`,
+      );
+    }
+  }
+  return result;
+}
+
 export function sendHtmlError(res: Response, code: number, title: string, detail: string): void {
   const icon = code === 404 ? '📭' : '⚠️';
   res.status(code)

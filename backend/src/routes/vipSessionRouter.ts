@@ -18,6 +18,7 @@ import {
   resolveProjectDir,
   serveAppHtml,
   sendHtmlError,
+  rewriteAssetBundle,
 } from '../services/vipServing';
 
 const router = Router();
@@ -148,6 +149,21 @@ router.get('/:sessionId/*', async (req: Request, res: Response): Promise<void> =
   }
 
   if (fs.existsSync(filePath) && !fs.statSync(filePath).isDirectory()) {
+    const ext = path.extname(filePath).toLowerCase();
+
+    if (ext === '.js' || ext === '.mjs' || ext === '.css') {
+      // Rewrite absolute /assets/ (and /static/, /_next/) paths so images and
+      // fonts referenced inside the bundle resolve to the session URL, not root.
+      const raw = fs.readFileSync(filePath, 'utf8');
+      const rewritten = rewriteAssetBundle(raw, `/api/vs/${sessionId}`, ext as '.js' | '.css');
+      const mime = ext === '.css' ? 'text/css' : 'application/javascript';
+      res
+        .setHeader('Content-Type', `${mime}; charset=UTF-8`)
+        .setHeader('Cache-Control', 'public, max-age=86400')
+        .send(rewritten);
+      return;
+    }
+
     res.sendFile(filePath);
     return;
   }
