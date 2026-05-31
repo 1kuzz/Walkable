@@ -1,41 +1,35 @@
 /**
  * Request timeout middleware.
- *
- * Aborts long-running requests after the configured timeout and returns
- * 503 Service Unavailable so clients receive a deterministic error rather
- * than waiting indefinitely.  Health-check endpoints are excluded so that
- * monitoring probes are never affected.
- *
- * Configure with the REQUEST_TIMEOUT_MS environment variable (default: 30 000 ms).
+ * Default: 30s. Upload/build endpoints get 5 minutes (GitHub import can be slow).
  */
 
 import type { Request, Response, NextFunction } from 'express';
 import { logger } from '../utils/logger';
 
-const TIMEOUT_MS = parseInt(process.env.REQUEST_TIMEOUT_MS ?? '30000', 10);
+const DEFAULT_TIMEOUT_MS = parseInt(process.env.REQUEST_TIMEOUT_MS ?? '30000', 10);
+const UPLOAD_TIMEOUT_MS  = 5 * 60 * 1000; // 5 min for uploads + builds
 
-/** Paths that are explicitly excluded from the timeout (health probes, etc.). */
 const EXCLUDED_PATHS = new Set(['/health', '/api/health', '/api/health/live', '/api/health/ready']);
 
-export function requestTimeout(req: Request, res: Response, next: NextFunction): void {
-  if (EXCLUDED_PATHS.has(req.path)) {
-    next();
-    return;
-  }
+/** Paths that need a longer timeout (file upload + GitHub download + npm build). */
+const UPLOAD_PATHS = ['/api/content', '/api/queue'];
 
+function getTimeout(path: string): number {
+  if (UPLOAD_PATHS.some(p => path.startsWith(p))) return UPLOAD_TIMEOUT_MS;
+  return DEFAULT_TIMEOUT_MS;
+}
+
+export function requestTimeout(req: Request, res: Response, next: NextFunction): void {
+  if (EXCLUDED_PATHS.has(req.path)) { next(); return; }
+
+  const timeout = getTimeout(req.path);
   const timer = setTimeout(() => {
     if (res.headersSent) return;
-    logger.warn('[timeout] Request timed out', {
-      method: req.method,
-      path: req.path,
-      timeoutMs: TIMEOUT_MS,
-    });
-    res.status(503).json({ error: 'Request timed out. Please try again.' });
-  }, TIMEOUT_MS);
+    logger.warn('[timeout] Request timed out', { method: req.method, path: req.path, timeoutMs: timeout });
+    res.status(503).json({ error: 'Request timed out. For large repos or builds this can take up to 5 minutes — please retry.' });
+  }, timeout);
 
-  // Clean up timer when the response finishes (success or error).
   res.on('finish', () => clearTimeout(timer));
-  res.on('close', () => clearTimeout(timer));
-
+  res.on('close',  () => clearTimeout(timer));
   next();
 }

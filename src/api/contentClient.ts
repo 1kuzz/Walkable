@@ -66,6 +66,56 @@ export function restartBackend(id: string): Promise<{ ok: boolean }> {
   return apiFetch<{ ok: boolean }>(`/api/content/${encodeURIComponent(id)}/restart`, { method: 'POST' });
 }
 
+// ── Queue API ─────────────────────────────────────────────────────────────────
+
+export interface StorageInfo {
+  status: 'ok' | 'low' | 'critical';
+  freeMB: number;
+  totalMB: number;
+  percentUsed: number;
+}
+
+export interface QueueItem {
+  id: string;
+  name: string;
+  git_url: string;
+  build: boolean;
+  queued_at: string;
+  status: 'waiting' | 'processing' | 'done' | 'failed' | 'cancelled';
+  result_id?: string | null;
+  error?: string | null;
+  position?: number;
+}
+
+export interface QueueState {
+  items: QueueItem[];
+  storageInfo: StorageInfo;
+  totalWaiting: number;
+}
+
+export async function getStorageInfo(): Promise<StorageInfo> {
+  const res = await fetch('/api/queue/storage');
+  if (!res.ok) return { status: 'ok', freeMB: 9999, totalMB: 9999, percentUsed: 0 };
+  return res.json() as Promise<StorageInfo>;
+}
+
+export async function getQueue(): Promise<QueueState> {
+  return apiFetch<QueueState>('/api/queue');
+}
+
+export async function enqueueGitHub(
+  gitUrl: string, name: string, description?: string, build?: boolean,
+): Promise<{ id: string; position: number; message: string }> {
+  return apiFetch('/api/queue', {
+    method: 'POST',
+    body: JSON.stringify({ gitUrl, name, description, build }),
+  });
+}
+
+export async function cancelQueueItem(id: string): Promise<void> {
+  await apiFetch(`/api/queue/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
 export function updateContent(
   id: string,
   fields: { name?: string; description?: string },

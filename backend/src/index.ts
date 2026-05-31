@@ -25,6 +25,7 @@ import githubAuthRouter from './routes/githubAuth';
 import githubProxyRouter from './routes/githubProxy';
 import shareRouter from './routes/shareRouter';
 import apiTokensRouter from './routes/apiTokens';
+import uploadQueueRouter from './routes/uploadQueue';
 import { startCleanupScheduler } from './services/contentCleanup';
 import { createHash } from 'crypto';
 
@@ -166,6 +167,7 @@ app.use('/api/auth', generalLimiter, githubAuthRouter);
 app.use('/api/github', generalLimiter, githubProxyRouter);
 app.use('/api/share', generalLimiter, shareRouter);
 app.use('/api/tokens', generalLimiter, apiTokensRouter);
+app.use('/api/queue',  generalLimiter, uploadQueueRouter);
 
 // ── Health checks ─────────────────────────────────────────────────────────────
 

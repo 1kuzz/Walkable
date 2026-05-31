@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useGitHubAuth } from '../../contexts/useGitHubAuth';
-import { listContent, deleteContent, updateContent, stopBackend, restartBackend } from '../../api/contentClient';
-import type { GitHubRepo } from '../../api/contentClient';
+import { listContent, deleteContent, updateContent, stopBackend, restartBackend, getStorageInfo, getQueue, enqueueGitHub, cancelQueueItem } from '../../api/contentClient';
+import type { GitHubRepo, StorageInfo, QueueItem } from '../../api/contentClient';
 import type { UploadedContent } from '../../services/uploadedContent';
 import styles from './DeployPage.module.css';
 
-type DeployStatus = 'idle' | 'uploading' | 'building' | 'live' | 'failed';
+type DeployStatus = 'idle' | 'uploading' | 'building' | 'live' | 'failed' | 'queued';
 
 interface DeployState {
   status: DeployStatus;
@@ -16,6 +16,8 @@ interface DeployState {
   error?: string;
   buildLog?: string;
   envVarsRequired?: string[];
+  queuePosition?: number;
+  queueMessage?: string;
 }
 
 function formatExpiry(expiresAt: string | null | undefined): string {
@@ -283,6 +285,8 @@ export function DeployPage() {
 
   const [items, setItems] = useState<UploadedContent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [storage, setStorage] = useState<StorageInfo | null>(null);
+  const [queueItems, setQueueItems] = useState<QueueItem[]>([]);
 
   const [tab, setTab] = useState<'zip' | 'github'>('zip');
   const [name, setName] = useState('');
@@ -305,12 +309,18 @@ export function DeployPage() {
 
   const fetchItems = useCallback(async () => {
     try {
-      const all = await listContent();
+      const [all, storageData, queueData] = await Promise.all([
+        listContent(),
+        getStorageInfo(),
+        user ? getQueue().catch(() => null) : Promise.resolve(null),
+      ]);
       setItems(all.filter(i => i.uploadedBy === user?.login).sort(
         (a, b) => new Date(b.uploadedAt ?? 0).getTime() - new Date(a.uploadedAt ?? 0).getTime()
       ));
+      setStorage(storageData);
+      if (queueData) setQueueItems(queueData.items.filter(q => q.status === 'waiting' || q.status === 'processing'));
     } finally { setLoading(false); }
-  }, [user?.login]);
+  }, [user, user?.login]);
 
   useEffect(() => { void fetchItems(); }, [fetchItems]);
 
@@ -352,6 +362,29 @@ export function DeployPage() {
     if (!name.trim()) return;
     if (tab === 'zip' && !file) return;
     if (tab === 'github' && !gitUrl.trim()) return;
+
+    // Storage is low — free users must queue (GitHub only); ZIP not accepted
+    if (storage?.status === 'low' && !isPro) {
+      if (tab === 'zip') {
+        setDeploy({ status: 'failed', progress: 0, error: 'Storage is at capacity. ZIP uploads require Pro when storage is low. Use GitHub import to join the queue, or upgrade to Pro.' });
+        return;
+      }
+      // GitHub → enqueue
+      setDeploy({ status: 'uploading', progress: 10 });
+      try {
+        const q = await enqueueGitHub(gitUrl, name.trim(), '', build);
+        setDeploy({ status: 'queued', progress: 100, queuePosition: q.position, queueMessage: q.message });
+        void fetchItems();
+      } catch (err) {
+        setDeploy({ status: 'failed', progress: 0, error: err instanceof Error ? err.message : 'Queue failed' });
+      }
+      return;
+    }
+
+    if (storage?.status === 'critical') {
+      setDeploy({ status: 'failed', progress: 0, error: 'Server storage is critically full. Deployments are suspended. Please try again later.' });
+      return;
+    }
 
     setDeploy({ status: 'uploading', progress: 0 });
 
@@ -453,6 +486,21 @@ export function DeployPage() {
         </div>
         {isPro && <span className={styles.proBadge}>PRO</span>}
       </div>
+
+      {/* ── Storage warning banner ── */}
+      {storage && storage.status !== 'ok' && (
+        <div className={`${styles.storageBanner} ${storage.status === 'critical' ? styles.storageCritical : styles.storageLow}`}>
+          <span className={styles.storageBannerIcon}>{storage.status === 'critical' ? '🚫' : '⚠️'}</span>
+          <div>
+            <strong>{storage.status === 'critical' ? 'Storage critically full' : 'Storage at capacity'}</strong>
+            {' — '}{storage.freeMB} MB free ({storage.percentUsed}% used).
+            {storage.status === 'low' && !isPro && (
+              <> Free-tier deployments are queued. <a href="/settings#pro" className={styles.storageBannerLink}>Upgrade to Pro</a> for instant deployment.</>
+            )}
+            {storage.status === 'critical' && ' All deployments are suspended until space frees up.'}
+          </div>
+        </div>
+      )}
 
       {/* ── Deploy Panel ── */}
       <div className={styles.deployPanel}>
@@ -590,6 +638,18 @@ export function DeployPage() {
               </div>
             )}
           </div>
+        ) : deploy.status === 'queued' ? (
+          <div className={styles.queuedPanel}>
+            <div className={styles.queuedIcon}>⏳</div>
+            <h2 className={styles.queuedTitle}>You're #{deploy.queuePosition} in queue</h2>
+            <p className={styles.queuedMsg}>
+              Storage is currently at capacity for free accounts. Your deployment will run automatically when space frees up — usually within 24 hours as older deployments expire.
+            </p>
+            <a href="/settings#pro" className={styles.queuedUpgradeBtn}>
+              Upgrade to Pro for instant deployment →
+            </a>
+            <button className={styles.newDeployBtn} style={{ marginTop: 12 }} onClick={resetDeploy}>Queue another</button>
+          </div>
         ) : (
           <div className={styles.livePanel}>
             <div className={styles.liveIcon}>🚀</div>
@@ -630,13 +690,47 @@ export function DeployPage() {
             ))}
           </div>
         )}
-        {!isPro && items.length > 0 && (
+        {!isPro && (items.length > 0 || queueItems.length > 0) && (
           <p className={styles.tierNote}>
             Free tier: 1 deploy/day · 24-hour links.{' '}
             <a href="/settings#pro" className={styles.upgradeLink}>Upgrade to Pro</a> for permanent links &amp; unlimited deploys.
           </p>
         )}
       </div>
+
+      {/* ── Queue section ── */}
+      {queueItems.length > 0 && (
+        <div className={styles.deploymentsSection}>
+          <h2 className={styles.deploymentsTitle}>
+            ⏳ Queued deployments
+            <span className={styles.queueHint}> — will deploy automatically when storage frees up</span>
+          </h2>
+          <div className={styles.queueList}>
+            {queueItems.map((q, i) => (
+              <div key={q.id} className={styles.queueItem}>
+                <div className={styles.queueItemLeft}>
+                  <span className={styles.queuePos}>#{i + 1}</span>
+                  <div>
+                    <div className={styles.queueItemName}>{q.name}</div>
+                    <div className={styles.queueItemUrl}>{q.git_url.replace('https://github.com/', '')}</div>
+                  </div>
+                </div>
+                <div className={styles.queueItemRight}>
+                  {q.status === 'processing' && <span className={styles.queueProcessing}>⟳ Processing…</span>}
+                  {q.status === 'waiting' && <span className={styles.queueWaiting}>Waiting</span>}
+                  <button
+                    className={styles.queueCancelBtn}
+                    onClick={() => { void cancelQueueItem(q.id).then(() => fetchItems()); }}
+                  >Cancel</button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className={styles.queueUpgradeCta}>
+            <a href="/settings#pro" className={styles.upgradeLink}>Upgrade to Pro</a> to skip the queue and deploy instantly — always.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

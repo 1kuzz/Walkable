@@ -20,6 +20,7 @@ import type { Request, Response } from 'express';
 import { requireAuth } from '../middleware/requireAuth';
 import { requireAdmin } from '../middleware/requireAdmin';
 import { checkUploadLimit } from '../middleware/tierLimits';
+import { storageCheck } from '../services/storageGuard';
 import { logger } from '../utils/logger';
 
 const router = Router();
@@ -477,6 +478,7 @@ router.post(
   '/',
   requireAuth,
   checkUploadLimit,
+  storageCheck('reject'),
   (req, res, next) => {
     zipUpload.single('archive')(req, res, (zipErr) => {
       if (zipErr) {
@@ -729,7 +731,7 @@ router.post(
  * Fetches the repo as a zipball (supports private repos via user session token).
  * Must be registered before /:id routes.
  */
-router.post('/github', requireAuth, checkUploadLimit, async (req: Request, res: Response): Promise<void> => {
+router.post('/github', requireAuth, checkUploadLimit, storageCheck('reject'), async (req: Request, res: Response): Promise<void> => {
   try {
     const user = getUser(req);
     const { gitUrl, name, description, build } = req.body as {

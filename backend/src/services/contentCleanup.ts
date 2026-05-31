@@ -3,8 +3,9 @@ import * as path from 'path';
 import { pool } from '../db/client';
 import { logger } from '../utils/logger';
 import { pm2Delete, regenerateNginxAppsConf } from './appBackendManager';
+import { processQueue, pruneQueue } from './queueProcessor';
 
-const UPLOADS_DIR = process.env.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads');
+const UPLOADS_DIR    = process.env.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads');
 const THUMBNAILS_DIR = path.join(UPLOADS_DIR, 'thumbnails');
 
 export async function deleteExpiredContent(): Promise<void> {
@@ -55,16 +56,32 @@ export async function deleteExpiredContent(): Promise<void> {
       logger.error('[cleanup] nginx regen failed after expiry', { error: String(err) });
     }
   }
+
+  // After freeing space, try to process the queue
+  if (result.rows.length > 0) {
+    try { await processQueue(3); } catch (err) {
+      logger.error('[cleanup] queue processing failed (non-fatal)', { error: String(err) });
+    }
+  }
 }
 
 export function startCleanupScheduler(): void {
+  // Run at startup
   deleteExpiredContent().catch(err =>
     logger.error('[cleanup] startup check failed', { error: String(err) }),
   );
 
+  // Hourly cleanup + queue processing
   setInterval(() => {
     deleteExpiredContent().catch(err =>
       logger.error('[cleanup] scheduled check failed', { error: String(err) }),
     );
   }, 60 * 60 * 1000);
+
+  // Daily queue prune (remove old done/failed items)
+  setInterval(() => {
+    pruneQueue().catch(err =>
+      logger.error('[cleanup] queue prune failed', { error: String(err) }),
+    );
+  }, 24 * 60 * 60 * 1000);
 }
