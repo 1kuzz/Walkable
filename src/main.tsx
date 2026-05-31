@@ -10,8 +10,10 @@ const __vpSession = sessionStorage.getItem('__vp');
 if (__vpSession) {
   const navEntry = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
   if (navEntry?.type === 'reload' || navEntry?.type === 'back_forward') {
+    const __vpPath = sessionStorage.getItem('__vp_path') || '/';
     sessionStorage.removeItem('__vp');
-    window.location.replace(__vpSession + '/');
+    sessionStorage.removeItem('__vp_path');
+    window.location.replace(__vpSession + __vpPath);
   }
 }
 

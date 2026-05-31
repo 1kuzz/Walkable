@@ -102,19 +102,25 @@ export function injectHistoryPatch(html: string, basePath: string): string {
 var B=${safeBase};
 var oP=history.pushState.bind(history);
 var oR=history.replaceState.bind(history);
-// Add the session base prefix to any app-internal absolute path.
-// Keeps the session URL (e.g. /app/UUID/book) in the address bar throughout
-// the session — the link is never lost by stripping it down to '/'.
-function fix(u){
-  if(typeof u!=='string'||!u||u.startsWith('http')||u.startsWith('//'))return u;
-  if(u===B||u===B+'/'||u.startsWith(B+'/'))return u;
-  return u.startsWith('/')?B+u:u;
+// Track every SPA navigation in sessionStorage so reloads can restore the
+// correct sub-path. We no longer prefix pushState URLs with the session base:
+// React Router reads window.location.pathname after every push, and since
+// Location.prototype.pathname is non-configurable in Chrome we cannot override
+// it. Prefixing would cause React Router to see /api/vs/UUID/book instead of
+// /book, breaking all route matching. Clean paths (/book, /contacts) let React
+// Router work natively; the href MutationObserver below keeps ctrl+click and
+// copy-link working by pointing those directly at the full session URL.
+function _track(u){
+  try{if(typeof u==='string'&&u&&u.startsWith('/')&&!u.startsWith('//'))sessionStorage.setItem('__vp_path',u);}catch(e){}
 }
-history.pushState=function(s,t,u){oP(s,t,fix(u));};
-history.replaceState=function(s,t,u){oR(s,t,fix(u));};
-// Override window.location.pathname so React Router sees clean paths
-// ('/book' not '/app/UUID/book') while the address bar keeps the full URL.
+history.pushState=function(s,t,u){oP(s,t,u);_track(u);};
+history.replaceState=function(s,t,u){oR(s,t,u);_track(u);};
+// Initial page load: the raw pathname is the session basePath (e.g.
+// /api/vs/UUID/book). Strip the basePath so React Router initialises at the
+// clean sub-path (/book) and matches the app's route correctly.
 var _rawP=location.pathname;
+// Try to patch Location.prototype.pathname first (works in some non-Chrome
+// environments; silently skipped when non-configurable).
 try{
   var d=Object.getOwnPropertyDescriptor(Location.prototype,'pathname');
   if(d&&d.get&&d.configurable){
@@ -128,34 +134,14 @@ try{
     });
   }
 }catch(e){}
-// Fallback: if Location.prototype.pathname couldn't be patched (e.g. Telegram
-// WebView), the raw pathname is still the basePath. Detect that and use a real
-// replaceState to put the browser at '/' so React Router starts clean.
-// Our pushState/replaceState patch will still prefix any future navigation.
+// If the getter patch didn't fire (location.pathname is still the raw session
+// path), do a real replaceState to the clean sub-path so React Router starts
+// at the right route on first render.
 if(location.pathname===_rawP&&(_rawP===B||_rawP===B+'/'||_rawP.startsWith(B+'/'))){
-  oR(history.state||null,'','/');
-  try{sessionStorage.setItem('__vp',B);}catch(e){}
+  var _cp=(_rawP===B||_rawP===B+'/')?'/':_rawP.slice(B.length);
+  oR(history.state||null,'',_cp);
+  try{sessionStorage.setItem('__vp',B);sessionStorage.setItem('__vp_path',_cp);}catch(e){}
 }
-// Also fix window.location.href so new URL(window.location.href).pathname returns
-// the clean path. React Router v6 uses this code path internally.
-try{
-  var d2=Object.getOwnPropertyDescriptor(Location.prototype,'href');
-  if(d2&&d2.get&&d2.configurable){
-    Object.defineProperty(Location.prototype,'href',{
-      get:function(){
-        var h=d2.get.call(this);
-        try{
-          var u=new URL(h),p=u.pathname;
-          if(p===B||p===B+'/')p='/';
-          else if(p.startsWith(B+'/'))p=p.slice(B.length);
-          else return h;
-          return u.origin+p+u.search+u.hash;
-        }catch(e2){return h;}
-      },
-      configurable:true
-    });
-  }
-}catch(e2){}
 // Fix <a href> attributes that React renders with clean paths (e.g. href="/book").
 // Without this ctrl-click / middle-click / copy-link opens the portal instead of
 // staying in the VIP session (/app/UUID/book).
