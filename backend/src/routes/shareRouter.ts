@@ -10,6 +10,66 @@ const UPLOADS_DIR = process.env.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+const VIP_BAR_STYLE = `
+<style id="__vpbar_s">
+#__vpbar{position:fixed;top:0;left:0;right:0;height:42px;background:#111827;display:flex;align-items:center;padding:0 16px;gap:12px;font:13px/1 system-ui,sans-serif;z-index:2147483647;box-shadow:0 1px 0 rgba(255,255,255,.07)}
+#__vpbar a{color:#9ca3af;text-decoration:none;font-weight:700;letter-spacing:-.3px;flex-shrink:0}
+#__vpbar a:hover{color:#fff}
+#__vpbar_n{flex:1;color:#d1d5db;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+#__vpbar_c{border:1px solid #374151;background:none;color:#9ca3af;padding:3px 10px;border-radius:6px;cursor:pointer;font-size:12px;flex-shrink:0}
+#__vpbar_c:hover{background:#1f2937;color:#fff}
+</style>`;
+
+function injectVipBar(html: string, appName: string, shareUrl: string): string {
+  const safeName = appName
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  const safeUrl = shareUrl.replace(/'/g, "\\'");
+
+  const bar = `${VIP_BAR_STYLE}
+<div id="__vpbar">
+  <a href="/">VibePort</a>
+  <span id="__vpbar_n">${safeName}</span>
+  <button id="__vpbar_c">🔗 Copy link</button>
+</div>
+<script>
+(function(){
+  document.getElementById('__vpbar_c').addEventListener('click',function(){
+    var u='${safeUrl}';
+    navigator.clipboard.writeText(u).then(function(){
+      var b=document.getElementById('__vpbar_c');
+      b.textContent='✓ Copied!';
+      setTimeout(function(){b.textContent='🔗 Copy link';},2000);
+    }).catch(function(){window.prompt('Copy this link:',u);});
+  });
+  var s=document.documentElement.style;
+  s.setProperty('padding-top','42px','important');
+})();
+</script>`;
+
+  const closeBody = html.toLowerCase().lastIndexOf('</body>');
+  if (closeBody !== -1) return html.slice(0, closeBody) + bar + html.slice(closeBody);
+  return html + bar;
+}
+
+function serveAppHtml(res: Response, rawHtml: string, appName: string, shareUrl: string, basePath: string | null): void {
+  let html = rawHtml.replace(/^[﻿\s]+/, '');
+  if (!html.toLowerCase().startsWith('<!doctype')) html = '<!DOCTYPE html>\n' + html;
+
+  // Inject <base> tag for relative asset resolution (only if none present)
+  if (basePath && !/<base[\s>]/i.test(html)) {
+    html = html.replace(/<head([^>]*)>/i, `<head$1>\n<base href="${basePath}">`);
+  }
+
+  html = injectVipBar(html, appName, shareUrl);
+
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+  res.setHeader('Cache-Control', 'no-store, no-cache');
+  res.status(200).send(html);
+}
+
 function sendHtmlError(res: Response, code: number, title: string, detail: string): void {
   const icon = code === 404 ? '📭' : '⚠️';
   res.status(code);
@@ -65,6 +125,7 @@ router.get('/:token/meta', async (req: Request, res: Response): Promise<void> =>
  * GET /api/share/:token
  * Serve project content by share token — no authentication required.
  * The token itself acts as the credential (unguessable UUID).
+ * Serves the app HTML directly (no iframe) with an injected top bar and base tag.
  */
 router.get('/:token', async (req: Request, res: Response): Promise<void> => {
   const { token } = req.params as { token: string };
@@ -75,13 +136,14 @@ router.get('/:token', async (req: Request, res: Response): Promise<void> => {
 
   try {
     const result = await pool.query<{
+      id: string;
       name: string;
       html_content: string | null;
       project_path: string | null;
       portal_route: string | null;
       uploaded_by: string;
     }>(
-      `SELECT name, html_content, project_path, portal_route, uploaded_by
+      `SELECT id, name, html_content, project_path, portal_route, uploaded_by
        FROM uploaded_content WHERE share_token = $1`,
       [token],
     );
@@ -98,15 +160,34 @@ router.get('/:token', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    const shareUrl = `${req.protocol}://${req.hostname}/vip/${token}`;
+
     if (row.project_path) {
-      const pathParts = row.project_path.split('/').slice(2);
+      const pathParts = row.project_path.split('/').slice(2); // strip '' and 'uploads'
       const absolutePath = path.join(UPLOADS_DIR, ...pathParts);
       if (!fs.existsSync(absolutePath)) {
         sendHtmlError(res, 404, 'Project Files Missing',
           'The project files were not found on disk. Try re-uploading the project.');
         return;
       }
-      res.redirect(302, row.project_path);
+
+      let rawHtml: string;
+      try {
+        rawHtml = fs.readFileSync(absolutePath, 'utf8');
+      } catch {
+        sendHtmlError(res, 500, 'Server Error', 'Could not read project files.');
+        return;
+      }
+
+      // Build a <base> href so relative asset paths (./assets/...) resolve correctly
+      // even though the HTML is now served from /api/share/:token
+      const contentId = pathParts[0];
+      const relDir = pathParts.slice(1, -1).join('/');
+      const basePath = relDir
+        ? `/uploads/${contentId}/${relDir}/`
+        : `/uploads/${contentId}/`;
+
+      serveAppHtml(res, rawHtml, row.name, shareUrl, basePath);
       return;
     }
 
@@ -116,17 +197,7 @@ router.get('/:token', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    let html = rawHtml.replace(/^[﻿\s]+/, '');
-    if (!html.toLowerCase().startsWith('<!doctype')) {
-      html = '<!DOCTYPE html>\n' + html;
-    }
-
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('X-Frame-Options', 'SAMEORIGIN');
-    res.setHeader('X-Content-Type-Options', 'nosniff');
-    res.setHeader('Cache-Control', 'no-store, no-cache');
-    res.setHeader('X-Robots-Tag', 'noindex, nofollow');
-    res.status(200).send(html);
+    serveAppHtml(res, rawHtml, row.name, shareUrl, null);
   } catch (err) {
     console.error('[share] GET /:token error:', err);
     sendHtmlError(res, 500, 'Server Error', 'Something went wrong. Please try again later.');

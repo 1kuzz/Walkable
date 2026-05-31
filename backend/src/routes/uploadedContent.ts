@@ -195,9 +195,9 @@ function extractNestedBuildZips(rootDir: string): void {
         const entries2 = zip.getEntries();
         const hasIndex = entries2.some(e => /^(.*\/)?index\.html?$/i.test(e.entryName));
         if (!hasIndex) continue;
-        // Extract relative to rootDir (preserves inner zip directory structure)
+        // Extract relative to the zip's parent dir so paths stay consistent with index.html's location
         logger.info(`[content] Extracting nested build zip: ${path.relative(rootDir, zipPath)}`);
-        zip.extractAllTo(rootDir, true);
+        zip.extractAllTo(path.dirname(zipPath), true);
       } catch (err) {
         logger.warn(`[content] Failed to extract nested zip ${zipPath}`, { error: String(err) });
       }

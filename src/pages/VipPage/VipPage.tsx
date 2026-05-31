@@ -1,48 +1,26 @@
 import { useEffect, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import { APP_IFRAME_SANDBOX } from '../../services/appIframeSandbox';
 import styles from './VipPage.module.css';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function VipPage() {
   const { token } = useParams<{ token: string }>();
-  // All useState calls must be at the top — before any conditional returns
-  const [name, setName] = useState<string | null>(null);
   const [notFound, setNotFound] = useState(false);
-  const [metaLoaded, setMetaLoaded] = useState(false);
-  const [barCopied, setBarCopied] = useState(false);
 
   const isValid = !!token && UUID_RE.test(token);
 
   useEffect(() => {
     if (!isValid) { setNotFound(true); return; }
+    // Validate the token exists, then navigate directly to the app (no iframe)
     fetch(`/api/share/${token}/meta`)
       .then((r) => {
         if (!r.ok) { setNotFound(true); return; }
-        return r.json() as Promise<{ name: string }>;
-      })
-      .then((data) => {
-        if (data) {
-          setName(data.name);
-          document.title = data.name;
-          setMetaLoaded(true);
-        }
+        // Replace current history entry so Back still works
+        window.location.replace(`/api/share/${token}`);
       })
       .catch(() => setNotFound(true));
   }, [token, isValid]);
-
-  const handleBarCopy = () => {
-    const vipUrl = `${window.location.origin}/vip/${token ?? ''}`;
-    void navigator.clipboard.writeText(vipUrl).then(() => {
-      setBarCopied(true);
-      setTimeout(() => setBarCopied(false), 2000);
-    });
-  };
-
-  if (isValid && !notFound && !metaLoaded) {
-    return <div className={styles.loading}>Loading…</div>;
-  }
 
   if (!isValid || notFound) {
     return (
@@ -54,28 +32,5 @@ export function VipPage() {
     );
   }
 
-  return (
-    <div className={styles.root}>
-      <div className={styles.topBar}>
-        <a href="/" className={styles.topBarBrand}>VibePort</a>
-        {name && <span className={styles.topBarName}>{name}</span>}
-        <button
-          className={`${styles.topBarCopy} ${barCopied ? styles.topBarCopied : ''}`}
-          onClick={handleBarCopy}
-          title="Copy link"
-        >
-          {barCopied ? '✓' : '🔗'}
-        </button>
-      </div>
-      <iframe
-        key={token}
-        className={styles.frame}
-        src={`/api/share/${token}`}
-        title={name ?? 'Project'}
-        sandbox={APP_IFRAME_SANDBOX}
-        allow="autoplay; fullscreen"
-        loading="eager"
-      />
-    </div>
-  );
+  return <div className={styles.loading}>Launching…</div>;
 }
