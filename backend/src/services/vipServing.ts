@@ -76,6 +76,8 @@ export function injectVipBar(html: string, appName: string, shareUrl: string): s
       setTimeout(function(){b.textContent='🔗 Copy link';},2000);
     }).catch(function(){window.prompt('Copy this link:',u);});
   });
+  var vpl=document.querySelector('#__vpbar a[href]');
+  if(vpl){vpl.addEventListener('click',function(){try{sessionStorage.removeItem('__vp');}catch(e){}});}
   var s=document.documentElement.style;
   s.setProperty('padding-top','42px','important');
 })();
@@ -132,6 +134,7 @@ try{
 // Our pushState/replaceState patch will still prefix any future navigation.
 if(location.pathname===_rawP&&(_rawP===B||_rawP===B+'/'||_rawP.startsWith(B+'/'))){
   oR(history.state||null,'','/');
+  try{sessionStorage.setItem('__vp',B);}catch(e){}
 }
 // Also fix window.location.href so new URL(window.location.href).pathname returns
 // the clean path. React Router v6 uses this code path internally.
@@ -157,6 +160,7 @@ try{
 // Without this ctrl-click / middle-click / copy-link opens the portal instead of
 // staying in the VIP session (/app/UUID/book).
 function _fh(el){
+  if(el.closest&&el.closest('#__vpbar'))return;
   var h=el.getAttribute&&el.getAttribute('href');
   if(h&&h.startsWith('/')&&!h.startsWith('//')&&!h.startsWith(B))
     el.setAttribute('href',B+h);
