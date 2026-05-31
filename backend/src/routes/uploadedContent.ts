@@ -68,23 +68,31 @@ const zipUpload = multer({
   },
 });
 
-const ZIP_MAX_FILES = 5_000;
+const ZIP_MAX_FILES = 20_000;
 const ZIP_MAX_EXTRACTED_BYTES = 500 * 1024 * 1024;
+
+// Directories that are always skipped during extraction (development artifacts)
+const SKIP_DIRS = new Set(['.git', 'node_modules', '.svn', '.hg']);
+
+function shouldSkipEntry(entryName: string): boolean {
+  return entryName.split('/').some(seg => SKIP_DIRS.has(seg));
+}
 
 function extractZipToDir(buffer: Buffer, targetDir: string): number {
   const zip = new AdmZip(buffer);
   const entries = zip.getEntries();
 
-  if (entries.length > ZIP_MAX_FILES) {
+  // Count only the entries we will actually extract (skipping dev artifacts)
+  const relevant = entries.filter(e => !e.isDirectory && !shouldSkipEntry(e.entryName));
+
+  if (relevant.length > ZIP_MAX_FILES) {
     throw new Error(`Archive contains too many entries (limit: ${ZIP_MAX_FILES}).`);
   }
 
   let totalBytes = 0;
   const resolvedTarget = path.resolve(targetDir);
 
-  for (const entry of entries) {
-    if (entry.isDirectory) continue;
-
+  for (const entry of relevant) {
     const entryName = entry.entryName;
 
     if (!entryName || entryName.includes('\0')) {
@@ -96,9 +104,6 @@ function extractZipToDir(buffer: Buffer, targetDir: string): number {
       throw new Error(`Archive contains a path traversal entry: "${entryName}".`);
     }
 
-    const segments = entryName.split('/');
-    if (segments.includes('.git')) continue; // skip git objects silently
-
     totalBytes += entry.header.size;
     if (totalBytes > ZIP_MAX_EXTRACTED_BYTES) {
       throw new Error(`Archive would exceed maximum extracted size (${ZIP_MAX_EXTRACTED_BYTES / 1024 / 1024} MB).`);
@@ -106,16 +111,9 @@ function extractZipToDir(buffer: Buffer, targetDir: string): number {
   }
 
   let count = 0;
-  for (const entry of entries) {
-    if (entry.isDirectory) continue;
-
-    const entryName = entry.entryName;
-    if (entryName.split('/').includes('.git')) continue; // skip git objects
-
-    const resolvedEntry = path.resolve(targetDir, entryName);
-
-    const entryDir = path.dirname(resolvedEntry);
-    fs.mkdirSync(entryDir, { recursive: true });
+  for (const entry of relevant) {
+    const resolvedEntry = path.resolve(targetDir, entry.entryName);
+    fs.mkdirSync(path.dirname(resolvedEntry), { recursive: true });
     fs.writeFileSync(resolvedEntry, entry.getData());
     count++;
   }
