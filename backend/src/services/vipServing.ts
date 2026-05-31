@@ -112,6 +112,7 @@ history.pushState=function(s,t,u){oP(s,t,fix(u));};
 history.replaceState=function(s,t,u){oR(s,t,fix(u));};
 // Override window.location.pathname so React Router sees clean paths
 // ('/book' not '/app/UUID/book') while the address bar keeps the full URL.
+var _rawP=location.pathname;
 try{
   var d=Object.getOwnPropertyDescriptor(Location.prototype,'pathname');
   if(d&&d.get&&d.configurable){
@@ -125,6 +126,13 @@ try{
     });
   }
 }catch(e){}
+// Fallback: if Location.prototype.pathname couldn't be patched (e.g. Telegram
+// WebView), the raw pathname is still the basePath. Detect that and use a real
+// replaceState to put the browser at '/' so React Router starts clean.
+// Our pushState/replaceState patch will still prefix any future navigation.
+if(location.pathname===_rawP&&(_rawP===B||_rawP===B+'/'||_rawP.startsWith(B+'/'))){
+  oR(history.state||null,'','/');
+}
 // Also fix window.location.href so new URL(window.location.href).pathname returns
 // the clean path. React Router v6 uses this code path internally.
 try{
