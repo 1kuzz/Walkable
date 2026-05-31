@@ -155,6 +155,38 @@ function findIndexHtml(rootDir: string): string | null {
   return candidates[0].rel;
 }
 
+/**
+ * After extracting a repo zip, scan for nested .zip files that contain index.html.
+ * Repos sometimes ship a pre-built bundle as a ZIP (e.g. email-center.zip alongside
+ * email-center/ where the JS was gitignored). Extract those zips in-place so the
+ * built assets are available for serving.
+ */
+function extractNestedBuildZips(rootDir: string): void {
+  function walk(dir: string, depth: number): void {
+    if (depth > 4) return;
+    let entries: fs.Dirent[];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const entry of entries) {
+      if (entry.isDirectory()) { walk(path.join(dir, entry.name), depth + 1); continue; }
+      if (!entry.isFile() || !entry.name.toLowerCase().endsWith('.zip')) continue;
+      const zipPath = path.join(dir, entry.name);
+      try {
+        const buf = fs.readFileSync(zipPath);
+        const zip = new AdmZip(buf);
+        const entries2 = zip.getEntries();
+        const hasIndex = entries2.some(e => /^(.*\/)?index\.html?$/i.test(e.entryName));
+        if (!hasIndex) continue;
+        // Extract relative to rootDir (preserves inner zip directory structure)
+        logger.info(`[content] Extracting nested build zip: ${path.relative(rootDir, zipPath)}`);
+        zip.extractAllTo(rootDir, true);
+      } catch (err) {
+        logger.warn(`[content] Failed to extract nested zip ${zipPath}`, { error: String(err) });
+      }
+    }
+  }
+  walk(rootDir, 0);
+}
+
 const thumbnailUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 5 * 1024 * 1024 },
@@ -583,6 +615,9 @@ router.post(
             }
           }
         } else {
+          // Extract any nested build zips (repos that ship pre-built bundles inside the ZIP)
+          extractNestedBuildZips(tempDir);
+
           const indexRel = findIndexHtml(tempDir);
           if (!indexRel) {
             fs.rmSync(tempDir, { recursive: true, force: true });
@@ -843,6 +878,9 @@ router.post('/github', requireAuth, checkUploadLimit, storageCheck('reject'), as
       }
     } else {
       // GitHub zipball has a top-level prefix dir (owner-repo-sha/) — findIndexHtml handles this recursively
+      // First pass: extract any nested .zip files that contain index.html (repos that ship pre-built ZIPs)
+      extractNestedBuildZips(tempDir);
+
       const indexRel = findIndexHtml(tempDir);
       if (!indexRel) {
         fs.rmSync(tempDir, { recursive: true, force: true });
