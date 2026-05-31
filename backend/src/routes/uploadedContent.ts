@@ -189,8 +189,29 @@ function findPortalJsonFiles(rootDir: string): string[] {
   return results;
 }
 
+// Known build output directories (Vite, CRA, Next, Svelte, Astro, …)
+const BUILD_OUTPUT_DIRS_HTML = new Set(['dist', 'build', 'out', 'output', 'public', 'www', '.next', '__sveltekit', 'static']);
+
+function isBuiltHtml(filePath: string): boolean {
+  try {
+    const content = fs.readFileSync(filePath, 'utf8');
+    // Vite/Rollup: hashed assets in /assets/, or modulepreload link, or crossorigin module script
+    return /src=["']\/assets\//i.test(content)
+      || /rel=["']modulepreload/i.test(content)
+      || (/<script[^>]+type=["']module["'][^>]*crossorigin/i.test(content));
+  } catch {
+    return false;
+  }
+}
+
 function findIndexHtml(rootDir: string): string | null {
-  const candidates: { depth: number; hasPortal: boolean; rel: string }[] = [];
+  const candidates: {
+    depth: number;
+    hasPortal: boolean;
+    isBuilt: boolean;
+    inBuildDir: boolean;
+    rel: string;
+  }[] = [];
 
   function walk(dir: string, depth: number): void {
     let entries: fs.Dirent[];
@@ -209,7 +230,9 @@ function findIndexHtml(rootDir: string): string | null {
           const abs = path.join(dir, entry.name);
           const rel = path.relative(rootDir, abs).split(path.sep).join('/');
           const hasPortal = fs.existsSync(path.join(dir, 'portal.json'));
-          candidates.push({ depth, hasPortal, rel });
+          const isBuilt = isBuiltHtml(abs);
+          const inBuildDir = rel.split('/').some(p => BUILD_OUTPUT_DIRS_HTML.has(p.toLowerCase()));
+          candidates.push({ depth, hasPortal, isBuilt, inBuildDir, rel });
         }
       }
     }
@@ -218,9 +241,15 @@ function findIndexHtml(rootDir: string): string | null {
   walk(rootDir, 0);
 
   if (candidates.length === 0) return null;
-  // Prefer directories with portal.json, then shallowest depth, then alpha
+
+  // Priority: portal.json > built output > known build dir > shallowest depth > alpha.
+  // This ensures dist/index.html beats the source index.html for Vite projects.
   candidates.sort((a, b) =>
-    Number(b.hasPortal) - Number(a.hasPortal) || a.depth - b.depth || a.rel.localeCompare(b.rel),
+    Number(b.hasPortal) - Number(a.hasPortal)
+    || Number(b.isBuilt) - Number(a.isBuilt)
+    || Number(b.inBuildDir) - Number(a.inBuildDir)
+    || a.depth - b.depth
+    || a.rel.localeCompare(b.rel),
   );
   return candidates[0].rel;
 }

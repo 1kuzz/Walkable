@@ -100,21 +100,27 @@ export function injectHistoryPatch(html: string, basePath: string): string {
 var B=${safeBase};
 var oP=history.pushState.bind(history);
 var oR=history.replaceState.bind(history);
-function fx(u){
-  if(typeof u!=='string'||!u||u.startsWith('http')||u.startsWith('//')||u.startsWith(B))return u;
-  return u.startsWith('/')?B+u:u;
+// Strip the session base prefix from a pathname so the SPA sees clean paths.
+function strip(p){
+  if(!p)return'/';
+  if(p===B||p===B+'/')return'/';
+  return p.startsWith(B+'/')?p.slice(B.length):p;
 }
-history.pushState=function(s,t,u){oP(s,t,fx(u));};
-history.replaceState=function(s,t,u){oR(s,t,fx(u));};
-try{
-  var d=Object.getOwnPropertyDescriptor(Location.prototype,'pathname');
-  if(d&&d.get){
-    Object.defineProperty(Location.prototype,'pathname',{
-      get:function(){var p=d.get.call(this);return p===B?'/':p.startsWith(B+'/')?p.slice(B.length):p;},
-      configurable:true
-    });
-  }
-}catch(e){}
+// 1. Immediately change the URL to the stripped path before React boots.
+//    React Router then reads window.location.pathname = '/' (the real value, no override needed).
+oR(history.state,'',strip(window.location.pathname));
+// 2. Patch pushState/replaceState so all in-app navigation also uses stripped paths.
+//    React Router calls pushState('/book') → we pass '/book' through as-is.
+//    The URL bar shows '/book', '/contacts', etc. — clean and readable.
+function wrap(orig){
+  return function(s,t,url){
+    orig.call(history,s,t,
+      typeof url==='string'&&url.startsWith('/')&&!url.startsWith('//')
+        ?strip(url):url);
+  };
+}
+history.pushState=wrap(oP);
+history.replaceState=wrap(oR);
 })();
 </script>`;
   // Must be the FIRST script — runs before any framework code
