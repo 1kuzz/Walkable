@@ -20,10 +20,11 @@ export function VipPage() {
       .then(async (r) => {
         if (!r.ok) { setNotFound(true); return; }
         const { sessionId } = await r.json() as { sessionId: string };
-        window.location.replace(`/api/vs/${sessionId}`);
+        // Use the clean /app/:sessionId URL so the session link stays in the
+        // address bar throughout navigation (never collapses to '/').
+        window.location.replace(`/app/${sessionId}`);
       })
       .catch(() => {
-        // Fallback: direct share URL if session creation fails
         setStatus('Redirecting…');
         window.location.replace(`/api/share/${token}`);
       });

@@ -117,10 +117,14 @@ router.get('/:sessionId', async (req: Request, res: Response): Promise<void> => 
   try { rawHtml = fs.readFileSync(indexPath, 'utf8'); }
   catch { sendHtmlError(res, 500, 'Server Error', 'Could not read project files.'); return; }
 
+  // req.baseUrl is the mount prefix ('/app' or '/api/vs') — derive basePath from it
+  // so this router works correctly at any mount point.
+  const basePath = `${req.baseUrl}/${sessionId}`;
+
   serveAppHtml(res, rawHtml, {
     appName: info.appName,
     shareUrl: `${origin}/vip/${info.shareToken}`,
-    basePath: `/api/vs/${sessionId}`,
+    basePath,
     showBar: info.showBar,
   });
 });
@@ -139,6 +143,8 @@ router.get('/:sessionId/*', async (req: Request, res: Response): Promise<void> =
 
   if (!info || info === 'expired') { res.status(404).end(); return; }
 
+  const basePath = `${req.baseUrl}/${sessionId}`;
+
   const filePath = path.resolve(info.projectDir, assetPath);
 
   // Security: must stay within uploads
@@ -152,10 +158,8 @@ router.get('/:sessionId/*', async (req: Request, res: Response): Promise<void> =
     const ext = path.extname(filePath).toLowerCase();
 
     if (ext === '.js' || ext === '.mjs' || ext === '.css') {
-      // Rewrite absolute /assets/ (and /static/, /_next/) paths so images and
-      // fonts referenced inside the bundle resolve to the session URL, not root.
       const raw = fs.readFileSync(filePath, 'utf8');
-      const rewritten = rewriteAssetBundle(raw, `/api/vs/${sessionId}`, ext as '.js' | '.css');
+      const rewritten = rewriteAssetBundle(raw, basePath, ext as '.js' | '.css');
       const mime = ext === '.css' ? 'text/css' : 'application/javascript';
       res
         .setHeader('Content-Type', `${mime}; charset=UTF-8`)
@@ -182,7 +186,7 @@ router.get('/:sessionId/*', async (req: Request, res: Response): Promise<void> =
   serveAppHtml(res, rawHtml, {
     appName: info.appName,
     shareUrl: `${origin}/vip/${info.shareToken}`,
-    basePath: `/api/vs/${sessionId}`,
+    basePath,
     showBar: info.showBar,
   });
 });

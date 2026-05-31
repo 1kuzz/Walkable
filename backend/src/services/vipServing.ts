@@ -94,33 +94,37 @@ export function injectVipBar(html: string, appName: string, shareUrl: string): s
  * and history.pushState with absolute paths.
  */
 export function injectHistoryPatch(html: string, basePath: string): string {
-  const safeBase = JSON.stringify(basePath); // e.g. "/api/vs/abc123"
+  const safeBase = JSON.stringify(basePath); // e.g. "/app/abc123"
   const script = `<script id="__vp_router_fix">
 (function(){
 var B=${safeBase};
 var oP=history.pushState.bind(history);
 var oR=history.replaceState.bind(history);
-// Strip the session base prefix from a pathname so the SPA sees clean paths.
-function strip(p){
-  if(!p)return'/';
-  if(p===B||p===B+'/')return'/';
-  return p.startsWith(B+'/')?p.slice(B.length):p;
+// Add the session base prefix to any app-internal absolute path.
+// Keeps the session URL (e.g. /app/UUID/book) in the address bar throughout
+// the session — the link is never lost by stripping it down to '/'.
+function fix(u){
+  if(typeof u!=='string'||!u||u.startsWith('http')||u.startsWith('//'))return u;
+  if(u===B||u===B+'/'||u.startsWith(B+'/'))return u;
+  return u.startsWith('/')?B+u:u;
 }
-// 1. Immediately change the URL to the stripped path before React boots.
-//    React Router then reads window.location.pathname = '/' (the real value, no override needed).
-oR(history.state,'',strip(window.location.pathname));
-// 2. Patch pushState/replaceState so all in-app navigation also uses stripped paths.
-//    React Router calls pushState('/book') → we pass '/book' through as-is.
-//    The URL bar shows '/book', '/contacts', etc. — clean and readable.
-function wrap(orig){
-  return function(s,t,url){
-    orig.call(history,s,t,
-      typeof url==='string'&&url.startsWith('/')&&!url.startsWith('//')
-        ?strip(url):url);
-  };
-}
-history.pushState=wrap(oP);
-history.replaceState=wrap(oR);
+history.pushState=function(s,t,u){oP(s,t,fix(u));};
+history.replaceState=function(s,t,u){oR(s,t,fix(u));};
+// Override window.location.pathname so React Router sees clean paths
+// ('/book' not '/app/UUID/book') while the address bar keeps the full URL.
+try{
+  var d=Object.getOwnPropertyDescriptor(Location.prototype,'pathname');
+  if(d&&d.get&&d.configurable){
+    Object.defineProperty(Location.prototype,'pathname',{
+      get:function(){
+        var p=d.get.call(this);
+        if(p===B||p===B+'/')return'/';
+        return p.startsWith(B+'/')?p.slice(B.length):p;
+      },
+      configurable:true
+    });
+  }
+}catch(e){}
 })();
 </script>`;
   // Must be the FIRST script — runs before any framework code

@@ -189,6 +189,7 @@ app.use('/api/auth', generalLimiter, githubAuthRouter);
 app.use('/api/github', generalLimiter, githubProxyRouter);
 app.use('/api/share', generalLimiter, shareRouter);
 app.use('/api/vs',    generalLimiter, vipSessionRouter);
+app.use('/app',       generalLimiter, vipSessionRouter);
 app.use('/api/tokens', generalLimiter, apiTokensRouter);
 app.use('/api/queue',  generalLimiter, uploadQueueRouter);
 
