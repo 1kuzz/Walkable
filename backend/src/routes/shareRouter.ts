@@ -7,8 +7,65 @@ import { pool } from '../db/client';
 const router = Router();
 
 const UPLOADS_DIR = process.env.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads');
+const UPLOADS_DIR_RESOLVED = path.resolve(UPLOADS_DIR);
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// ── App directory cache (5 min TTL) ──────────────────────────────────────────
+
+interface AppDirEntry { projectDir: string; expires: number }
+const appDirCache = new Map<string, AppDirEntry>();
+
+/**
+ * Resolve project_path → actual directory of the best index.html to serve.
+ * If the stored path is a Vite source file (loads /src/main.tsx), auto-detect
+ * the built dist/index.html in the same directory.
+ */
+function resolveProjectDir(storedPath: string): string {
+  const pathParts = storedPath.split('/').slice(2); // strip '' and 'uploads'
+  let htmlPath = path.join(UPLOADS_DIR, ...pathParts);
+
+  if (fs.existsSync(htmlPath)) {
+    try {
+      const html = fs.readFileSync(htmlPath, 'utf8');
+      // Source HTML: Vite dev entry loads from /src/
+      if (/src=["']\/src\//i.test(html)) {
+        const dir = path.dirname(htmlPath);
+        for (const sub of ['dist', 'build', 'out', 'public']) {
+          const candidate = path.join(dir, sub, 'index.html');
+          if (fs.existsSync(candidate)) {
+            try {
+              const ch = fs.readFileSync(candidate, 'utf8');
+              // Confirm it's a built file (has hashed assets or modulepreload)
+              if (/src=["']\/assets\//i.test(ch) || /rel=["']modulepreload/i.test(ch)) {
+                htmlPath = candidate;
+                break;
+              }
+            } catch { /* skip */ }
+          }
+        }
+      }
+    } catch { /* skip */ }
+  }
+
+  return path.dirname(htmlPath);
+}
+
+async function getAppDir(token: string): Promise<string | null> {
+  const cached = appDirCache.get(token);
+  if (cached && cached.expires > Date.now()) return cached.projectDir;
+
+  const result = await pool.query<{ project_path: string | null }>(
+    `SELECT project_path FROM uploaded_content WHERE share_token = $1`, [token],
+  );
+  if (result.rows.length === 0 || !result.rows[0].project_path) return null;
+
+  const projectDir = resolveProjectDir(result.rows[0].project_path);
+  appDirCache.set(token, { projectDir, expires: Date.now() + 5 * 60 * 1000 });
+  return projectDir;
+}
+
+// ── HTML helpers ─────────────────────────────────────────────────────────────
 
 const VIP_BAR_STYLE = `
 <style id="__vpbar_s">
@@ -52,13 +109,45 @@ function injectVipBar(html: string, appName: string, shareUrl: string): string {
   return html + bar;
 }
 
+/**
+ * Rewrite absolute asset paths in HTML so they route through /api/share/:token/*.
+ * This fixes Vite's default output which uses absolute /assets/... paths that
+ * can't be resolved via <base> tag when served from a non-root URL.
+ * Only rewrites src="/" (always assets) and href="/" for known asset extensions.
+ * Navigation links (href="/about") are left untouched.
+ */
+function rewriteAbsolutePaths(html: string, tokenBase: string): string {
+  const base = tokenBase.replace(/\/$/, ''); // e.g. '/api/share/UUID'
+
+  // src="/..." — always static assets (scripts, images, audio, video)
+  let result = html.replace(/\b(src)="(\/(?!\/)[^"]*)"/g, `$1="${base}$2"`);
+  result = result.replace(/\b(src)='(\/(?!\/)[^']*)'/g, `$1='${base}$2'`);
+
+  // href="/..." — only rewrite asset file extensions, leave navigation links alone
+  const ASSET_EXT = /\.(js|css|ico|png|svg|jpg|jpeg|gif|webp|avif|woff2?|ttf|eot|otf|json|map)(\?[^"']*)?$/i;
+  result = result.replace(/\b(href)="(\/(?!\/)[^"]*)"/g, (m, attr, p) =>
+    ASSET_EXT.test(p) ? `${attr}="${base}${p}"` : m);
+  result = result.replace(/\b(href)='(\/(?!\/)[^']*)'/g, (m, attr, p) =>
+    ASSET_EXT.test(p) ? `${attr}='${base}${p}'` : m);
+
+  // CSS url('/...') in inline styles / <style> blocks
+  result = result.replace(/\burl\(['"]?(\/(?!\/)[^'")]*)\)/g, `url(${base}$1)`);
+
+  return result;
+}
+
 function serveAppHtml(res: Response, rawHtml: string, appName: string, shareUrl: string, basePath: string | null): void {
   let html = rawHtml.replace(/^[﻿\s]+/, '');
   if (!html.toLowerCase().startsWith('<!doctype')) html = '<!DOCTYPE html>\n' + html;
 
-  // Inject <base> tag for relative asset resolution (only if none present)
-  if (basePath && !/<base[\s>]/i.test(html)) {
-    html = html.replace(/<head([^>]*)>/i, `<head$1>\n<base href="${basePath}">`);
+  if (basePath) {
+    // Fix absolute asset paths first (Vite default: /assets/...)
+    html = rewriteAbsolutePaths(html, basePath);
+    // <base> handles remaining relative paths (./assets/...) — only inject if absent
+    if (!/<base[\s>]/i.test(html)) {
+      const baseHref = basePath.endsWith('/') ? basePath : basePath + '/';
+      html = html.replace(/<head([^>]*)>/i, `<head$1>\n<base href="${baseHref}">`);
+    }
   }
 
   html = injectVipBar(html, appName, shareUrl);
@@ -94,9 +183,11 @@ function sendHtmlError(res: Response, code: number, title: string, detail: strin
 </div></body></html>`);
 }
 
+// ── Routes ───────────────────────────────────────────────────────────────────
+
 /**
  * GET /api/share/:token/meta
- * Returns minimal metadata (name) for the VIP page title — no auth required.
+ * Minimal metadata for VIP page title — no auth required.
  */
 router.get('/:token/meta', async (req: Request, res: Response): Promise<void> => {
   const { token } = req.params as { token: string };
@@ -123,9 +214,7 @@ router.get('/:token/meta', async (req: Request, res: Response): Promise<void> =>
 
 /**
  * GET /api/share/:token
- * Serve project content by share token — no authentication required.
- * The token itself acts as the credential (unguessable UUID).
- * Serves the app HTML directly (no iframe) with an injected top bar and base tag.
+ * Serve project HTML directly with injected VIP bar and fixed asset paths.
  */
 router.get('/:token', async (req: Request, res: Response): Promise<void> => {
   const { token } = req.params as { token: string };
@@ -161,10 +250,12 @@ router.get('/:token', async (req: Request, res: Response): Promise<void> => {
     }
 
     const shareUrl = `${req.protocol}://${req.hostname}/vip/${token}`;
+    const tokenBase = `/api/share/${token}`;
 
     if (row.project_path) {
       const pathParts = row.project_path.split('/').slice(2); // strip '' and 'uploads'
-      const absolutePath = path.join(UPLOADS_DIR, ...pathParts);
+      let absolutePath = path.join(UPLOADS_DIR, ...pathParts);
+
       if (!fs.existsSync(absolutePath)) {
         sendHtmlError(res, 404, 'Project Files Missing',
           'The project files were not found on disk. Try re-uploading the project.');
@@ -179,15 +270,29 @@ router.get('/:token', async (req: Request, res: Response): Promise<void> => {
         return;
       }
 
-      // Build a <base> href so relative asset paths (./assets/...) resolve correctly
-      // even though the HTML is now served from /api/share/:token
-      const contentId = pathParts[0];
-      const relDir = pathParts.slice(1, -1).join('/');
-      const basePath = relDir
-        ? `/uploads/${contentId}/${relDir}/`
-        : `/uploads/${contentId}/`;
+      // Auto-detect built output when stored path is a Vite source file
+      if (/src=["']\/src\//i.test(rawHtml)) {
+        const dir = path.dirname(absolutePath);
+        for (const sub of ['dist', 'build', 'out', 'public']) {
+          const candidate = path.join(dir, sub, 'index.html');
+          if (fs.existsSync(candidate)) {
+            try {
+              const ch = fs.readFileSync(candidate, 'utf8');
+              if (/src=["']\/assets\//i.test(ch) || /rel=["']modulepreload/i.test(ch)) {
+                absolutePath = candidate;
+                rawHtml = ch;
+                break;
+              }
+            } catch { /* skip */ }
+          }
+        }
+      }
 
-      serveAppHtml(res, rawHtml, row.name, shareUrl, basePath);
+      // Warm the cache with the resolved directory so asset requests are fast
+      const projectDir = path.dirname(absolutePath);
+      appDirCache.set(token, { projectDir, expires: Date.now() + 5 * 60 * 1000 });
+
+      serveAppHtml(res, rawHtml, row.name, shareUrl, tokenBase);
       return;
     }
 
@@ -197,10 +302,59 @@ router.get('/:token', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    // html_content apps have no associated file assets — no path rewriting needed
     serveAppHtml(res, rawHtml, row.name, shareUrl, null);
   } catch (err) {
     console.error('[share] GET /:token error:', err);
     sendHtmlError(res, 500, 'Server Error', 'Something went wrong. Please try again later.');
+  }
+});
+
+/**
+ * GET /api/share/:token/*
+ * Serve static assets (JS, CSS, images, fonts) for a VIP app.
+ * After rewriteAbsolutePaths(), the app's HTML references /api/share/:token/assets/...
+ * instead of /assets/..., so all assets are routed here with correct MIME types.
+ */
+router.get('/:token/*', async (req: Request, res: Response): Promise<void> => {
+  const { token } = req.params as { token: string };
+  if (!UUID_RE.test(token)) {
+    res.status(404).end();
+    return;
+  }
+
+  const assetPath = (req.params as Record<string, string>)['0'];
+  if (!assetPath) {
+    res.status(404).end();
+    return;
+  }
+
+  try {
+    const projectDir = await getAppDir(token);
+    if (!projectDir) {
+      res.status(404).end();
+      return;
+    }
+
+    const filePath = path.resolve(projectDir, assetPath);
+
+    // Security: must stay within uploads directory
+    if (!filePath.startsWith(UPLOADS_DIR_RESOLVED + '/') &&
+        filePath !== UPLOADS_DIR_RESOLVED) {
+      res.status(403).end();
+      return;
+    }
+
+    if (!fs.existsSync(filePath) || fs.statSync(filePath).isDirectory()) {
+      res.status(404).end();
+      return;
+    }
+
+    // sendFile sets Content-Type automatically from extension (mime-types)
+    res.sendFile(filePath);
+  } catch (err) {
+    console.error('[share] GET /:token/* error:', err);
+    res.status(500).end();
   }
 });
 
