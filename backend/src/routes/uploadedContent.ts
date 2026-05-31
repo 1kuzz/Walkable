@@ -123,8 +123,23 @@ function extractZipToDir(buffer: Buffer, targetDir: string): number {
   return count;
 }
 
+function findPortalJsonFiles(rootDir: string): string[] {
+  const results: string[] = [];
+  function walk(dir: string, depth: number): void {
+    if (depth > 6) return;
+    let entries: fs.Dirent[];
+    try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (e.isDirectory()) walk(path.join(dir, e.name), depth + 1);
+      else if (e.isFile() && e.name === 'portal.json') results.push(path.join(dir, e.name));
+    }
+  }
+  walk(rootDir, 0);
+  return results;
+}
+
 function findIndexHtml(rootDir: string): string | null {
-  const candidates: { depth: number; rel: string }[] = [];
+  const candidates: { depth: number; hasPortal: boolean; rel: string }[] = [];
 
   function walk(dir: string, depth: number): void {
     let entries: fs.Dirent[];
@@ -142,7 +157,8 @@ function findIndexHtml(rootDir: string): string | null {
         if (lower === 'index.html' || lower === 'index.htm') {
           const abs = path.join(dir, entry.name);
           const rel = path.relative(rootDir, abs).split(path.sep).join('/');
-          candidates.push({ depth, rel });
+          const hasPortal = fs.existsSync(path.join(dir, 'portal.json'));
+          candidates.push({ depth, hasPortal, rel });
         }
       }
     }
@@ -151,7 +167,10 @@ function findIndexHtml(rootDir: string): string | null {
   walk(rootDir, 0);
 
   if (candidates.length === 0) return null;
-  candidates.sort((a, b) => a.depth - b.depth || a.rel.localeCompare(b.rel));
+  // Prefer directories with portal.json, then shallowest depth, then alpha
+  candidates.sort((a, b) =>
+    Number(b.hasPortal) - Number(a.hasPortal) || a.depth - b.depth || a.rel.localeCompare(b.rel),
+  );
   return candidates[0].rel;
 }
 
