@@ -56,12 +56,21 @@ app.use(requestTimeout);
 
 const PgStore = connectPgSimple(session);
 
+const sessionStore = new PgStore({
+  pool,
+  tableName: 'session',
+  createTableIfMissing: true,
+  // Prune expired sessions every hour; errors are non-fatal
+  pruneSessionInterval: 60 * 60,
+  errorLog: (msg: string) => logger.warn('[session-store] ' + msg),
+});
+
 app.use(session({
-  store: new PgStore({ pool, tableName: 'session', createTableIfMissing: true }),
+  store: sessionStore,
   secret: process.env.SESSION_SECRET ?? 'dev-session-secret-change-in-production',
   resave: false,
   saveUninitialized: false,
-  rolling: true, // refresh cookie expiry on every response → stays logged in while active
+  rolling: true,
   cookie: { httpOnly: true, sameSite: 'lax', secure: true, maxAge: 30 * 24 * 60 * 60 * 1000 },
 }));
 
@@ -266,22 +275,71 @@ function setupGracefulShutdown(server: ReturnType<typeof app.listen>): void {
 
 // ── Start ─────────────────────────────────────────────────────────────────────
 
+/** Wait for PostgreSQL with exponential backoff — never fatal on transient errors. */
+async function waitForDatabase(maxAttempts = 40): Promise<void> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await pool.query('SELECT 1');
+      return;
+    } catch (err) {
+      const delay = Math.min(1000 * Math.pow(1.4, attempt - 1), 30_000);
+      logger.warn(`[server] DB not ready (attempt ${attempt}/${maxAttempts}), retrying in ${Math.round(delay / 1000)}s`, {
+        error: err instanceof Error ? err.message : String(err),
+      });
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw new Error(`Database unavailable after ${maxAttempts} attempts`);
+}
+
+/** Log a memory snapshot — called periodically to catch leaks early. */
+function logMemory(): void {
+  const mem = process.memoryUsage();
+  const heapMB = Math.round(mem.heapUsed / 1024 / 1024);
+  const rssMB  = Math.round(mem.rss / 1024 / 1024);
+  if (heapMB > 200) {
+    logger.warn(`[server] High heap usage: ${heapMB} MB (RSS ${rssMB} MB)`);
+  } else {
+    logger.info(`[server] Memory OK: heap ${heapMB} MB / RSS ${rssMB} MB`);
+  }
+}
+
 async function main(): Promise<void> {
+  // ── Global unhandled error defence ─────────────────────────────────────────
+  process.on('unhandledRejection', (reason: unknown) => {
+    logger.error('[server] Unhandled promise rejection', {
+      reason: reason instanceof Error ? reason.message : String(reason),
+    });
+    // Do NOT exit — let the process continue; PM2 will restart on real crashes
+  });
+
+  process.on('uncaughtException', (err: Error) => {
+    logger.error('[server] Uncaught exception — shutting down', { error: err.message });
+    // Exit so PM2 restarts cleanly (with backoff from ecosystem.config.cjs)
+    process.exit(1);
+  });
+
+  // ── Database — wait instead of crashing immediately ─────────────────────────
   logger.info('[server] Connecting to database...');
-  await pool.query('SELECT 1');
+  await waitForDatabase();
   logger.info('[server] Database connection OK.');
   await runMigrations();
   startCleanupScheduler();
 
+  // ── HTTP server ─────────────────────────────────────────────────────────────
   const server = app.listen(PORT, () => {
     logger.info(`[server] Backend listening on port ${PORT}`);
   });
 
   setupGracefulShutdown(server);
+
+  // ── Periodic memory logging (every 30 min) ──────────────────────────────────
+  const memTimer = setInterval(logMemory, 30 * 60 * 1000);
+  memTimer.unref(); // don't keep process alive just for this
 }
 
 main().catch((err: unknown) => {
-  logger.error('[server] Fatal startup error', {
+  logger.error('[server] Fatal startup error — cannot recover, exiting', {
     error: err instanceof Error ? err.message : String(err),
   });
   process.exit(1);

@@ -6,9 +6,10 @@ import { logger } from '../utils/logger';
 /** PostgreSQL connection pool — shared across all routes. */
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  max: 10,
+  max: 5,                       // reduced from 10 — saves ~50MB on 1GB server
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 5_000,
+  allowExitOnIdle: false,        // keep pool alive across request gaps
 });
 
 pool.on('error', (err) => {

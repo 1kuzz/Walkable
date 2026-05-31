@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-# Full redeploy: pull → install → build → migrate files → restart
+# Full redeploy: pull → install → build → prune devDeps → restart
 set -euo pipefail
 
 APP=/var/www/walkable/app
 cd "$APP"
 
-# Use sudo for privileged commands when not already root
 SUDO=""
 if [ "$(id -u)" != "0" ]; then
   SUDO="sudo"
@@ -30,11 +29,20 @@ echo "[deploy] Copying SQL migrations to dist..."
 mkdir -p backend/dist/db/migrations
 cp backend/src/db/migrations/*.sql backend/dist/db/migrations/
 
+echo "[deploy] Pruning backend devDependencies (not needed at runtime)..."
+(cd backend && npm prune --omit=dev 2>&1 | tail -2)
+
 echo "[deploy] Restarting backend..."
-$SUDO pm2 restart showcase-backend
+# Use ecosystem.config.cjs — handles single-instance, heap limit, restart backoff
+if $SUDO pm2 list | grep -q "showcase-backend"; then
+  $SUDO pm2 restart showcase-backend --update-env
+else
+  $SUDO pm2 start ecosystem.config.cjs
+fi
+$SUDO pm2 save
 
 echo "[deploy] Waiting for backend to be healthy..."
-for i in $(seq 1 15); do
+for i in $(seq 1 20); do
   STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3001/health || true)
   if [ "$STATUS" = "200" ]; then
     echo "[deploy] Backend healthy after ${i}s"
@@ -48,3 +56,9 @@ $SUDO nginx -t && $SUDO systemctl reload nginx
 
 echo "[deploy] Done. Health:"
 curl -s http://localhost/api/health | python3 -m json.tool
+
+echo "[deploy] Disk:"
+df -h / | tail -1
+
+echo "[deploy] Memory:"
+free -h | grep Mem
