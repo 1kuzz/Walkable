@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGitHubAuth } from '../../contexts/useGitHubAuth';
-import { listContent, deleteContent, updateContent, uploadFromGitHub, listGitHubRepos } from '../../api/contentClient';
+import { listContent, deleteContent, updateContent, uploadFromGitHub, listGitHubRepos, replaceArchive } from '../../api/contentClient';
 import type { GitHubRepo } from '../../api/contentClient';
 import type { UploadedContent } from '../../services/uploadedContent';
 import styles from './MyProjectsPage.module.css';
@@ -387,6 +387,8 @@ function ProjectCard({ item, onAction }: ProjectCardProps) {
   const [editName, setEditName] = useState(item.name);
   const [editDesc, setEditDesc] = useState(item.description ?? '');
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [reuploadProgress, setReuploadProgress] = useState<number | null>(null);
+  const [reuploadDone, setReuploadDone] = useState(false);
 
   const vipUrl = item.shareToken
     ? `${window.location.origin}/vip/${item.shareToken}`
@@ -414,6 +416,30 @@ function ProjectCard({ item, onAction }: ProjectCardProps) {
     } finally {
       setActing(false);
     }
+  };
+
+  const handleReupload = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.zip,application/zip';
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      setActing(true);
+      setReuploadProgress(0);
+      setReuploadDone(false);
+      try {
+        await replaceArchive(item.id, file, (pct) => setReuploadProgress(pct));
+        setReuploadDone(true);
+        setTimeout(() => { setReuploadDone(false); setReuploadProgress(null); onAction(); }, 1500);
+      } catch (err) {
+        alert(err instanceof Error ? err.message : 'Re-upload failed.');
+        setReuploadProgress(null);
+      } finally {
+        setActing(false);
+      }
+    };
+    input.click();
   };
 
   const handleEditOpen = () => {
@@ -519,6 +545,16 @@ function ProjectCard({ item, onAction }: ProjectCardProps) {
           <button className={styles.actionBtn} onClick={handleEditOpen}>
             Edit
           </button>
+          {item.projectPath?.startsWith('/uploads/') && (
+            <button
+              className={styles.actionBtn}
+              onClick={handleReupload}
+              disabled={acting}
+              title="Replace app files with a new ZIP (VIP link stays the same)"
+            >
+              {reuploadDone ? '✓ Updated' : reuploadProgress !== null ? `${reuploadProgress}%` : 'Re-upload'}
+            </button>
+          )}
           <button className={`${styles.actionBtn} ${styles.actionDanger}`} onClick={() => void handleDelete()} disabled={acting}>
             Delete
           </button>

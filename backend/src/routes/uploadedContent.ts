@@ -22,6 +22,7 @@ import { requireAdmin } from '../middleware/requireAdmin';
 import { checkUploadLimit } from '../middleware/tierLimits';
 import { storageCheck } from '../services/storageGuard';
 import { logger } from '../utils/logger';
+import { contentEvents } from '../services/contentEvents';
 
 const router = Router();
 
@@ -1905,6 +1906,10 @@ router.put(
         );
       } catch { /* non-critical */ }
 
+      // Invalidate any cached session info pointing to this content so new files
+      // are served immediately instead of waiting for the 5-min TTL to expire.
+      contentEvents.emit('archive:replaced', safeId);
+
       res.json({ success: true, projectPath: newProjectPath, fileCount });
     } catch (err) {
       if (tempDir) {
@@ -1964,6 +1969,12 @@ router.delete('/:id', async (req, res) => {
     if (hasBackend) {
       pm2Delete(id);
     }
+
+    // Remove viewer sessions before deleting the content row.
+    // The FK cascade (migration 028) handles this automatically going forward,
+    // but we emit the event first so the in-process cache is also cleared.
+    contentEvents.emit('content:deleted', id);
+    await pool.query('DELETE FROM vip_viewer_sessions WHERE content_id = $1', [id]);
 
     await pool.query('DELETE FROM uploaded_content WHERE id = $1', [id]);
 

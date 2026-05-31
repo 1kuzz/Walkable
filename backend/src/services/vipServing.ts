@@ -125,6 +125,35 @@ try{
     });
   }
 }catch(e){}
+// Fix <a href> attributes that React renders with clean paths (e.g. href="/book").
+// Without this ctrl-click / middle-click / copy-link opens the portal instead of
+// staying in the VIP session (/app/UUID/book).
+function _fh(el){
+  var h=el.getAttribute&&el.getAttribute('href');
+  if(h&&h.startsWith('/')&&!h.startsWith('//')&&!h.startsWith(B))
+    el.setAttribute('href',B+h);
+}
+function _fah(root){
+  if(!root.querySelectorAll)return;
+  var as=root.querySelectorAll('a[href^="/"]');
+  for(var i=0;i<as.length;i++)_fh(as[i]);
+}
+var _mo=new MutationObserver(function(muts){
+  for(var i=0;i<muts.length;i++){
+    var m=muts[i];
+    if(m.type==='childList'){
+      for(var j=0;j<m.addedNodes.length;j++){
+        var n=m.addedNodes[j];
+        if(n.nodeType===1){_fh(n);_fah(n);}
+      }
+    }else if(m.type==='attributes')_fh(m.target);
+  }
+});
+function _smo(){
+  if(document.body){_fah(document);_mo.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['href']});}
+  else document.addEventListener('DOMContentLoaded',function(){_fah(document);_mo.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['href']});});
+}
+_smo();
 })();
 </script>`;
   // Must be the FIRST script — runs before any framework code
@@ -230,22 +259,48 @@ export function rewriteAssetBundle(
   const prefixes = ['/assets/', '/static/', '/_next/'];
 
   let result = content;
+
+  // Pass 1: known build-output directory prefixes (Vite, CRA, Next.js)
   for (const prefix of prefixes) {
     const escaped = escRe(prefix);
     if (ext === '.css') {
-      // url(/assets/...) | url('/assets/...') | url("/assets/...")
       result = result.replace(
         new RegExp(`url\\((['"]?)(${escaped})`, 'g'),
         (_, q) => `url(${q}${base}${prefix}`,
       );
     } else {
-      // "/assets/..." and '/assets/...' string literals in JS
       result = result.replace(
         new RegExp(`(['"])(${escaped})`, 'g'),
         (_, q) => `${q}${base}${prefix}`,
       );
     }
   }
+
+  // Pass 2: root-level static assets — Vite public/ dir copies files without a
+  // directory prefix (e.g. "/favicon.ico", "/og-image.png", "/manifest.json").
+  // Only rewrite paths with a static file extension; skip API / portal paths and
+  // any path already handled by Pass 1.
+  const STATIC_EXT = /\.(png|jpe?g|gif|svg|ico|webp|avif|woff2?|ttf|eot|otf|mp3|mp4|ogg|wav|pdf|webm|json)$/i;
+  const SKIP_PFX   = /^(\/\/|\/api\/|\/uploads\/|\/vip\/|\/app\/|\/assets\/|\/static\/|\/_next\/)/;
+
+  if (ext !== '.css') {
+    result = result.replace(
+      /(['"])(\/[^"'\s\\]{1,200})(["'])/g,
+      (m, q1, p, q2) => {
+        if (SKIP_PFX.test(p) || p.startsWith(base) || !STATIC_EXT.test(p)) return m;
+        return `${q1}${base}${p}${q2}`;
+      },
+    );
+  } else {
+    result = result.replace(
+      /url\((['"]?)(\/(?![/])[^'")]{1,200})\)/g,
+      (m, q, p) => {
+        if (SKIP_PFX.test(p) || p.startsWith(base) || !STATIC_EXT.test(p)) return m;
+        return `url(${q}${base}${p})`;
+      },
+    );
+  }
+
   return result;
 }
 

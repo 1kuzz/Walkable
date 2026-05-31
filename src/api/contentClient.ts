@@ -140,3 +140,33 @@ export async function listGitHubRepos(page = 1): Promise<GitHubRepo[]> {
   if (!res.ok) return [];
   return res.json() as Promise<GitHubRepo[]>;
 }
+
+/** Replace the uploaded files for an existing project while keeping its share link. */
+export async function replaceArchive(
+  id: string,
+  file: File,
+  onProgress?: (pct: number) => void,
+): Promise<{ projectPath: string; fileCount: number }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const fd = new FormData();
+    fd.append('archive', file);
+    xhr.open('PUT', `/api/content/${encodeURIComponent(id)}/archive`);
+    xhr.withCredentials = true;
+    if (onProgress) {
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100));
+      });
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(JSON.parse(xhr.responseText));
+      } else {
+        try { reject(new Error(JSON.parse(xhr.responseText).error ?? 'Upload failed')); }
+        catch { reject(new Error('Upload failed')); }
+      }
+    };
+    xhr.onerror = () => reject(new Error('Network error'));
+    xhr.send(fd);
+  });
+}
