@@ -286,3 +286,86 @@
 .footerLink:hover {
   text-decoration: underline;
 }
+
+/* ── Prompt blocks ── */
+
+.promptBlock {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-left: 3px solid var(--color-teal);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 12px;
+}
+
+.promptHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--color-border);
+  gap: 12px;
+}
+
+.promptLabel {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-teal);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+
+.copyBtn {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 3px 10px;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  flex-shrink: 0;
+}
+.copyBtn:hover { color: var(--color-text); border-color: var(--color-text-muted); }
+.copyBtnDone { color: var(--color-teal) !important; border-color: var(--color-teal) !important; }
+
+.promptText {
+  font-family: var(--font-mono, monospace);
+  font-size: 12px;
+  line-height: 1.65;
+  color: var(--color-text);
+  padding: 12px 16px;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+}
+
+/* ── Sub-headings ── */
+
+.subheading {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--color-text);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin: 0 0 10px;
+}
+
+/* ── Ordered list ── */
+
+.orderedList {
+  margin: 0;
+  padding: 0 0 0 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
+
+.orderedList li strong {
+  color: var(--color-text);
+}
