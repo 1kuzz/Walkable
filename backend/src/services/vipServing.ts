@@ -3,6 +3,7 @@
  */
 import * as path from 'path';
 import * as fs from 'fs';
+import * as crypto from 'crypto';
 import type { Response } from 'express';
 
 export const UPLOADS_DIR = process.env.UPLOADS_DIR ?? path.join(process.cwd(), 'uploads');
@@ -212,11 +213,47 @@ export function rewriteAbsolutePaths(html: string, basePath: string): string {
 
 // ── Full HTML render ──────────────────────────────────────────────────────────
 
+// ── Backend JWT helpers ───────────────────────────────────────────────────────
+
+/**
+ * Try to load LOCAL_JWT_SECRET from a portal-data env file for the given content ID.
+ * Returns null if not found or unreadable.
+ */
+export function loadBackendSecret(contentId: string): string | null {
+  try {
+    const envFile = path.join(UPLOADS_DIR, `portal-data-${contentId}`, '.portal-env.json');
+    if (!fs.existsSync(envFile)) return null;
+    const parsed = JSON.parse(fs.readFileSync(envFile, 'utf8')) as Record<string, unknown>;
+    const secret = parsed['LOCAL_JWT_SECRET'];
+    return typeof secret === 'string' && secret.length >= 32 ? secret : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Sign a minimal HS256 JWT using Node.js built-in crypto.
+ * The payload is what the email-center backend's auth middleware expects:
+ * { login, isAdmin, exp }
+ */
+export function signBackendJwt(secret: string, login: string, isAdmin: boolean): string {
+  const header = Buffer.from(JSON.stringify({ alg: 'HS256', typ: 'JWT' })).toString('base64url');
+  const payload = Buffer.from(JSON.stringify({
+    login,
+    isAdmin,
+    exp: Math.floor(Date.now() / 1000) + 24 * 3600, // 24h
+  })).toString('base64url');
+  const data = `${header}.${payload}`;
+  const sig = crypto.createHmac('sha256', secret).update(data).digest('base64url');
+  return `${data}.${sig}`;
+}
+
 export interface ServeOptions {
   appName: string;
   shareUrl: string;   // canonical VIP link for the copy button
   basePath: string;   // URL prefix where this app is being served, e.g. /api/vs/UUID
   showBar: boolean;   // false for pro-tier apps
+  backendAuthToken?: string; // if set, injected into sessionStorage as mops_auth_token
 }
 
 export function serveAppHtml(
@@ -232,15 +269,22 @@ export function serveAppHtml(
   // 1. Rewrite absolute asset + navigation paths
   html = rewriteAbsolutePaths(html, opts.basePath);
 
-  // 2. Inject history API patch for SPA routing (before any app script)
+  // 2. Inject backend auth token into sessionStorage (before any app script)
+  if (opts.backendAuthToken) {
+    const safeToken = JSON.stringify(opts.backendAuthToken);
+    const authScript = `<script id="__vp_auth_init">(function(){try{sessionStorage.setItem('mops_auth_token',${safeToken});}catch(e){}})();</script>`;
+    html = html.replace(/<head([^>]*)>/i, `<head$1>\n${authScript}`);
+  }
+
+  // 3. Inject history API patch for SPA routing (before any app script)
   html = injectHistoryPatch(html, opts.basePath);
 
-  // 3. <base> tag for relative paths (only if absent)
+  // 4. <base> tag for relative paths (only if absent)
   if (!/<base[\s>]/i.test(html)) {
     html = html.replace(/<head([^>]*)>/i, `<head$1>\n<base href="${baseHref}">`);
   }
 
-  // 4. Optional VIP bar
+  // 5. Optional VIP bar
   if (opts.showBar) {
     html = injectVipBar(html, opts.appName, opts.shareUrl);
   }

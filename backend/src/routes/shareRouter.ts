@@ -18,6 +18,8 @@ import {
   serveAppHtml,
   sendHtmlError,
   rewriteAssetBundle,
+  loadBackendSecret,
+  signBackendJwt,
 } from '../services/vipServing';
 
 const router = Router();
@@ -31,6 +33,8 @@ interface AppEntry {
   appName: string;
   showBar: boolean;
   expires: number;
+  contentId: string;
+  uploadedBy: string;
 }
 const appCache = new Map<string, AppEntry>();
 
@@ -39,11 +43,13 @@ async function getAppEntry(token: string): Promise<AppEntry | null> {
   if (cached && cached.expires > Date.now()) return cached;
 
   const result = await pool.query<{
+    id: string;
     name: string;
     project_path: string | null;
     tier: string;
+    uploaded_by: string;
   }>(
-    `SELECT uc.name, uc.project_path, COALESCE(gu.tier, 'free') AS tier
+    `SELECT uc.id, uc.name, uc.project_path, uc.uploaded_by, COALESCE(gu.tier, 'free') AS tier
      FROM uploaded_content uc
      LEFT JOIN github_users gu ON gu.login = uc.uploaded_by
      WHERE uc.share_token = $1
@@ -59,6 +65,8 @@ async function getAppEntry(token: string): Promise<AppEntry | null> {
     appName: row.name,
     showBar: row.tier !== 'pro',
     expires: Date.now() + 5 * 60 * 1000,
+    contentId: row.id,
+    uploadedBy: row.uploaded_by,
   };
   appCache.set(token, entry);
   return entry;
@@ -198,6 +206,8 @@ router.get('/:token', async (req: Request, res: Response): Promise<void> => {
         appName: row.name,
         showBar,
         expires: Date.now() + 5 * 60 * 1000,
+        contentId: row.id,
+        uploadedBy: row.uploaded_by,
       });
 
       const indexPath = path.join(projectDir, 'index.html');
@@ -211,7 +221,13 @@ router.get('/:token', async (req: Request, res: Response): Promise<void> => {
       try { rawHtml = fs.readFileSync(indexPath, 'utf8'); }
       catch { sendHtmlError(res, 500, 'Server Error', 'Could not read project files.'); return; }
 
-      serveAppHtml(res, rawHtml, { appName: row.name, shareUrl, basePath, showBar });
+      // If the project has a backend that requires auth, inject a viewer JWT
+      const backendSecret = loadBackendSecret(row.id);
+      const backendAuthToken = backendSecret
+        ? signBackendJwt(backendSecret, row.uploaded_by, true)
+        : undefined;
+
+      serveAppHtml(res, rawHtml, { appName: row.name, shareUrl, basePath, showBar, backendAuthToken });
       return;
     }
 
@@ -284,11 +300,16 @@ router.get('/:token/*', async (req: Request, res: Response): Promise<void> => {
     catch { res.status(500).end(); return; }
 
     const shareUrl = `${req.protocol}://${req.hostname}/vip/${token}`;
+    const spaBackendSecret = loadBackendSecret(entry.contentId);
+    const spaAuthToken = spaBackendSecret
+      ? signBackendJwt(spaBackendSecret, entry.uploadedBy, true)
+      : undefined;
     serveAppHtml(res, rawHtml, {
       appName: entry.appName,
       shareUrl,
       basePath: `/api/share/${token}`,
       showBar: entry.showBar,
+      backendAuthToken: spaAuthToken,
     });
   } catch (err) {
     console.error('[share] GET /:token/* error:', err);
