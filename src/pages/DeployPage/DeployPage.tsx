@@ -1,17 +1,23 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useGitHubAuth } from '../../contexts/useGitHubAuth';
-import { listContent, deleteContent, updateContent, stopBackend, restartBackend, getStorageInfo, getQueue, enqueueGitHub, cancelQueueItem } from '../../api/contentClient';
+import { listContent, deleteContent, updateContent, stopBackend, restartBackend, getStorageInfo, getQueue, enqueueGitHub, cancelQueueItem, configureBackend } from '../../api/contentClient';
 import type { GitHubRepo, StorageInfo, QueueItem } from '../../api/contentClient';
 import type { UploadedContent } from '../../services/uploadedContent';
 import styles from './DeployPage.module.css';
 
-type DeployStatus = 'idle' | 'uploading' | 'building' | 'live' | 'failed' | 'queued' | 'filtering';
+type DeployStatus = 'idle' | 'uploading' | 'building' | 'live' | 'failed' | 'queued' | 'filtering' | 'configuring-backend';
 
 interface DirScanEntry {
   name: string;   // top-level dir name, or '__root__' for root-level files
   files: number;
   bytes: number;
+}
+
+interface DetectedBackend {
+  entryPoint: string;
+  suggestedPrefix: string;
+  provisionDb: boolean;
 }
 
 interface DeployState {
@@ -22,6 +28,7 @@ interface DeployState {
   error?: string;
   buildLog?: string;
   envVarsRequired?: string[];
+  detectedBackend?: DetectedBackend | null;
   queuePosition?: number;
   queueMessage?: string;
   // filtering step
@@ -318,6 +325,10 @@ export function DeployPage() {
   const [showEnvForm, setShowEnvForm] = useState(false);
   const [liveCopied, setLiveCopied] = useState(false);
   const [filterSelected, setFilterSelected] = useState<Record<string, boolean>>({});
+  const [backendEntry, setBackendEntry] = useState('');
+  const [backendPrefix, setBackendPrefix] = useState('');
+  const [backendDb, setBackendDb] = useState(false);
+  const [backendConfiguring, setBackendConfiguring] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -376,6 +387,10 @@ export function DeployPage() {
     setEnvValues({});
     setShowEnvForm(false);
     setFilterSelected({});
+    setBackendEntry('');
+    setBackendPrefix('');
+    setBackendDb(false);
+    setBackendConfiguring(false);
   };
 
   const handleDeploy = async () => {
@@ -471,12 +486,22 @@ export function DeployPage() {
 
       setDeploy(s => ({ ...s, progress: 90, buildLog: result.buildLog ?? undefined }));
 
+      const det = (result as typeof result & { detectedBackend?: DetectedBackend | null }).detectedBackend ?? null;
+
       if (result.envVarsRequired && result.envVarsRequired.length > 0) {
         const initial: Record<string, string> = {};
         result.envVarsRequired.forEach(k => { initial[k] = ''; });
         setEnvValues(initial);
         setShowEnvForm(true);
-        setDeploy({ status: 'building', progress: 95, id: result.id, shareToken: result.shareToken, envVarsRequired: result.envVarsRequired });
+        setDeploy({ status: 'building', progress: 95, id: result.id, shareToken: result.shareToken, envVarsRequired: result.envVarsRequired, detectedBackend: det });
+        return;
+      }
+
+      if (det) {
+        setBackendEntry(det.entryPoint);
+        setBackendPrefix(det.suggestedPrefix);
+        setBackendDb(det.provisionDb);
+        setDeploy({ status: 'configuring-backend', progress: 100, id: result.id, shareToken: result.shareToken, detectedBackend: det });
         return;
       }
 
@@ -519,8 +544,39 @@ export function DeployPage() {
       });
     } catch { /* non-fatal */ }
     setShowEnvForm(false);
-    setDeploy(s => ({ ...s, status: 'live', progress: 100 }));
-    void fetchItems();
+    if (deploy.detectedBackend) {
+      // Env vars saved — now offer backend configuration
+      setBackendEntry(deploy.detectedBackend.entryPoint);
+      setBackendPrefix(deploy.detectedBackend.suggestedPrefix);
+      setBackendDb(deploy.detectedBackend.provisionDb);
+      setDeploy(s => ({ ...s, status: 'configuring-backend', progress: 100 }));
+    } else {
+      setDeploy(s => ({ ...s, status: 'live', progress: 100 }));
+      void fetchItems();
+    }
+  };
+
+  const handleConfigureBackend = async () => {
+    if (!deploy.id) return;
+    setBackendConfiguring(true);
+    try {
+      await configureBackend(deploy.id, {
+        entryPoint: backendEntry,
+        prefix: backendPrefix,
+        provisionDb: backendDb,
+        envVars: envValues,
+      });
+      setDeploy(s => ({ ...s, status: 'live', progress: 100 }));
+      void fetchItems();
+    } catch (err) {
+      setDeploy(s => ({
+        ...s,
+        status: 'failed',
+        error: err instanceof Error ? err.message : 'Backend configuration failed',
+      }));
+    } finally {
+      setBackendConfiguring(false);
+    }
   };
 
   const vipUrl = deploy.shareToken ? `${window.location.origin}/vip/${deploy.shareToken}` : null;
@@ -694,6 +750,55 @@ export function DeployPage() {
               Deploy →
             </button>
           </>
+        ) : deploy.status === 'configuring-backend' ? (
+          <div className={styles.envForm}>
+            <p className={styles.envTitle}>Backend detected — configure it to start automatically:</p>
+            <div className={styles.envRow}>
+              <label className={styles.envLabel}>Entry point</label>
+              <input
+                className={styles.envInput}
+                value={backendEntry}
+                onChange={e => setBackendEntry(e.target.value)}
+                placeholder="backend/dist/index.js"
+              />
+            </div>
+            <div className={styles.envRow}>
+              <label className={styles.envLabel}>URL prefix</label>
+              <input
+                className={styles.envInput}
+                value={backendPrefix}
+                onChange={e => setBackendPrefix(e.target.value)}
+                placeholder="/apps/my-project"
+              />
+            </div>
+            <div className={styles.envRow}>
+              <label className={styles.envLabel}>
+                <input
+                  type="checkbox"
+                  checked={backendDb}
+                  onChange={e => setBackendDb(e.target.checked)}
+                  style={{ marginRight: 6 }}
+                />
+                Auto-provision PostgreSQL database
+              </label>
+            </div>
+            <div className={styles.envActions}>
+              <button
+                className={styles.deployBtn}
+                style={{ width: 'auto', padding: '10px 20px' }}
+                disabled={backendConfiguring || !backendEntry.trim() || !backendPrefix.trim()}
+                onClick={() => void handleConfigureBackend()}
+              >
+                {backendConfiguring ? 'Starting…' : 'Start backend →'}
+              </button>
+              <button className={styles.skipBtn} onClick={() => {
+                setDeploy(s => ({ ...s, status: 'live', progress: 100 }));
+                void fetchItems();
+              }}>
+                Skip
+              </button>
+            </div>
+          </div>
         ) : deploy.status === 'uploading' || deploy.status === 'building' ? (
           <div className={styles.progressPanel}>
             <div className={styles.progressSteps}>

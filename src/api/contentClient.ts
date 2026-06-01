@@ -66,6 +66,23 @@ export function restartBackend(id: string): Promise<{ ok: boolean }> {
   return apiFetch<{ ok: boolean }>(`/api/content/${encodeURIComponent(id)}/restart`, { method: 'POST' });
 }
 
+export interface BackendConfig {
+  entryPoint: string;
+  prefix: string;
+  provisionDb: boolean;
+  envVars?: Record<string, string>;
+}
+
+export function configureBackend(
+  id: string,
+  config: BackendConfig,
+): Promise<{ ok: true; port: number; prefix: string }> {
+  return apiFetch(`/api/content/${encodeURIComponent(id)}/configure-backend`, {
+    method: 'POST',
+    body: JSON.stringify(config),
+  });
+}
+
 // ── Queue API ─────────────────────────────────────────────────────────────────
 
 export interface StorageInfo {

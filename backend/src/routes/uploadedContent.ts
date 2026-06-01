@@ -11,6 +11,7 @@ import {
   pm2Delete,
   regenerateNginxAppsConf,
 } from '../services/appBackendManager';
+import type { PortalManifest } from '../services/appBackendManager';
 import AdmZip from 'adm-zip';
 import rateLimit, { ipKeyGenerator } from 'express-rate-limit';
 import sharp from 'sharp';
@@ -209,6 +210,7 @@ function findIndexHtml(rootDir: string): string | null {
   const candidates: {
     depth: number;
     hasPortal: boolean;
+    isSourceRoot: boolean;
     isBuilt: boolean;
     inBuildDir: boolean;
     rel: string;
@@ -233,7 +235,12 @@ function findIndexHtml(rootDir: string): string | null {
           const hasPortal = fs.existsSync(path.join(dir, 'portal.json'));
           const isBuilt = isBuiltHtml(abs);
           const inBuildDir = rel.split('/').some(p => BUILD_OUTPUT_DIRS_HTML.has(p.toLowerCase()));
-          candidates.push({ depth, hasPortal, isBuilt, inBuildDir, rel });
+          // Source project root: shallow depth, has package.json alongside, and not a built output.
+          // Covers both flat zips (depth=0) and GitHub zipball wrapper dirs (depth=1).
+          const isSourceRoot = depth <= 1
+            && fs.existsSync(path.join(dir, 'package.json'))
+            && !isBuilt;
+          candidates.push({ depth, hasPortal, isSourceRoot, isBuilt, inBuildDir, rel });
         }
       }
     }
@@ -243,11 +250,12 @@ function findIndexHtml(rootDir: string): string | null {
 
   if (candidates.length === 0) return null;
 
-  // Priority: portal.json > built output > known build dir > shallowest depth > alpha.
-  // This ensures dist/index.html beats the source index.html for Vite projects.
+  // Priority: portal.json > source project root > built output > known build dir > depth > alpha.
+  // isSourceRoot prevents deep public/*/index.html from winning over the repo's own entry point.
   candidates.sort((a, b) =>
-    Number(b.hasPortal) - Number(a.hasPortal)
-    || Number(b.isBuilt) - Number(a.isBuilt)
+    Number(b.hasPortal)     - Number(a.hasPortal)
+    || Number(b.isSourceRoot) - Number(a.isSourceRoot)
+    || Number(b.isBuilt)    - Number(a.isBuilt)
     || Number(b.inBuildDir) - Number(a.inBuildDir)
     || a.depth - b.depth
     || a.rel.localeCompare(b.rel),
@@ -285,6 +293,99 @@ function extractNestedBuildZips(rootDir: string): void {
     }
   }
   walk(rootDir, 0);
+}
+
+// ── Upload helpers ────────────────────────────────────────────────────────────
+
+/**
+ * Scan for .env.example starting from the index.html dir, then the repo root.
+ * Returns the list of variable names (keys) found.
+ */
+function scanEnvExample(appRoot: string, repoRoot: string): string[] {
+  const checked = new Set<string>();
+  for (const p of [path.join(appRoot, '.env.example'), path.join(repoRoot, '.env.example')]) {
+    if (checked.has(p)) continue;
+    checked.add(p);
+    if (!fs.existsSync(p)) continue;
+    try {
+      return fs.readFileSync(p, 'utf8').split('\n')
+        .map(l => l.trim())
+        .filter(l => l && !l.startsWith('#') && l.includes('='))
+        .map(l => l.split('=')[0].trim())
+        .filter(Boolean);
+    } catch { /* non-fatal */ }
+  }
+  return [];
+}
+
+/**
+ * Find portal.json by checking appRoot first, then walking up to repoRoot.
+ * Handles repos where index.html is deep but portal.json lives at the project root.
+ */
+function detectPortalManifestFromRoot(appRoot: string, repoRoot: string): PortalManifest | null {
+  const direct = detectPortalManifest(appRoot);
+  if (direct) return direct;
+  let dir = path.dirname(appRoot);
+  while (dir.startsWith(repoRoot) && dir !== repoRoot) {
+    const m = detectPortalManifest(dir);
+    if (m) return m;
+    dir = path.dirname(dir);
+  }
+  return detectPortalManifest(repoRoot);
+}
+
+interface DetectedBackend {
+  entryPoint: string;
+  suggestedPrefix: string;
+  provisionDb: boolean;
+}
+
+/**
+ * Heuristically detect a Node.js backend in a project that has no portal.json.
+ * Returns suggested config so the frontend can show a "configure backend" step.
+ */
+function detectBackendCandidate(uploadDir: string, contentId: string): DetectedBackend | null {
+  // Resolve actual repo root — GitHub zipballs always have a single owner-repo-sha/ wrapper
+  let repoRoot = uploadDir;
+  if (!fs.existsSync(path.join(uploadDir, 'package.json'))) {
+    try {
+      const subs = fs.readdirSync(uploadDir, { withFileTypes: true }).filter(e => e.isDirectory());
+      if (subs.length === 1) {
+        const cand = path.join(uploadDir, subs[0].name);
+        if (fs.existsSync(path.join(cand, 'package.json'))) repoRoot = cand;
+      }
+    } catch { return null; }
+  }
+  if (!fs.existsSync(path.join(repoRoot, 'package.json'))) return null;
+
+  const entryPoints = [
+    'backend/dist/index.js', 'backend/src/index.js', 'backend/index.js',
+    'server.js', 'index.js', 'server/index.js',
+  ];
+  let entryPoint: string | null = null;
+  for (const e of entryPoints) {
+    if (fs.existsSync(path.join(repoRoot, e))) { entryPoint = e; break; }
+  }
+  // backend/ dir with package.json suggests a backend that needs building first
+  if (!entryPoint && fs.existsSync(path.join(repoRoot, 'backend', 'package.json'))) {
+    entryPoint = 'backend/dist/index.js';
+  }
+  if (!entryPoint) return null;
+
+  const slug = contentId.replace(/^gh_/, '').replace(/_\d+$/, '').replace(/_/g, '-').slice(0, 40);
+  const suggestedPrefix = `/apps/${slug}`;
+
+  let provisionDb = false;
+  for (const pkgPath of [path.join(repoRoot, 'backend', 'package.json'), path.join(repoRoot, 'package.json')]) {
+    if (!fs.existsSync(pkgPath)) continue;
+    try {
+      const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8')) as { dependencies?: Record<string, string> };
+      if (Object.keys(pkg.dependencies ?? {}).some(d => d === 'pg' || d === 'postgres' || d.startsWith('pg-'))) {
+        provisionDb = true; break;
+      }
+    } catch { /* ignore */ }
+  }
+  return { entryPoint, suggestedPrefix, provisionDb };
 }
 
 const thumbnailUpload = multer({
@@ -758,32 +859,30 @@ router.post(
 
           projectPath = `/uploads/${safeContentId}/${indexRel}`;
 
-          // Detect .env.example and surface required vars to the client
           const appRootForManifest = path.join(appDir, path.dirname(indexRel) === '.' ? '' : path.dirname(indexRel));
-          const envExamplePath = path.join(appRootForManifest, '.env.example');
-          if (fs.existsSync(envExamplePath)) {
-            try {
-              const envRaw = fs.readFileSync(envExamplePath, 'utf8');
-              const envVars = envRaw.split('\n')
-                .map(l => l.trim())
-                .filter(l => l && !l.startsWith('#') && l.includes('='))
-                .map(l => l.split('=')[0].trim())
-                .filter(Boolean);
-              (req as unknown as Record<string, unknown>)['_envVarsRequired'] = envVars;
-            } catch { /* non-fatal */ }
+
+          // Surface env vars from .env.example (checks index dir then repo root)
+          const envVarsRequired = scanEnvExample(appRootForManifest, appDir);
+          if (envVarsRequired.length > 0) {
+            (req as unknown as Record<string, unknown>)['_envVarsRequired'] = envVarsRequired;
           }
 
-          // Detect and start bundled backend if portal.json is present
-          const portalManifest = detectPortalManifest(appRootForManifest);
+          // Detect and start bundled backend if portal.json is present (walk up to repo root)
+          const portalManifest = detectPortalManifestFromRoot(appRootForManifest, appDir);
           if (portalManifest) {
             try {
               const backendPort = await allocatePort();
               await handleUploadBackend(safeContentId, appRootForManifest, portalManifest, backendPort);
-              // Store backend info — will be committed with the INSERT below
               (req as unknown as Record<string, unknown>)['_backendPort'] = backendPort;
               (req as unknown as Record<string, unknown>)['_backendPrefix'] = portalManifest.backend.prefix;
             } catch (err) {
               logger.error('[content] backend start failed (non-fatal)', { error: String(err) });
+            }
+          } else {
+            // No portal.json — check if the project looks like it has a backend
+            const detected = detectBackendCandidate(appDir, safeContentId);
+            if (detected) {
+              (req as unknown as Record<string, unknown>)['_detectedBackend'] = detected;
             }
           }
         }
@@ -870,9 +969,16 @@ router.post(
       }
 
       const envVarsRequired = (req as unknown as Record<string, unknown>)['_envVarsRequired'] as string[] | undefined;
+      const detectedBackend = (req as unknown as Record<string, unknown>)['_detectedBackend'] as DetectedBackend | undefined;
       // Fetch share token to return in response
       const stRow = await pool.query<{ share_token: string }>(`SELECT share_token FROM uploaded_content WHERE id = $1`, [safeContentId]);
-      res.status(201).json({ id: safeContentId, buildLog, envVarsRequired: envVarsRequired ?? [], shareToken: stRow.rows[0]?.share_token });
+      res.status(201).json({
+        id: safeContentId,
+        buildLog,
+        envVarsRequired: envVarsRequired ?? [],
+        detectedBackend: detectedBackend ?? null,
+        shareToken: stRow.rows[0]?.share_token,
+      });
     } catch (err) {
       if (tempDir) {
         try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* non-critical */ }
@@ -977,6 +1083,8 @@ router.post('/github', requireAuth, checkUploadLimit, storageCheck('reject'), as
     let buildLog: string | null = null;
     let ghBackendPort: number | undefined;
     let ghBackendPrefix: string | undefined;
+    let ghEnvVars: string[] = [];
+    let ghDetectedBackend: DetectedBackend | null = null;
     const hasPkgJson = fs.existsSync(path.join(tempDir, 'package.json'));
 
     if (build && hasPkgJson) {
@@ -1022,7 +1130,11 @@ router.post('/github', requireAuth, checkUploadLimit, storageCheck('reject'), as
       projectPath = `/uploads/${safeContentId}/${indexRel}`;
 
       const ghAppRoot = path.join(appDir, path.dirname(indexRel) === '.' ? '' : path.dirname(indexRel));
-      const ghManifest = detectPortalManifest(ghAppRoot);
+
+      // Surface env vars (.env.example at index dir or repo root)
+      ghEnvVars = scanEnvExample(ghAppRoot, appDir);
+
+      const ghManifest = detectPortalManifestFromRoot(ghAppRoot, appDir);
       if (ghManifest) {
         try {
           ghBackendPort = await allocatePort();
@@ -1033,6 +1145,8 @@ router.post('/github', requireAuth, checkUploadLimit, storageCheck('reject'), as
           ghBackendPort = undefined;
           ghBackendPrefix = undefined;
         }
+      } else {
+        ghDetectedBackend = detectBackendCandidate(appDir, safeContentId);
       }
     }
 
@@ -1065,7 +1179,13 @@ router.post('/github', requireAuth, checkUploadLimit, storageCheck('reject'), as
     }
 
     const ghStRow = await pool.query<{ share_token: string }>(`SELECT share_token FROM uploaded_content WHERE id = $1`, [safeContentId]);
-    res.status(201).json({ id: safeContentId, buildLog, shareToken: ghStRow.rows[0]?.share_token });
+    res.status(201).json({
+      id: safeContentId,
+      buildLog,
+      envVarsRequired: ghEnvVars ?? [],
+      detectedBackend: ghDetectedBackend ?? null,
+      shareToken: ghStRow.rows[0]?.share_token,
+    });
   } catch (err) {
     console.error('[content] POST /github error:', err);
     res.status(500).json({ error: 'Internal server error.' });
@@ -1246,9 +1366,13 @@ router.post('/confirm-filter', requireAuth, checkUploadLimit, storageCheck('reje
     const projectPath = `/uploads/${safeContentId}/${indexRel}`;
 
     const appRootForManifest = path.join(appDir, path.dirname(indexRel) === '.' ? '' : path.dirname(indexRel));
+
+    const cfEnvVars = scanEnvExample(appRootForManifest, appDir);
+
     let backendPort: number | undefined;
     let backendPrefix: string | undefined;
-    const portalManifest = detectPortalManifest(appRootForManifest);
+    let cfDetectedBackend: DetectedBackend | null = null;
+    const portalManifest = detectPortalManifestFromRoot(appRootForManifest, appDir);
     if (portalManifest) {
       try {
         backendPort = await allocatePort();
@@ -1257,6 +1381,8 @@ router.post('/confirm-filter', requireAuth, checkUploadLimit, storageCheck('reje
       } catch (err) {
         logger.error('[content] confirm-filter backend start failed (non-fatal)', { error: String(err) });
       }
+    } else {
+      cfDetectedBackend = detectBackendCandidate(appDir, safeContentId);
     }
 
     const isPro = user.tier === 'pro' || user.isAdmin;
@@ -1278,7 +1404,12 @@ router.post('/confirm-filter', requireAuth, checkUploadLimit, storageCheck('reje
     const stRow = await pool.query<{ share_token: string }>(
       `SELECT share_token FROM uploaded_content WHERE id = $1`, [safeContentId],
     );
-    res.status(201).json({ id: safeContentId, shareToken: stRow.rows[0]?.share_token });
+    res.status(201).json({
+      id: safeContentId,
+      envVarsRequired: cfEnvVars,
+      detectedBackend: cfDetectedBackend,
+      shareToken: stRow.rows[0]?.share_token,
+    });
   } catch (err) {
     try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch { /* non-critical */ }
     console.error('[content] POST /confirm-filter error:', err);
@@ -1495,12 +1626,12 @@ router.post('/:id/restart', requireAuth, async (req: Request, res: Response): Pr
     if (!row.backend_prefix || !row.project_path) {
       res.status(400).json({ error: 'No backend configuration for this project.' }); return;
     }
-    // Find portal.json from the project path
+    // Find portal.json — check alongside index.html, then walk up to the content root
     const withoutUploads = row.project_path.replace(/^\/uploads\/[^/]+\//, '');
     const relDir = path.dirname(withoutUploads);
     const contentDir = path.join(UPLOADS_DIR, id);
     const appRoot = relDir === '.' ? contentDir : path.join(contentDir, relDir);
-    const manifest = detectPortalManifest(appRoot);
+    const manifest = detectPortalManifestFromRoot(appRoot, contentDir);
     if (!manifest) {
       res.status(400).json({ error: 'portal.json not found — cannot restart backend.' }); return;
     }
@@ -1555,6 +1686,105 @@ router.post('/:id/env', requireAuth, async (req: Request, res: Response): Promis
     res.json({ ok: true, varsWritten: Object.keys(vars).length });
   } catch (err) {
     console.error('[content] POST /:id/env error:', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+/**
+ * POST /api/content/:id/configure-backend — write portal.json + start PM2 for projects
+ * that have no portal.json but the user wants to activate a backend.
+ */
+router.post('/:id/configure-backend', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  const user = getUser(req);
+  const { id } = req.params as { id: string };
+  if (!/^[a-zA-Z0-9_-]+$/.test(id)) { res.status(400).json({ error: 'Invalid ID.' }); return; }
+
+  const body = req.body as {
+    entryPoint?: string;
+    prefix?: string;
+    provisionDb?: boolean;
+    envVars?: Record<string, string>;
+  };
+
+  const entryPoint = body.entryPoint?.trim();
+  const prefix = body.prefix?.trim();
+
+  if (!entryPoint || !prefix) {
+    res.status(400).json({ error: 'entryPoint and prefix are required.' }); return;
+  }
+  if (path.isAbsolute(entryPoint) || entryPoint.includes('\0') || entryPoint.includes('..')) {
+    res.status(400).json({ error: 'Invalid entryPoint.' }); return;
+  }
+  if (!prefix.startsWith('/') || !/^\/[a-zA-Z0-9/_-]+$/.test(prefix)) {
+    res.status(400).json({ error: 'prefix must start with / and contain only letters, digits, /, _ and -.' }); return;
+  }
+  const reservedPrefixes = ['/api', '/auth', '/uploads', '/health', '/version', '/vip', '/apps-'];
+  if (reservedPrefixes.some(r => prefix === r || prefix.startsWith(r + '/'))) {
+    res.status(400).json({ error: 'prefix conflicts with platform routes.' }); return;
+  }
+
+  try {
+    const check = await pool.query<{
+      uploaded_by: string; project_path: string | null; backend_port: number | null;
+    }>(
+      `SELECT uploaded_by, project_path, backend_port FROM uploaded_content WHERE id = $1`, [id],
+    );
+    if (check.rows.length === 0) { res.status(404).json({ error: 'Not found.' }); return; }
+    const row = check.rows[0];
+    if (!user.isAdmin && row.uploaded_by !== user.login) {
+      res.status(403).json({ error: 'Not your project.' }); return;
+    }
+    if (row.backend_port) {
+      res.status(400).json({ error: 'Backend is already running. Stop it first.' }); return;
+    }
+    if (!row.project_path) {
+      res.status(400).json({ error: 'No project files on disk for this item.' }); return;
+    }
+
+    const contentDir = path.join(UPLOADS_DIR, id);
+    const resolvedContentDir = path.resolve(contentDir);
+    const entryAbs = path.resolve(contentDir, entryPoint);
+    if (!entryAbs.startsWith(resolvedContentDir + path.sep)) {
+      res.status(400).json({ error: 'entryPoint escapes project directory.' }); return;
+    }
+
+    // Write portal.json to the content root
+    const portalJson = {
+      backend: { entry: entryPoint, prefix, db: body.provisionDb ?? false },
+    };
+    fs.writeFileSync(path.join(contentDir, 'portal.json'), JSON.stringify(portalJson, null, 2), 'utf8');
+
+    // Write env vars if provided
+    if (body.envVars && typeof body.envVars === 'object' && !Array.isArray(body.envVars)) {
+      const dataDir = path.join(UPLOADS_DIR, `portal-data-${id}`);
+      fs.mkdirSync(dataDir, { recursive: true });
+      const envContent = Object.entries(body.envVars)
+        .filter(([k]) => /^[A-Z_][A-Z0-9_]*$/i.test(k))
+        .map(([k, v]) => `${k}=${String(v).replace(/\n/g, '\\n')}`)
+        .join('\n');
+      fs.writeFileSync(path.join(dataDir, '.env'), envContent, 'utf8');
+    }
+
+    const manifest = detectPortalManifest(contentDir);
+    if (!manifest) {
+      res.status(500).json({ error: 'Failed to read portal.json — check that entryPoint is a valid relative path.' }); return;
+    }
+
+    const port = await allocatePort();
+    await handleUploadBackend(id, contentDir, manifest, port);
+
+    await pool.query(
+      `UPDATE uploaded_content SET backend_port = $1, backend_prefix = $2 WHERE id = $3`,
+      [port, prefix, id],
+    );
+
+    try { await regenerateNginxAppsConf(); } catch (err) {
+      logger.error('[content] nginx conf regen failed after configure-backend', { error: String(err) });
+    }
+
+    res.json({ ok: true, port, prefix });
+  } catch (err) {
+    console.error('[content] POST /:id/configure-backend error:', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });
