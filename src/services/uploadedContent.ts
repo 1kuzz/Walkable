@@ -56,6 +56,12 @@ export interface UploadedContent {
   backendPort?: number | null;
   /** Nginx prefix for the backend (e.g. /uploaded-apps/my-app) */
   backendPrefix?: string | null;
+  /** Human-readable slug for the clean VIP URL (e.g. 'email-center') */
+  slug?: string | null;
+  /** Secret for the GitHub auto-deploy webhook URL */
+  deployHookSecret?: string | null;
+  /** Whether the project was built (npm build) on deploy */
+  build?: boolean;
 }
 
 /**

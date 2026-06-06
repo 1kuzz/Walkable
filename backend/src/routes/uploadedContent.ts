@@ -3,6 +3,7 @@ import multer from 'multer';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as cp from 'child_process';
+import { randomBytes } from 'crypto';
 import {
   detectPortalManifest,
   allocatePort,
@@ -410,6 +411,21 @@ function parseGitHubUrl(url: string): { owner: string; repo: string } | null {
   return { owner: match[1], repo: match[2] };
 }
 
+// ── Slug allocation ────────────────────────────────────────────────────────────
+
+async function allocateSlug(repoName: string): Promise<string> {
+  const base = repoName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 50) || 'app';
+  for (let i = 0; i < 200; i++) {
+    const candidate = i === 0 ? base : `${base}-${i + 1}`;
+    const existing = await pool.query<{ id: string }>(
+      'SELECT id FROM uploaded_content WHERE slug = $1',
+      [candidate],
+    );
+    if (existing.rows.length === 0) return candidate;
+  }
+  return `${base}-${randomBytes(3).toString('hex')}`;
+}
+
 // ── Build pipeline ────────────────────────────────────────────────────────────
 
 const BUILD_TIMEOUT_MS = 5 * 60 * 1000;
@@ -654,7 +670,9 @@ router.get('/', async (req, res) => {
                   status, review_note AS "reviewNote", submitted_at AS "submittedAt",
                   git_url AS "gitUrl", share_token AS "shareToken",
                   expires_at AS "expiresAt",
-                  backend_port AS "backendPort", backend_prefix AS "backendPrefix"`;
+                  backend_port AS "backendPort", backend_prefix AS "backendPrefix",
+                  slug, build,
+                  deploy_hook_secret AS "deployHookSecret"`;
 
     if (user.isAdmin) {
       query = `SELECT ${cols} FROM uploaded_content ORDER BY uploaded_at DESC`;
@@ -1016,6 +1034,11 @@ router.post('/github', requireAuth, checkUploadLimit, storageCheck('reject'), as
     }
 
     const { owner, repo } = parsed;
+
+    // Auto-generate a slug from the repo name (used for clean VIP URL /vip/<slug>)
+    const ghSlug = await allocateSlug(repo);
+    const ghHookSecret = randomBytes(32).toString('hex');
+
     const zipballUrl = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/zipball/HEAD`;
 
     const headers: Record<string, string> = {
@@ -1155,9 +1178,9 @@ router.post('/github', requireAuth, checkUploadLimit, storageCheck('reject'), as
       `INSERT INTO uploaded_content
          (id, name, description, uploaded_at, uploaded_by, visibility, allowed_users,
           file_count, html_content, project_path, portal_route, status, git_url, build_log,
-          backend_port, backend_prefix, expires_at)
+          backend_port, backend_prefix, expires_at, slug, deploy_hook_secret, build)
        VALUES ($1,$2,$3,NOW(),$4,'specific',$4,$5,'',$6,NULL,'approved',$7,$8,$9,$10,
-               ${isProUser ? 'NULL' : "NOW() + INTERVAL '24 hours'"})`,
+               ${isProUser ? 'NULL' : "NOW() + INTERVAL '24 hours'"},$11,$12,$13)`,
       [
         safeContentId,
         name.trim(),
@@ -1169,6 +1192,9 @@ router.post('/github', requireAuth, checkUploadLimit, storageCheck('reject'), as
         buildLog,
         ghBackendPort ?? null,
         ghBackendPrefix ?? null,
+        ghSlug,
+        ghHookSecret,
+        build ?? false,
       ],
     );
 
@@ -1178,13 +1204,14 @@ router.post('/github', requireAuth, checkUploadLimit, storageCheck('reject'), as
       }
     }
 
-    const ghStRow = await pool.query<{ share_token: string }>(`SELECT share_token FROM uploaded_content WHERE id = $1`, [safeContentId]);
+    const ghStRow = await pool.query<{ share_token: string; slug: string | null }>(`SELECT share_token, slug FROM uploaded_content WHERE id = $1`, [safeContentId]);
     res.status(201).json({
       id: safeContentId,
       buildLog,
       envVarsRequired: ghEnvVars ?? [],
       detectedBackend: ghDetectedBackend ?? null,
       shareToken: ghStRow.rows[0]?.share_token,
+      slug: ghStRow.rows[0]?.slug ?? null,
     });
   } catch (err) {
     console.error('[content] POST /github error:', err);
@@ -2303,6 +2330,149 @@ router.delete('/:id/thumbnail', async (req: Request, res: Response): Promise<voi
     res.json({ success: true });
   } catch (err) {
     console.error('[content] DELETE /:id/thumbnail error:', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+// ── GitHub redeploy ───────────────────────────────────────────────────────────
+
+/**
+ * Re-pull + re-extract (and optionally rebuild) a GitHub-imported content item.
+ * Called by the manual redeploy endpoint and the auto-deploy webhook handler.
+ */
+export async function redeployContentById(contentId: string, githubToken?: string): Promise<void> {
+  const row = await pool.query<{
+    git_url: string;
+    build: boolean;
+    backend_port: number | null;
+    tier: string;
+  }>(
+    `SELECT uc.git_url, uc.build, uc.backend_port, COALESCE(gu.tier, 'free') AS tier
+     FROM uploaded_content uc
+     LEFT JOIN github_users gu ON gu.login = uc.uploaded_by
+     WHERE uc.id = $1`,
+    [contentId],
+  );
+
+  if (!row.rows.length) throw new Error(`Content ${contentId} not found`);
+  const { git_url, build, backend_port, tier } = row.rows[0];
+  if (!git_url) throw new Error('Not a GitHub import — no git_url');
+
+  const parsed = parseGitHubUrl(git_url);
+  if (!parsed) throw new Error(`Invalid git_url: ${git_url}`);
+  const { owner, repo } = parsed;
+
+  const zipballUrl = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/zipball/HEAD`;
+  const headers: Record<string, string> = {
+    Accept: 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+    'User-Agent': 'Walkable-Portal/1.0',
+  };
+  if (githubToken) headers['Authorization'] = `Bearer ${githubToken}`;
+
+  const fetchRes = await fetch(zipballUrl, { headers });
+  if (!fetchRes.ok) throw new Error(`GitHub API returned ${fetchRes.status} for ${git_url}`);
+  const zipBuffer = Buffer.from(await fetchRes.arrayBuffer());
+
+  const isPro = tier === 'pro';
+  ensureUploadsDir();
+
+  let projectPath: string | null = null;
+  let buildLog: string | null = null;
+
+  if (build) {
+    // build=true: extract to temp dir then run npm build (writes to UPLOADS_DIR/<contentId>)
+    const tempDir = fs.mkdtempSync(path.join(UPLOADS_DIR, 'tmp-redeploy-'));
+    try {
+      extractZipToDir(zipBuffer, tempDir);
+      extractNestedBuildZips(tempDir);
+      const result = await runProjectBuild(tempDir, contentId);
+      projectPath = result.projectPath;
+      buildLog = result.buildLog;
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
+  } else {
+    // build=false: extract in-place, swap dirs atomically
+    const newDir = path.join(UPLOADS_DIR, `${contentId}-new`);
+    if (fs.existsSync(newDir)) fs.rmSync(newDir, { recursive: true, force: true });
+    fs.mkdirSync(newDir, { recursive: true });
+
+    extractZipToDir(zipBuffer, newDir);
+    extractNestedBuildZips(newDir);
+
+    const indexRel = findIndexHtml(newDir);
+    if (!indexRel) {
+      fs.rmSync(newDir, { recursive: true, force: true });
+      throw new Error('No index.html found in repository');
+    }
+    projectPath = `/uploads/${contentId}/${indexRel}`;
+
+    const finalDir = path.join(UPLOADS_DIR, contentId);
+    const bakDir   = path.join(UPLOADS_DIR, `${contentId}-bak`);
+    if (fs.existsSync(finalDir)) fs.renameSync(finalDir, bakDir);
+    try {
+      fs.renameSync(newDir, finalDir);
+      fs.chmodSync(finalDir, 0o755);
+      if (fs.existsSync(bakDir)) fs.rmSync(bakDir, { recursive: true, force: true });
+    } catch (err) {
+      if (fs.existsSync(bakDir)) {
+        if (fs.existsSync(finalDir)) fs.rmSync(finalDir, { recursive: true, force: true });
+        fs.renameSync(bakDir, finalDir);
+      }
+      throw err;
+    }
+  }
+
+  await pool.query(
+    `UPDATE uploaded_content
+     SET project_path = $1, build_log = $2,
+         expires_at = ${isPro ? 'NULL' : "NOW() + INTERVAL '24 hours'"}
+     WHERE id = $3`,
+    [projectPath, buildLog, contentId],
+  );
+
+  // Restart any bundled backend
+  if (backend_port) {
+    try {
+      cp.execSync(`pm2 restart "portal-${contentId}"`, { timeout: 30_000, stdio: 'pipe' });
+    } catch { /* process may not exist — non-fatal */ }
+  }
+
+  // Invalidate content caches
+  contentEvents.emit('archive:replaced', contentId);
+  logger.info(`[content] redeployed ${contentId} from ${git_url}`);
+}
+
+/**
+ * POST /api/content/:id/redeploy
+ * Re-pull and redeploy a GitHub-linked project. Responds immediately; redeploy runs in background.
+ */
+router.post('/:id/redeploy', requireAuth, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { id } = req.params as { id: string };
+    if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
+      res.status(400).json({ error: 'Invalid content ID.' });
+      return;
+    }
+    const user = getUser(req);
+    const check = await pool.query<{ uploaded_by: string; git_url: string | null }>(
+      'SELECT uploaded_by, git_url FROM uploaded_content WHERE id = $1',
+      [id],
+    );
+    if (!check.rows.length) { res.status(404).json({ error: 'Not found.' }); return; }
+    if (check.rows[0].uploaded_by !== user.login && !user.isAdmin) {
+      res.status(403).json({ error: 'Forbidden.' }); return;
+    }
+    if (!check.rows[0].git_url) {
+      res.status(400).json({ error: 'Not a GitHub-imported project.' }); return;
+    }
+    res.json({ ok: true });
+    redeployContentById(id, req.session?.githubToken).catch((err: unknown) => {
+      logger.error('[content] background redeploy failed', { id, error: String(err) });
+    });
+  } catch (err) {
+    console.error('[content] POST /:id/redeploy error:', err);
     res.status(500).json({ error: 'Internal server error.' });
   }
 });

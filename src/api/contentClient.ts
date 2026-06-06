@@ -66,6 +66,10 @@ export function restartBackend(id: string): Promise<{ ok: boolean }> {
   return apiFetch<{ ok: boolean }>(`/api/content/${encodeURIComponent(id)}/restart`, { method: 'POST' });
 }
 
+export function redeployContent(id: string): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>(`/api/content/${encodeURIComponent(id)}/redeploy`, { method: 'POST' });
+}
+
 export interface BackendConfig {
   entryPoint: string;
   prefix: string;

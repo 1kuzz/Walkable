@@ -343,7 +343,9 @@ export function rewriteAssetBundle(
   // Only rewrite paths with a static file extension; skip API / portal paths and
   // any path already handled by Pass 1.
   const STATIC_EXT = /\.(png|jpe?g|gif|svg|ico|webp|avif|woff2?|ttf|eot|otf|mp3|mp4|ogg|wav|pdf|webm|json)$/i;
-  const SKIP_PFX   = /^(\/\/|\/api\/|\/uploads\/|\/vip\/|\/app\/|\/assets\/|\/static\/|\/_next\/)/;
+  // Note: /app/ is intentionally NOT excluded — apps built with Vite base:'/app/' embed
+  // paths like "/app/assets/chunk.js" in their bundles and those need rewriting too.
+  const SKIP_PFX   = /^(\/\/|\/api\/|\/uploads\/|\/vip\/|\/assets\/|\/static\/|\/_next\/)/;
 
   if (ext !== '.css') {
     result = result.replace(
@@ -364,6 +366,30 @@ export function rewriteAssetBundle(
   }
 
   return result;
+}
+
+/**
+ * Resolve an asset path relative to projectDir.
+ * If the exact path doesn't exist, progressively strip leading path segments.
+ * This handles apps built with a non-root Vite base (e.g. base:'/app/') where
+ * index.html references "/app/assets/x.js" but the file lives at "assets/x.js".
+ * Returns the resolved absolute path, or null if nothing matches.
+ */
+export function resolveAssetPath(projectDir: string, assetPath: string): string | null {
+  const uploadsGuard = UPLOADS_DIR_RESOLVED + '/';
+  const segments = assetPath.split('/').filter(Boolean);
+
+  for (let skip = 0; skip < segments.length; skip++) {
+    const rel = segments.slice(skip).join('/');
+    if (!rel) continue;
+    const candidate = path.resolve(projectDir, rel);
+    if (!candidate.startsWith(uploadsGuard) && candidate !== UPLOADS_DIR_RESOLVED) continue;
+    try {
+      const stat = fs.statSync(candidate);
+      if (!stat.isDirectory()) return candidate;
+    } catch { /* not found */ }
+  }
+  return null;
 }
 
 export function sendHtmlError(res: Response, code: number, title: string, detail: string): void {

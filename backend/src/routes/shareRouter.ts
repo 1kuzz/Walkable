@@ -18,6 +18,7 @@ import {
   serveAppHtml,
   sendHtmlError,
   rewriteAssetBundle,
+  resolveAssetPath,
   loadBackendSecret,
   signBackendJwt,
 } from '../services/vipServing';
@@ -261,16 +262,9 @@ router.get('/:token/*', async (req: Request, res: Response): Promise<void> => {
     const entry = await getAppEntry(token);
     if (!entry) { res.status(404).end(); return; }
 
-    const filePath = path.resolve(entry.projectDir, assetPath);
+    const filePath = resolveAssetPath(entry.projectDir, assetPath);
 
-    // Security: must stay within uploads
-    if (!filePath.startsWith(UPLOADS_DIR_RESOLVED + '/') &&
-        filePath !== UPLOADS_DIR_RESOLVED) {
-      res.status(403).end();
-      return;
-    }
-
-    if (fs.existsSync(filePath) && !fs.statSync(filePath).isDirectory()) {
+    if (filePath) {
       const ext = path.extname(filePath).toLowerCase();
 
       if (ext === '.js' || ext === '.mjs' || ext === '.css') {

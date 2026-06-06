@@ -18,16 +18,20 @@ import {
   serveAppHtml,
   sendHtmlError,
   rewriteAssetBundle,
+  resolveAssetPath,
   loadBackendSecret,
   signBackendJwt,
 } from '../services/vipServing';
 
 const router = Router();
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// Slugs: lowercase alphanumeric + hyphens, 1-80 chars, not UUID format
+const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,79}$/;
 
 // ── App dir cache (5 min TTL) ─────────────────────────────────────────────────
 
 interface AppEntry {
+  shareToken: string;
   projectDir: string;
   appName: string;
   showBar: boolean;
@@ -35,31 +39,37 @@ interface AppEntry {
   contentId: string;
   uploadedBy: string;
 }
-const appCache = new Map<string, AppEntry>();
+const appCache = new Map<string, AppEntry>(); // keyed by share_token UUID or "slug:<slug>"
 
-async function getAppEntry(token: string): Promise<AppEntry | null> {
-  const cached = appCache.get(token);
+async function lookupAppEntry(
+  column: 'share_token' | 'slug',
+  value: string,
+  cacheKey: string,
+): Promise<AppEntry | null> {
+  const cached = appCache.get(cacheKey);
   if (cached && cached.expires > Date.now()) return cached;
+
+  const sql = `SELECT uc.id, uc.name, uc.project_path, uc.share_token::text AS share_token,
+          uc.uploaded_by, COALESCE(gu.tier, 'free') AS tier
+   FROM uploaded_content uc
+   LEFT JOIN github_users gu ON gu.login = uc.uploaded_by
+   WHERE uc.${column} = $1
+     AND (uc.expires_at IS NULL OR uc.expires_at > NOW())`;
 
   const result = await pool.query<{
     id: string;
     name: string;
     project_path: string | null;
+    share_token: string;
     tier: string;
     uploaded_by: string;
-  }>(
-    `SELECT uc.id, uc.name, uc.project_path, uc.uploaded_by, COALESCE(gu.tier, 'free') AS tier
-     FROM uploaded_content uc
-     LEFT JOIN github_users gu ON gu.login = uc.uploaded_by
-     WHERE uc.share_token = $1
-       AND (uc.expires_at IS NULL OR uc.expires_at > NOW())`,
-    [token],
-  );
+  }>(sql, [value]);
 
   if (result.rows.length === 0 || !result.rows[0].project_path) return null;
 
   const row = result.rows[0];
   const entry: AppEntry = {
+    shareToken: row.share_token,
     projectDir: resolveProjectDir(row.project_path as string),
     appName: row.name,
     showBar: row.tier !== 'pro',
@@ -67,18 +77,34 @@ async function getAppEntry(token: string): Promise<AppEntry | null> {
     contentId: row.id,
     uploadedBy: row.uploaded_by,
   };
-  appCache.set(token, entry);
+  appCache.set(cacheKey, entry);
   return entry;
+}
+
+async function getAppEntry(token: string): Promise<AppEntry | null> {
+  if (UUID_RE.test(token)) {
+    return lookupAppEntry('share_token', token, token);
+  }
+  if (SLUG_RE.test(token)) {
+    return lookupAppEntry('slug', token, `slug:${token}`);
+  }
+  return null;
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 router.get('/:token', async (req: Request, res: Response): Promise<void> => {
   const { token } = req.params as { token: string };
-  if (!UUID_RE.test(token)) {
+  const isUuid = UUID_RE.test(token);
+  const isSlug = !isUuid && SLUG_RE.test(token);
+
+  if (!isUuid && !isSlug) {
     sendHtmlError(res, 404, 'Invalid Link', 'This VIP link is not valid.');
     return;
   }
+
+  const whereClause = isUuid ? 'uc.share_token = $1' : 'uc.slug = $1';
+  const lookupVal   = token;
 
   try {
     const result = await pool.query<{
@@ -89,25 +115,29 @@ router.get('/:token', async (req: Request, res: Response): Promise<void> => {
       portal_route: string | null;
       uploaded_by: string;
       tier: string;
+      share_token: string;
     }>(
       `SELECT uc.id, uc.name, uc.html_content, uc.project_path,
-              uc.portal_route, uc.uploaded_by, COALESCE(gu.tier, 'free') AS tier
+              uc.portal_route, uc.uploaded_by, uc.share_token::text AS share_token,
+              COALESCE(gu.tier, 'free') AS tier
        FROM uploaded_content uc
        LEFT JOIN github_users gu ON gu.login = uc.uploaded_by
-       WHERE uc.share_token = $1
+       WHERE ${whereClause}
          AND (uc.expires_at IS NULL OR uc.expires_at > NOW())`,
-      [token],
+      [lookupVal],
     );
 
     if (result.rows.length === 0) {
-      const expired = await pool.query<{ id: string }>(
-        `SELECT id FROM uploaded_content WHERE share_token = $1 AND expires_at <= NOW()`,
-        [token],
-      );
-      if (expired.rows.length > 0) {
-        sendHtmlError(res, 410, 'App Expired',
-          'This 24-hour link has expired. Ask the owner for a new share link.');
-        return;
+      if (isUuid) {
+        const expired = await pool.query<{ id: string }>(
+          `SELECT id FROM uploaded_content WHERE share_token = $1 AND expires_at <= NOW()`,
+          [token],
+        );
+        if (expired.rows.length > 0) {
+          sendHtmlError(res, 410, 'App Expired',
+            'This 24-hour link has expired. Ask the owner for a new share link.');
+          return;
+        }
       }
       sendHtmlError(res, 404, 'Link Not Found', 'This VIP link does not exist or may have been removed.');
       return;
@@ -128,6 +158,7 @@ router.get('/:token', async (req: Request, res: Response): Promise<void> => {
       const projectDir = resolveProjectDir(row.project_path);
 
       appCache.set(token, {
+        shareToken: row.share_token,
         projectDir,
         appName: row.name,
         showBar,
@@ -173,7 +204,8 @@ router.get('/:token', async (req: Request, res: Response): Promise<void> => {
 
 router.get('/:token/*', async (req: Request, res: Response): Promise<void> => {
   const { token } = req.params as { token: string };
-  if (!UUID_RE.test(token)) { res.status(404).end(); return; }
+  const validToken = UUID_RE.test(token) || SLUG_RE.test(token);
+  if (!validToken) { res.status(404).end(); return; }
 
   const assetPath = (req.params as Record<string, string>)['0'];
   if (!assetPath) { res.status(404).end(); return; }
@@ -182,15 +214,9 @@ router.get('/:token/*', async (req: Request, res: Response): Promise<void> => {
     const entry = await getAppEntry(token);
     if (!entry) { res.status(404).end(); return; }
 
-    const filePath = path.resolve(entry.projectDir, assetPath);
+    const filePath = resolveAssetPath(entry.projectDir, assetPath);
 
-    if (!filePath.startsWith(UPLOADS_DIR_RESOLVED + '/') &&
-        filePath !== UPLOADS_DIR_RESOLVED) {
-      res.status(403).end();
-      return;
-    }
-
-    if (fs.existsSync(filePath) && !fs.statSync(filePath).isDirectory()) {
+    if (filePath) {
       const ext = path.extname(filePath).toLowerCase();
 
       if (ext === '.js' || ext === '.mjs' || ext === '.css') {
@@ -219,7 +245,7 @@ router.get('/:token/*', async (req: Request, res: Response): Promise<void> => {
     try { rawHtml = fs.readFileSync(indexPath, 'utf8'); }
     catch { res.status(500).end(); return; }
 
-    const shareUrl = `${req.protocol}://${req.hostname}/vip/${token}`;
+    const shareUrl = `${req.protocol}://${req.hostname}/vip/${entry.shareToken}`;
     const spaBackendSecret = loadBackendSecret(entry.contentId);
     const spaAuthToken = spaBackendSecret
       ? signBackendJwt(spaBackendSecret, entry.uploadedBy, true)

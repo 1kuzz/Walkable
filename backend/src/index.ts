@@ -25,6 +25,7 @@ import githubAuthRouter from './routes/githubAuth';
 import githubProxyRouter from './routes/githubProxy';
 import shareRouter from './routes/shareRouter';
 import vipRouter from './routes/vipRouter';
+import deployHookRouter from './routes/deployHookRouter';
 import vipSessionRouter from './routes/vipSessionRouter';
 import apiTokensRouter from './routes/apiTokens';
 import uploadQueueRouter from './routes/uploadQueue';
@@ -192,8 +193,9 @@ app.use('/api/share', generalLimiter, shareRouter);
 app.use('/vip',       generalLimiter, vipRouter);
 app.use('/api/vs',    generalLimiter, vipSessionRouter);
 app.use('/app',       generalLimiter, vipSessionRouter);
-app.use('/api/tokens', generalLimiter, apiTokensRouter);
-app.use('/api/queue',  generalLimiter, uploadQueueRouter);
+app.use('/api/tokens',      generalLimiter, apiTokensRouter);
+app.use('/api/queue',       generalLimiter, uploadQueueRouter);
+app.use('/api/deploy-hook', generalLimiter, deployHookRouter);
 
 // ── Health checks ─────────────────────────────────────────────────────────────
 

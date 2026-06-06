@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useGitHubAuth } from '../../contexts/useGitHubAuth';
-import { listContent, deleteContent, updateContent, stopBackend, restartBackend, getStorageInfo, getQueue, enqueueGitHub, cancelQueueItem, configureBackend } from '../../api/contentClient';
+import { listContent, deleteContent, updateContent, stopBackend, restartBackend, redeployContent, getStorageInfo, getQueue, enqueueGitHub, cancelQueueItem, configureBackend } from '../../api/contentClient';
 import type { GitHubRepo, StorageInfo, QueueItem } from '../../api/contentClient';
 import type { UploadedContent } from '../../services/uploadedContent';
 import styles from './DeployPage.module.css';
@@ -25,6 +25,7 @@ interface DeployState {
   progress: number;
   id?: string;
   shareToken?: string;
+  slug?: string | null;
   error?: string;
   buildLog?: string;
   envVarsRequired?: string[];
@@ -173,12 +174,21 @@ interface DeployCardProps {
 function DeployCard({ item, onRefresh }: DeployCardProps) {
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
+  const [hookCopied, setHookCopied] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editName, setEditName] = useState(item.name);
   const [saving, setSaving] = useState(false);
-  const [acting, setActing] = useState<'delete' | 'stop' | 'restart' | null>(null);
+  const [acting, setActing] = useState<'delete' | 'stop' | 'restart' | 'redeploy' | null>(null);
 
-  const vipUrl = item.shareToken ? `${window.location.origin}/vip/${item.shareToken}` : null;
+  // Prefer slug-based clean URL; fall back to UUID share token
+  const vipUrl = item.slug
+    ? `${window.location.origin}/vip/${item.slug}`
+    : item.shareToken
+      ? `${window.location.origin}/vip/${item.shareToken}`
+      : null;
+  const webhookUrl = item.deployHookSecret
+    ? `${window.location.origin}/api/deploy-hook/${item.deployHookSecret}`
+    : null;
   const hasBackend = !!(item.backendPort || item.backendPrefix);
   const backendRunning = !!item.backendPort;
   const isExpired = !!item.expiresAt && new Date(item.expiresAt).getTime() <= Date.now();
@@ -205,6 +215,22 @@ function DeployCard({ item, onRefresh }: DeployCardProps) {
     if (!confirm(`Delete "${item.name}"? This cannot be undone.`)) return;
     setActing('delete');
     try { await deleteContent(item.id); onRefresh(); } finally { setActing(null); }
+  };
+
+  const handleRedeploy = async () => {
+    setActing('redeploy');
+    try {
+      await redeployContent(item.id);
+      setTimeout(() => { setActing(null); onRefresh(); }, 8000); // poll after ~8s
+    } catch { setActing(null); }
+  };
+
+  const handleCopyWebhook = () => {
+    if (!webhookUrl) return;
+    void navigator.clipboard.writeText(webhookUrl).then(() => {
+      setHookCopied(true);
+      setTimeout(() => setHookCopied(false), 2000);
+    });
   };
 
   const handleStop = async () => {
@@ -274,7 +300,27 @@ function DeployCard({ item, onRefresh }: DeployCardProps) {
         </div>
       )}
 
+      {webhookUrl && (
+        <div className={styles.vipRow}>
+          <span className={styles.vipUrl} title={webhookUrl}>
+            Auto-deploy webhook
+          </span>
+          <button className={`${styles.copyBtn} ${hookCopied ? styles.copyBtnDone : ''}`} onClick={handleCopyWebhook}>
+            {hookCopied ? '✓' : 'Copy URL'}
+          </button>
+        </div>
+      )}
+
       <div className={styles.cardFooter}>
+        {item.gitUrl && (
+          <button
+            className={styles.restartBtn}
+            onClick={() => void handleRedeploy()}
+            disabled={acting !== null}
+          >
+            {acting === 'redeploy' ? 'Redeploying…' : '↻ Redeploy'}
+          </button>
+        )}
         {hasBackend && (
           backendRunning ? (
             <button
@@ -487,13 +533,14 @@ export function DeployPage() {
       setDeploy(s => ({ ...s, progress: 90, buildLog: result.buildLog ?? undefined }));
 
       const det = (result as typeof result & { detectedBackend?: DetectedBackend | null }).detectedBackend ?? null;
+      const resultSlug = (result as typeof result & { slug?: string | null }).slug ?? null;
 
       if (result.envVarsRequired && result.envVarsRequired.length > 0) {
         const initial: Record<string, string> = {};
         result.envVarsRequired.forEach(k => { initial[k] = ''; });
         setEnvValues(initial);
         setShowEnvForm(true);
-        setDeploy({ status: 'building', progress: 95, id: result.id, shareToken: result.shareToken, envVarsRequired: result.envVarsRequired, detectedBackend: det });
+        setDeploy({ status: 'building', progress: 95, id: result.id, shareToken: result.shareToken, slug: resultSlug, envVarsRequired: result.envVarsRequired, detectedBackend: det });
         return;
       }
 
@@ -501,11 +548,11 @@ export function DeployPage() {
         setBackendEntry(det.entryPoint);
         setBackendPrefix(det.suggestedPrefix);
         setBackendDb(det.provisionDb);
-        setDeploy({ status: 'configuring-backend', progress: 100, id: result.id, shareToken: result.shareToken, detectedBackend: det });
+        setDeploy({ status: 'configuring-backend', progress: 100, id: result.id, shareToken: result.shareToken, slug: resultSlug, detectedBackend: det });
         return;
       }
 
-      setDeploy({ status: 'live', progress: 100, id: result.id, shareToken: result.shareToken, buildLog: result.buildLog ?? undefined });
+      setDeploy({ status: 'live', progress: 100, id: result.id, shareToken: result.shareToken, slug: resultSlug, buildLog: result.buildLog ?? undefined });
       void fetchItems();
     } catch (err) {
       setDeploy(s => ({ ...s, status: 'failed', error: err instanceof Error ? err.message : 'Deploy failed' }));
@@ -579,7 +626,11 @@ export function DeployPage() {
     }
   };
 
-  const vipUrl = deploy.shareToken ? `${window.location.origin}/vip/${deploy.shareToken}` : null;
+  const vipUrl = deploy.slug
+    ? `${window.location.origin}/vip/${deploy.slug}`
+    : deploy.shareToken
+      ? `${window.location.origin}/vip/${deploy.shareToken}`
+      : null;
   const handleCopyLive = () => {
     if (!vipUrl) return;
     void navigator.clipboard.writeText(vipUrl).then(() => {
